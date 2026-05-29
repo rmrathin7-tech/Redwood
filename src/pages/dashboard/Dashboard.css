@@ -1,0 +1,242 @@
+/* =========================================
+   GLOBAL VARIABLES & THEME SETUP
+   ========================================= */
+:root {
+  /* Core layout mechanics */
+  --top-bar-height: 70px;
+  --transition-smooth: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* DARK MODE (Default) */
+.redwood-space.dark {
+  --bg-core: #0c0f14;
+  --bg-glass: rgba(21, 26, 34, 0.6);
+  --text-primary: #e6edf3;
+  --text-muted: #7d8590;
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --accent-red: #b91c1c;
+  --accent-glow: rgba(185, 28, 28, 0.4);
+  --gradient-bg: radial-gradient(circle at 50% 0%, #1a1f2b, #0c0f14 70%);
+}
+
+/* LIGHT MODE */
+.redwood-space.light {
+  --bg-core: #f8fafc;
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  --text-primary: #0f172a;
+  --text-muted: #64748b;
+  --border-glass: rgba(0, 0, 0, 0.08);
+  --accent-red: #dc2626;
+  --accent-glow: rgba(220, 38, 38, 0.3);
+  --gradient-bg: radial-gradient(circle at 50% 0%, #ffffff, #f1f5f9 70%);
+}
+
+/* =========================================
+   BASE STYLES & TYPOGRAPHY
+   ========================================= */
+.redwood-space {
+  font-family: 'DN Sans', sans-serif;
+  font-weight: 400; /* Regular */
+  background-color: var(--bg-core);
+  color: var(--text-primary);
+  min-height: 100vh;
+  width: 100vw;
+  overflow-x: hidden;
+  transition: var(--transition-smooth);
+  position: relative;
+}
+
+h1, h2, h3, .glass-btn {
+  font-weight: 600; /* Semi-bold */
+}
+
+/* Animated Background Layer */
+.space-background {
+  position: fixed;
+  inset: 0;
+  background: var(--gradient-bg);
+  z-index: 0;
+  transition: var(--transition-smooth);
+}
+
+/* =========================================
+   TOP FIXED BAR
+   ========================================= */
+.top-fixed-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--top-bar-height);
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 30px;
+  z-index: 50;
+  transition: var(--transition-smooth);
+}
+
+/* Brand Section */
+.brand-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--accent-red);
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: pulse 2s infinite;
+}
+
+.brand-title {
+  font-size: 1.2rem;
+  letter-spacing: 2px;
+  margin: 0;
+}
+
+/* Search Section */
+.search-zone {
+  flex: 1;
+  max-width: 500px;
+  margin: 0 40px;
+}
+
+.search-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.5;
+  transition: var(--transition-smooth);
+}
+
+.global-search {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-glass);
+  padding: 10px 14px 10px 40px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: var(--transition-smooth);
+  outline: none;
+}
+
+.redwood-space.dark .global-search {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.global-search:focus {
+  border-color: var(--accent-red);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.global-search:focus + .search-icon {
+  opacity: 1;
+}
+
+/* Actions Section & Buttons */
+.actions-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.glass-btn {
+  background: transparent;
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  transition: var(--transition-bounce);
+}
+
+.glass-btn:hover {
+  background: var(--bg-glass);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.redwood-space.light .glass-btn:hover {
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Specific Hover Effects */
+.hover-glow:hover {
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+.theme-toggle-btn {
+  padding: 8px 12px;
+  font-size: 1rem;
+}
+
+.logout-btn:hover {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-glass);
+  margin: 0 8px;
+}
+
+/* =========================================
+   MAIN WORKSPACE
+   ========================================= */
+.workspace-main {
+  position: relative;
+  z-index: 10;
+  padding-top: calc(var(--top-bar-height) + 40px);
+  padding-inline: 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Animations */
+@keyframes pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 var(--accent-glow); }
+  70% { transform: scale(1.2); box-shadow: 0 0 0 10px rgba(185, 28, 28, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(185, 28, 28, 0); }
+}
+
+/* =========================================
+DASHBOARD ENTRY TRANSITION
+========================================= */
+@keyframes dashboardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.redwood-space {
+  animation: dashboardEnter 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
