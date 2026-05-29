@@ -748,14 +748,15 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     const activeRecords = customRecordsContext || records;
     let s = formula;
     
-    const baseSchemaCells = runtimeSchemaRows[0]?.cells || [];
+    const getCellIdFor = (rowIdx, colIdx) => runtimeSchemaRows[rowIdx]?.cells?.[colIdx]?.id || `col_${colIdx}`;
     
     // Adjusted for 1-based indexing so SUM(C1) targets the first column
     s = s.replace(/SUM\(C(\d+)\)/gi, (_, c) => {
       const colIdx = parseInt(c, 10) - 1; 
-      const cellId = baseSchemaCells[colIdx]?.id || `col_${colIdx}`;
-      if (!cellId) return 0;
-      return activeRecords.reduce((sum, rec) => sum + (parseFloat(String(rec[cellId]).replace(/[^0-9.-]/g, '')) || 0), 0);
+      return activeRecords.reduce((sum, rec, rowIdx) => {
+        const cellId = getCellIdFor(rowIdx, colIdx);
+        return sum + (parseFloat(String(rec[cellId]).replace(/[^0-9.-]/g, '')) || 0);
+      }, 0);
     });
     
     s = s.replace(/R(\d+)C(\d+)/gi, (_, r, c) => {
@@ -768,8 +769,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     
     s = s.replace(/C(\d+)/gi, (_, c) => {
       const colIdx = parseInt(c, 10) - 1;
-      const cellId = baseSchemaCells[colIdx]?.id || `col_${colIdx}`;
-      if (!cellId) return 0;
+      const cellId = getCellIdFor(rIdx, colIdx);
       return parseFloat(String(activeRecords[rIdx]?.[cellId]).replace(/[^0-9.-]/g, '')) || 0;
     });
     
