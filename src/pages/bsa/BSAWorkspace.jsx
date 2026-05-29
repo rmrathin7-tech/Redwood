@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import  { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { auth, db } from '../../firebase.js';
-import { doc, getDoc, collection, getDocs, setDoc, updateDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { doc, collection, getDocs, setDoc, updateDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import Chart from 'chart.js/auto';
 import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
-import { ArrowLeft, AlertTriangle, Download, FileText, Upload, Plus, Trash2, Edit3, Save, Search, Flag } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Download, FileText, Plus, Trash2, Edit3, Save, Search, Flag } from 'lucide-react';
 import './BSAWorkspace.css';
 
 const HF_API_URL = "https://rathin-07-bankstatementextractorv1.hf.space/analyze-bank-statement";
@@ -25,10 +25,10 @@ function normalizeCategory(cat) {
   return map[cat] || cat;
 }
 
-function categorizeTransaction(desc, credit, debit) {
+function categorizeTransaction(desc, credit) {
   const d = (desc || '').toLowerCase();
   const isCredit = parseFloat(credit) > 0;
-  const isDebit = parseFloat(debit) > 0;
+  
   const wb = (word) => new RegExp(`\\b${word}\\b`, 'i').test(desc);
   const has = (...words) => words.some(w => d.includes(w));
   const wbAny = (...words) => words.some(w => wb(w));
@@ -83,14 +83,14 @@ export default function BSAWorkspace() {
   const [search, setSearch] = useState('');
   const [filterSource, setFilterSource] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [filterPeriod, setFilterPeriod] = useState('all');
+  const [filterType] = useState('all');
+  const [filterPeriod] = useState('all');
   const [filterFlagged, setFilterFlagged] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
 
   // Modals
   const [showUpload, setShowUpload] = useState(false);
-  const [showDedupe, setShowDedupe] = useState(false);
+  const [, setShowDedupe] = useState(false);
   const [uploadState, setUploadState] = useState({ uploading: false, name: '' });
   const [toast, setToast] = useState(null);
 
@@ -102,12 +102,12 @@ export default function BSAWorkspace() {
 
 // ── DATA FETCHING ──
   // 1. Declare the function FIRST
-  const loadStatements = async () => {
+  const loadStatements = useCallback(async () => {
     setLoading(true);
     const snap = await getDocs(collection(db, "projects", projectId, "bsa", bsaId, "statements"));
     setStatements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     setLoading(false);
-  };
+  }, [projectId, bsaId]);
 
   // 2. Use it inside the useEffect SECOND
   useEffect(() => {
@@ -117,7 +117,7 @@ export default function BSAWorkspace() {
       loadStatements();
     });
     return unsub;
-  }, [projectId, bsaId, navigate]);
+  }, [projectId, bsaId, navigate, loadStatements]);
 
   const showToastMsg = (msg, type='info') => {
     setToast({msg, type});

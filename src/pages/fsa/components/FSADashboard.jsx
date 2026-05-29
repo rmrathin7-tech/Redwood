@@ -4,7 +4,7 @@
  * Fully upgraded to support Global SaaS Theme Variables (Light/Dark Mode)
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import  {  useMemo } from 'react';
 import { 
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid 
 } from 'recharts';
@@ -84,7 +84,7 @@ export default function FSADashboard({
           {payload.map((entry, index) => {
              const def = availableKPIs.find(k => k.key === entry.dataKey);
              const isPerc = def ? def.isPercentage : false;
-             let displayValue = entry.value;
+             let displayValue;
              if (isPerc) {
                 displayValue = (entry.value * 100).toFixed(2) + '%';
              } else if (entry.value >= 10000000 || entry.value <= -10000000) {
@@ -188,7 +188,7 @@ export default function FSADashboard({
       {/* ── COMPARATIVE CHARTS (CONFIG-DRIVEN) ── */}
       {activeCharts.length > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: 24 }}>
-          {activeCharts.map((chartDef, index) => (
+          {activeCharts.map((chartDef) => (
             <div key={chartDef.id} className="saas-card" style={{ background: 'var(--bg-secondary)', borderRadius: 16, padding: 24, border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed var(--border-strong)', paddingBottom: 12 }}>

@@ -5,8 +5,8 @@
  * period extraction summaries, and operational user audit history paths.
  */
 
-import React from 'react';
-import { BookOpen, AlertTriangle, CheckCircle2, Clock, FileText } from 'lucide-react';
+import 'react';
+import { BookOpen, AlertTriangle, Clock, FileText } from 'lucide-react';
 import { formatIN } from '../utils/fsaFormatters';
 
 export default function AuditLogbookDrawer({ 

@@ -66,7 +66,7 @@ export default function FSAStatements({
 
       let rowsHTML = '';
 
-      nodes.forEach((node, nodeIdx) => {
+      nodes.forEach((node) => {
         // 1. Group Header
         if (node.type === 'group') {
           rowsHTML += `

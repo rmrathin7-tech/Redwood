@@ -1,4 +1,4 @@
-import React from 'react';
+import 'react';
 import BasicInputBlock from './BasicInputBlock';
 import RichTextBlock from './RichTextBlock';
 import SmartTableBlock from './SmartTableBlock';
@@ -8,7 +8,7 @@ import ConditionalSwitcherBlock from './ConditionalSwitcherBlock';
 import ChartBlock from './ChartBlock';
 
 // Layout-only block types (no data, no wrapper needed)
-const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
+
 
 export default function BlockRegistry({ block, value, onChange, lockedBy, onFocus, onBlur, isDark }) {
   if (!block || !block.type) return null;

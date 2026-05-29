@@ -21,12 +21,9 @@ import {
   X,
   Sparkles,
   ArrowUpDown,
-  Layers,
   Zap,
   Download,
   Upload,
-  Printer,
-  FileSpreadsheet,
   Edit2,
   Eye,
   ScanLine,
@@ -40,11 +37,10 @@ export default function FSADataEntry({
   projectData, 
   configSchemas, 
   activeEntityType, 
-  updateDataPath, 
-  forceSave,
+  updateDataPath,
   setActiveTab
 }) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
   const fsaId = searchParams.get('fsa');
 
@@ -452,7 +448,7 @@ export default function FSADataEntry({
     }
   };
 
-  const handleConflictDecision = (decisionMap) => {
+  const handleConflictDecision = () => {
     // In a full implementation, you'd filter out skipped years here.
     // For now, we proceed to mapping phase and overwrite conflicts on save.
     initializeMappings(reviewPayload);

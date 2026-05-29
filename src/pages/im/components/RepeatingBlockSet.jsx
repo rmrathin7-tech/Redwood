@@ -1,5 +1,5 @@
-import React from 'react';
-import { Copy, Plus, Trash2 } from 'lucide-react';
+import 'react';
+import {  Plus, Trash2 } from 'lucide-react';
 import BlockWrapper from './BlockWrapper.jsx';
 import BlockRegistry from './BlockRegistry.jsx';
 

@@ -153,7 +153,7 @@ const DeleteModal = React.memo(function DeleteModal({ projectName, onConfirm, on
 
 
 // ── CONTEXT MENU ──────────────────────────────────────────────────────────────
-const ContextMenu = React.memo(function ContextMenu({ x, y, project, onOpen, onArchive, onDelete, onCopy, onClose, isDark }) {
+const ContextMenu = React.memo(function ContextMenu({ x, y, onOpen, onArchive, onDelete, onCopy, onClose, isDark }) {
   const ref = useRef(null);
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -600,7 +600,7 @@ export default function Dashboard() {
       window.removeEventListener('click', handleCanvasClick);
       cancelAnimationFrame(raf);
     };
-  }, [theme]);
+  }, [isDark, theme]);
 
   // ── MEMOIZED FILTERED LISTS ───────────────────────────────────────────────
   const allActive = useMemo(() =>

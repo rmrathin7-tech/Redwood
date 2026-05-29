@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import  { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Plus, Trash2, UploadCloud, X, FileText } from 'lucide-react';
 import BlockWrapper from './BlockWrapper';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -31,10 +31,10 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
   };
 
   // Default template if schema doesn't provide one
-  const template = block.template || [
+  const template = useMemo(() => block.template || [
     { id: 'title', label: 'Title / Name', type: 'text' },
     { id: 'desc',  label: 'Description', type: 'textarea' },
-  ];
+  ], [block.template]);
 
   const generateEmptyItem = useCallback(() => {
     const item = { _id: crypto.randomUUID() };
@@ -52,7 +52,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
     if (!isFocused && Array.isArray(value) && JSON.stringify(value) !== JSON.stringify(items)) {
       setItems(value.length > 0 ? value : [generateEmptyItem()]);
     }
-  }, [value, isFocused, generateEmptyItem]);
+  }, [value, isFocused, generateEmptyItem, items]);
 
   // ── DEBOUNCED SAVE ────────────────────────────────────────────────────────
   const debouncedSave = useCallback((newItems) => {

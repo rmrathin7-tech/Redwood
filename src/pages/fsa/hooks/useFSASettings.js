@@ -75,7 +75,7 @@ export function useFSASettings(projectId, fsaId) {
     } finally {
       setSaving(false);
     }
-  }, [projectId, fsaId, configSchemas]);
+  }, [projectId, fsaId]);
 
   // ── 3. Granular List Operations ──
   const appendCustomRatio = useCallback((newRatioObj) => {

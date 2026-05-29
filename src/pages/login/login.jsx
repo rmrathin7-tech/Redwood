@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import  { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../firebase.js';
@@ -24,7 +24,7 @@ export default function Login() {
       await signInWithEmailAndPassword(auth, email, password);
       setTransitioning(true);
       setTimeout(() => navigate('/'), 680);
-    } catch (err) {
+    } catch {
       setError('Invalid credentials. Access denied.');
       setIsLoading(false);
     }

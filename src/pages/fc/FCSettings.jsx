@@ -4,8 +4,7 @@ import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
   Image as ImageIcon, Table, Copy, Trash2, ArrowUp, ArrowDown,
   Info, Layers, PanelLeft, PanelRight, Grid3X3, X, AlignJustify,
-  Sun, Moon, ToggleRight, CheckSquare, FileText, Mail, Percent,
-  IndianRupee, List, Hash, GitBranch, BarChart3, Upload, Download
+  Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download
 } from 'lucide-react';
 import { db } from '../../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -126,7 +125,7 @@ export default function FCSettings() {
           setSaveMsg('✓ Imported');
           setTimeout(() => setSaveMsg(''), 3000);
         }
-      } catch (err) {
+      } catch {
         alert("Invalid JSON file. Please ensure it's a valid schema export.");
       }
     };
@@ -270,7 +269,7 @@ export default function FCSettings() {
       await setDoc(doc(db, 'config', 'fc-schema'), { sections });
       setSaveMsg('✓ Saved');
       setTimeout(() => setSaveMsg(''), 3000);
-    } catch (e) {
+    } catch {
       setSaveMsg('✗ Save failed');
     }
     setIsSaving(false);

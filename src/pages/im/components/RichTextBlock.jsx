@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import  { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
@@ -7,7 +7,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import {
   MessageSquarePlus, Table2, Trash2, Plus,
   ArrowDown, ArrowRight, X, Maximize2, Minimize2,
-  FileText, Hash, AlignLeft, CheckSquare, Save, Info
+  FileText, Hash, AlignLeft, Save, Info
 } from 'lucide-react';
 
 const storage = getStorage();

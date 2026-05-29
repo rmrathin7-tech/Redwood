@@ -5,16 +5,15 @@
  * Raw | Year-on-Year | Raw+YoY | Ratio Analysis | Statement Review (Reclass)
  */
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  ResponsiveContainer, ComposedChart, LineChart, Bar, Line,
-  XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine
+  ResponsiveContainer, ComposedChart, Bar, Line,
+  XAxis, YAxis, Tooltip, Legend, CartesianGrid
 } from 'recharts';
 import {
   BarChart2, Play, RotateCcw, Save, Search, Plus, Trash2,
-  ChevronDown, ChevronRight, X, CheckSquare, Square,
-  TrendingUp, TrendingDown, Minus, BookOpen, Divide,
-  RefreshCw, ArrowRightLeft, Target, AlertCircle, Copy, Check
+  X, CheckSquare, Square,
+  TrendingUp, TrendingDown, BookOpen, Divide, ArrowRightLeft, Target, AlertCircle, Copy, Check
 } from 'lucide-react';
 import { formatValue } from '../utils/fsaFormatters';
 import { buildFinancialModel } from '../core/fsaEngine';
@@ -107,54 +106,10 @@ function StepTab({ step, active, locked, onClick, badge }) {
   );
 }
 
-function MetricTreeGroup({ title, items, selectedMetrics, onToggle, expandedGroups, onToggleGroup }) {
-  const isExpanded = expandedGroups[title] !== false;
-  return (
-    <div>
-      <button
-        onClick={() => onToggleGroup(title)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 12px', background: 'var(--bg-hover)',
-          border: 'none', borderRadius: 6, cursor: 'pointer',
-          fontSize: 11, fontWeight: 700, color: 'var(--accent-color)',
-          textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4
-        }}
-      >
-        {title}
-        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-      </button>
-      {isExpanded && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 8 }}>
-          {items.map(metric => {
-            const selected = selectedMetrics.includes(metric.key);
-            return (
-              <button
-                key={metric.key}
-                onClick={() => onToggle(metric.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '8px 12px', borderRadius: 6, border: 'none',
-                  background: selected ? 'var(--bg-hover)' : 'transparent',
-                  cursor: 'pointer', transition: 'all 0.12s', textAlign: 'left',
-                  color: selected ? 'var(--accent-text)' : 'var(--text-primary)'
-                }}
-              >
-                {selected
-                  ? <CheckSquare size={14} color="var(--accent-color)" />
-                  : <Square size={14} color="var(--text-muted)" />}
-                <span style={{ fontSize: 13, fontWeight: selected ? 600 : 400 }}>{metric.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
-function CustomTooltip({ active, payload, label, mode, getMetricLabel, configSchemas }) {
+function CustomTooltip({ active, payload, label, getMetricLabel }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
@@ -188,8 +143,6 @@ export default function FSAAnalysis({
   activeEntityType,
   activeYearsList,
   activeItemsMap,
-  projectId,
-  fsaId,
   forceSave
 }) {
   // ── Step & Mode State ──
@@ -199,7 +152,6 @@ export default function FSAAnalysis({
   // ── Metric Selection ──
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [metricSearch, setMetricSearch]       = useState('');
-  const [expandedGroups, setExpandedGroups]   = useState({});
   const [activeMetricTab, setActiveMetricTab] = useState('');
 
   // ── Year Selection ──
@@ -561,9 +513,7 @@ export default function FSAAnalysis({
     );
   };
 
-  const toggleGroup = (title) => {
-    setExpandedGroups(prev => ({ ...prev, [title]: prev[title] === false ? true : false }));
-  };
+  
 
   const runAnalysis = () => {
     if (!selectedYears.length) { setRunError('Select at least one year.'); return; }

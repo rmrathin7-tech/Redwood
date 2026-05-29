@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { db, auth } from '../../../firebase.js';
 import {
   collection, addDoc, onSnapshot, query,
-  where, updateDoc, doc, deleteDoc,
+  where, updateDoc, deleteDoc,
   serverTimestamp, arrayUnion, getDocs,
 } from 'firebase/firestore';
 import {

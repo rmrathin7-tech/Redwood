@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  Kanban, ListTree, Plus, X, Search, Clock, 
-  CheckCircle2, CircleDashed, ArrowRight,
-  GripVertical, Trash2, UserSearch, UserCheck, 
+  Kanban, ListTree, Plus, X, Search, CircleDashed, ArrowRight,
+  GripVertical, Trash2, UserCheck, 
   MessageSquare, ChevronDown, ChevronUp, Eye, Edit3
 } from 'lucide-react';
-import { db, auth } from '../../../firebase.js'; 
+import { db } from '../../../firebase.js'; 
 import { 
   collection, query, where, onSnapshot, addDoc, 
-  updateDoc, doc, serverTimestamp, deleteDoc, setDoc
+  updateDoc, doc, serverTimestamp, setDoc
 } from 'firebase/firestore';
 
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];

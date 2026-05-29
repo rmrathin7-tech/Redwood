@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Info, UploadCloud, X, CheckCircle2, FileText } from 'lucide-react';
+import  { useState, useEffect, useRef, useCallback } from 'react';
+import { Info, UploadCloud, X, FileText } from 'lucide-react';
 import BlockWrapper from './BlockWrapper.jsx';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -10,7 +10,7 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
   const spanRef = useRef(null);
   useEffect(() => {
     if (spanRef.current && !spanRef.current.textContent && val) spanRef.current.textContent = val;
-  }, []);
+  }, [val]);
   useEffect(() => {
     if (spanRef.current && val !== spanRef.current.textContent) {
       if (document.activeElement !== spanRef.current) spanRef.current.textContent = val || '';
@@ -113,7 +113,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     } else if (value !== localValue) {
       setLocalValue(value ?? '');
     }
-  }, [value, isFocused, isUploading, block.type]);
+  }, [value, isFocused, isUploading, block.type, localValue]);
 
   // ── DEBOUNCED SAVE ──────────────────────────────────────────────────────
   const debouncedSave = useCallback((val) => {

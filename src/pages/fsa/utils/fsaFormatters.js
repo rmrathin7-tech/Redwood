@@ -79,7 +79,9 @@ export function applyLiveIndianFormat(input) {
 
     try { 
         input.setSelectionRange(newCursor, newCursor); 
-    } catch (_) {}
+    } catch {
+        return parseFloat(rawChars) || 0;
+    }
 
     return parseFloat(rawChars) || 0;
 }

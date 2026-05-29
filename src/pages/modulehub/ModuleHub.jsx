@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
-  ArrowLeft, Search, Users, Sun, Moon, LogOut, 
-  Plus, FileText, BarChart3, Network, Building2,
-  CheckCircle2, MessageSquare, Trash2, Edit3, Globe,
-  ShieldAlert, Sparkles, RefreshCw, Kanban // <-- ADDED Kanban
+  ArrowLeft, Search, Users, Sun, Moon, LogOut, FileText, BarChart3, Building2,
+  CheckCircle2, MessageSquare, Trash2, Globe,
+  ShieldAlert, Sparkles, Kanban // <-- ADDED Kanban
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { 
@@ -256,7 +255,7 @@ export default function ModuleHub() {
       setRawDomains(prev => [...prev, newDomain]);
       setDomainMap(prev => ({...prev, [newDomain.id]: newDomain.label}));
       setFsaData(prev => ({ ...prev, domain: newDomain.id }));
-    } catch (err) { alert("Error creating domain"); }
+    } catch { alert("Error creating domain"); }
   };
 
   const handleDelete = async () => {
@@ -466,7 +465,7 @@ export default function ModuleHub() {
       window.removeEventListener('mousemove', onMouseMove);
       cancelAnimationFrame(raf);
     };
-  }, [theme]);
+  }, [isDark, theme]);
 
   // ── HELPERS ──
   const formatTime = (ts) => ts?.toDate ? ts.toDate().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Just now';

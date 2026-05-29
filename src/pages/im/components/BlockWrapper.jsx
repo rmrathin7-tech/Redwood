@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Lock } from 'lucide-react';
+import  { useState, useEffect, useRef } from 'react';
+
 
 export default function BlockWrapper({ block, lockedBy, children, isDark = true }) {
   const [isFocused, setIsFocused]   = useState(false);
   const [saveFlash, setSaveFlash]   = useState(false);
   const [isHovered, setIsHovered]   = useState(false);
-  const prevChildren                = useRef(null);
+  
   const flashTimer                  = useRef(null);
   const isLocked                    = Boolean(lockedBy);
 

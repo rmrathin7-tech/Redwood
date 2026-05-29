@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import  { useState, useEffect, useCallback } from 'react';
 import { BarChart3, Table2, Plus, Trash2 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie,
@@ -21,7 +21,7 @@ const BlockWrapper = ({ children, isDark }) => (
 
 export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
   const [activeTab, setActiveTab] = useState('data');
-  const [isFocused, setIsFocused] = useState(false);
+  const [, setIsFocused] = useState(false);
 
   // ── THEME TOKENS ─────────────────────────────────────────────────────────
   const t = {

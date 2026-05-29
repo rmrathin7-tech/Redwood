@@ -1,5 +1,5 @@
 // src/pages/fsa/FSAWorkspace.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import  { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -13,11 +13,9 @@ import {
   CheckCircle2, 
   AlertCircle, 
   UploadCloud, 
-  DownloadCloud, 
   BookOpen, 
   Menu, 
-  ChevronLeft,
-  FileCode
+  ChevronLeft
 } from 'lucide-react';
 import { useFSAWorkspace } from './hooks/useFSAWorkspace';
 
@@ -41,10 +39,9 @@ export default function FSAWorkspace() {
 
   // Core Data Hook Subscriptions
   const {
-    projectData, configSchemas, reclassMap, financialModel, auditLogs,
+    projectData, configSchemas, reclassMap, auditLogs,
     activeYear, activeEntityType, theme, activeYearsList, activeItemsMap,
-    loading, saving, error, updateDataPath, updateReclassification,
-    switchYear, switchEntityType, toggleTheme, forceSave
+    loading, saving, error, updateDataPath, switchEntityType, toggleTheme, forceSave
   } = useFSAWorkspace(projectId, fsaId);
 
   // Layout Subscriptions
@@ -53,7 +50,7 @@ export default function FSAWorkspace() {
   const [logbookOpen, setLogbookOpen] = useState(false);
 
   // Derive the active entity string for display
-  const activeEntityName = configSchemas?.entityTypes?.[activeEntityType]?.name || "Select Entity";
+  
 
   // Navigation config definition map
   const NAV_ITEMS = [
@@ -376,7 +373,7 @@ export default function FSAWorkspace() {
         isOpen={logbookOpen}
         onClose={() => setLogbookOpen(false)}
         auditLogs={auditLogs}
-        onNavigateToRecord={(docKey, itemKey) => setActiveTab('dataEntry')}
+        onNavigateToRecord={() => setActiveTab('dataEntry')}
       />
 
     </div>

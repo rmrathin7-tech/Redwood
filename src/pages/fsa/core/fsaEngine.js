@@ -20,7 +20,7 @@ export function evaluateFormula(formula, valueMap) {
         const sortedKeys = Object.keys(valueMap).sort((a, b) => b.length - a.length);
 
         sortedKeys.forEach(key => {
-            const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const escapedKey = key.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
             // Safely replace exact variable matches with their numerical values
             const regex = new RegExp(`\\b${escapedKey}\\b`, 'g');
             const val = valueMap[key] || 0;
@@ -32,7 +32,7 @@ export function evaluateFormula(formula, valueMap) {
 
         const result = new Function(`return ${safeFormula}`)();
         return isFinite(result) ? result : 0;
-    } catch (e) {
+    } catch {
         return 0;
     }
 }
@@ -68,7 +68,7 @@ export function applyReclassifications(projectData, reclassMap) {
 /* =========================
    3. MASTER MODEL BUILDER
 ========================= */
-export function buildFinancialModel(rawProjectData, targetYear, reclassMap = {}, configSchemas = {}, activeEntityType = 'pvtLtd') {
+export function buildFinancialModel(rawProjectData, targetYear, reclassMap = {}, configSchemas = {}) {
     const model = {};
     if (!rawProjectData) return { [targetYear]: {} };
 

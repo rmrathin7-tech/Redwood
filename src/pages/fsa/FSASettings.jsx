@@ -7,12 +7,12 @@
  * * Phase 3 Upgrade: Custom KPI Formula Builder & Dashboard Visibility Console.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import  { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
-  ArrowLeft, Save, Plus, Trash2, Sliders, CheckCircle2, AlertCircle, Layers, Percent, FileText, ChevronDown, ChevronRight, LayoutDashboard, BarChart3, LineChart, Calculator, Eye, EyeOff, Upload, Download
+  ArrowLeft, Save, Plus, Trash2, Sliders, CheckCircle2, AlertCircle, Layers, Percent, FileText, ChevronDown, ChevronRight, LayoutDashboard, BarChart3, Calculator, Eye, EyeOff, Upload, Download
 } from 'lucide-react';
 import { DEFAULT_CONFIG_SCHEMAS } from './config/defaultSchema';
 
@@ -88,7 +88,7 @@ export default function FSASettings() {
 
         if (targetData && targetData.configSchemas) {
           // Merge to ensure no missing baseline arrays/objects
-          setSchemas(prev => ({ 
+          setSchemas(() => ({ 
             ...DEFAULT_CONFIG_SCHEMAS, 
             ...targetData.configSchemas,
             customKPIs: targetData.configSchemas.customKPIs || DEFAULT_CONFIG_SCHEMAS.customKPIs,

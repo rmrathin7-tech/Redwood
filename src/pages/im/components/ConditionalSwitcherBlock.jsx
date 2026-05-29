@@ -1,4 +1,4 @@
-import React from 'react';
+import 'react';
 import BlockWrapper from './BlockWrapper';
 import BlockRegistry from './BlockRegistry';
 import { GitBranch, CheckCircle2 } from 'lucide-react';

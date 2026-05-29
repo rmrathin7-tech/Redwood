@@ -199,7 +199,7 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
   const spanRef = useRef(null);
   useEffect(() => {
     if (spanRef.current && !spanRef.current.textContent && val) spanRef.current.textContent = val;
-  }, []);
+  }, [val]);
   useEffect(() => {
     if (spanRef.current && val !== spanRef.current.textContent) {
       if (document.activeElement !== spanRef.current) spanRef.current.textContent = val || '';
@@ -230,7 +230,7 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
 // ── CONTROLLED REPEAT TABLE INSTANCE ─────────────────────────────────────────
 const RepeatTableInstance = ({
   idx, tableData, headers, runtimeSchemaRows, hasSchema, numCols,
-  block, t, cellInputStyle, lockedBy, onUpdate, onRemove, isDark, renderCellContent, focusHandlers
+  block, t, cellInputStyle, lockedBy, onUpdate, onRemove, renderCellContent, focusHandlers
 }) => {
   const rows = tableData?.rows || [];
   const instanceName = tableData?.instanceName || '';
@@ -341,7 +341,7 @@ const RepeatTableInstance = ({
 
 // ── MAIN SMART TABLE COMPONENT ────────────────────────────────────────────────
 export default function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
-  const [isFocused, setIsFocused]             = useState(false);
+  const [, setIsFocused]             = useState(false);
   const isFocusedRef                          = useRef(false);
   const [customValues, setCustomValues]       = useState({});
   const [hiddenGuides, setHiddenGuides]       = useState({});
@@ -369,7 +369,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const [repeatedTables, setRepeatedTables] = useState(initial.repeatedTables || []);
   const [mainInstanceName, setMainInstanceName] = useState(initial.mainInstanceName || '');
 
-  const t = {
+  const t = useMemo(() => ({
     bg:           isDark ? '#04060a'                : '#f8fafc',
     surface:      isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
     border:       isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb',
@@ -385,23 +385,23 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     sideHeadBg:   isDark ? 'rgba(99,102,241,0.08)'  : 'rgba(99,102,241,0.06)',
     sideHeadText: isDark ? '#818cf8'                : '#4f46e5',
     accent:       '#ef4444',
-  };
+  }), [isDark]);
 
-  const cellInputStyle = {
+  const cellInputStyle = useMemo(() => ({
     background: 'transparent', border: 'none', outline: 'none',
     color: t.text, fontSize: '0.875rem', width: '100%',
     padding: '8px 10px', fontFamily: 'inherit', boxSizing: 'border-box', resize: 'none',
-  };
+  }), [t.text]);
 
   // Keep _rowId intact to maintain absolute stability across multi-user sessions
-  const preserveStablePayload = (arr) => (arr || []).map(r => { 
+  const preserveStablePayload = useCallback((arr) => (arr || []).map(r => { 
     const copy = { ...r }; 
     delete copy._isTotal; 
     delete copy._protected; 
     return copy; 
-  });
+  }), []);
   
-  const cleanRepeatedPayload = (rep) => (rep || []).map(tObj => ({ ...tObj, rows: preserveStablePayload(tObj.rows) }));
+  const cleanRepeatedPayload = useCallback((rep) => (rep || []).map(tObj => ({ ...tObj, rows: preserveStablePayload(tObj.rows) })), [preserveStablePayload]);
 
   // Track latest state via refs for uncompromised, synchronous debounced saves
   const stateRefs = useRef({ records, headers, repeatedTables, runtimeSchemaRows, mainInstanceName });
@@ -455,7 +455,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     setRuntimeSchemaRows(prev => JSON.stringify(currentSchemaRows) !== JSON.stringify(prev) ? currentSchemaRows : prev);
     setMainInstanceName(parsed.mainInstanceName || '');
    
-  }, [value, block]); // isFocused explicitly removed from dependencies to prevent blur-clobbering
+  }, [value, block, preserveStablePayload]); // isFocused explicitly removed from dependencies to prevent blur-clobbering
 
   const save = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName) => {
     clearTimeout(typingTimeout.current);
@@ -476,7 +476,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         onChange(block.dataPath, cleanRecords);
       }
     }, 600);
-  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames]);
+  }, [onChange, cleanRepeatedPayload, preserveStablePayload, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames, block.dataPath]);
 
   const flushSave = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName) => {
     clearTimeout(typingTimeout.current);
@@ -495,7 +495,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     } else {
       onChange(block.dataPath, cleanRecords);
     }
-  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames]);
+  }, [onChange, cleanRepeatedPayload, preserveStablePayload, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames, block.dataPath]);
 
   const updateCell = useCallback((rIdx, cellId, mixedIdx, val) => {
     const nextRecords = stateRefs.current.records.map((r, i) => {
@@ -518,10 +518,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     save(null, nextHeaders);
   };
 
-  const handleMainInstanceNameChange = (val) => {
-    setMainInstanceName(val);
-    save(undefined, undefined, undefined, undefined, val);
-  }
+  
 
   const addRow = () => {
     const curSchema = stateRefs.current.runtimeSchemaRows;
@@ -750,7 +747,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     if (!formula) return '';
     const activeRecords = customRecordsContext || records;
     let s = formula;
-    const allSchemaCells = runtimeSchemaRows.flatMap(r => r.cells || []);
+    
     const baseSchemaCells = runtimeSchemaRows[0]?.cells || [];
     
     // Adjusted for 1-based indexing so SUM(C1) targets the first column
@@ -795,7 +792,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
           if (cell.cellType === 'computed') return evaluateFormula(cell.formula, rIdx) || '';
           const v = rec[cell.id] ?? '';
           
-          let textVal = '';
+          let textVal;
           if (cell.cellType === 'mixed') {
             textVal = Array.isArray(v) ? v.join(', ') : String(v);
           } else if (cell.cellType === 'smart-select') {
@@ -1084,7 +1081,7 @@ case 'smart-select': {
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula]);
+  }, [records, hiddenGuides, t, evaluateFormula, lockedBy, focusHandlers, cellInputStyle, isDark, block, customValues]);
 
   const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
