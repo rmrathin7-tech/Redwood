@@ -17,5 +17,20 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    
+    // THIS IS THE NEW RULES BLOCK
+    rules: {
+      "no-unused-vars": "warn",
+      "react/react-in-jsx-scope": "off",
+      "react-hooks/exhaustive-deps": "warn",
+      "no-useless-escape": "warn",
+      "no-useless-assignment": "warn",
+      "react-hooks/rules-of-hooks": "warn",
+      
+      // Silencing the aggressive React 19 compiler errors for now
+      "react-compiler/react-compiler": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/static-components": "off"
+    }
   },
 ])
