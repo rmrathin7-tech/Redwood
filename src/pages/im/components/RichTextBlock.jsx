@@ -817,9 +817,9 @@ export default function RichTextBlock({
       {/* FULLSCREEN PORTAL */}
       {isExpanded && (
         <FullscreenEditor
-          block={block}
-          value={quillInstance.current?.root.innerHTML || value}
-          onChange={onChange}
+  block={block}
+  value={value}
+  onChange={onChange}
           onClose={() => setIsExpanded(false)}
           onFocus={onFocus}
           onBlur={onBlur}
