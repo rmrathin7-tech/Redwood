@@ -100,7 +100,16 @@ export default function BSAWorkspace() {
   const lineChartRef = useRef(null);
   const charts = useRef({});
 
-  // ── DATA FETCHING ──
+// ── DATA FETCHING ──
+  // 1. Declare the function FIRST
+  const loadStatements = async () => {
+    setLoading(true);
+    const snap = await getDocs(collection(db, "projects", projectId, "bsa", bsaId, "statements"));
+    setStatements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setLoading(false);
+  };
+
+  // 2. Use it inside the useEffect SECOND
   useEffect(() => {
     if (!projectId || !bsaId) return navigate('/module-hub');
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -108,14 +117,7 @@ export default function BSAWorkspace() {
       loadStatements();
     });
     return unsub;
-  }, [projectId, bsaId]);
-
-  const loadStatements = async () => {
-    setLoading(true);
-    const snap = await getDocs(collection(db, "projects", projectId, "bsa", bsaId, "statements"));
-    setStatements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    setLoading(false);
-  };
+  }, [projectId, bsaId, navigate]);
 
   const showToastMsg = (msg, type='info') => {
     setToast({msg, type});
