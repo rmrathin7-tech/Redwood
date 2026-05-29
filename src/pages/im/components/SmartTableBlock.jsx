@@ -454,7 +454,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
 
     setRuntimeSchemaRows(prev => JSON.stringify(currentSchemaRows) !== JSON.stringify(prev) ? currentSchemaRows : prev);
     setMainInstanceName(parsed.mainInstanceName || '');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [value, block]); // isFocused explicitly removed from dependencies to prevent blur-clobbering
 
   const save = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName) => {
