@@ -438,8 +438,8 @@ export default function FCWorkspace() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <LockIndicator />
-              <SaveChip />
+  {LockIndicator()}
+  {SaveChip()}
 
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 2px' }} />
 
