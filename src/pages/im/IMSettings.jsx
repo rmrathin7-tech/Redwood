@@ -1549,13 +1549,15 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                       </div>
                     )}
 
-                    {activeCellData.cellType === 'smart-select' && (
+{activeCellData.cellType === 'smart-select' && (
                       <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
                         <label style={{ ...lbl, color: '#f472b6' }}>Smart Conditions (IF → THEN)</label>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
                           {(activeCellData.conditions || []).map((cond, i) => (
                             <div key={i} style={{ padding: '8px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '6px' }}>
-                              <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                              
+                              {/* IF Row */}
+                              <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', alignItems: 'center' }}>
                                 <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>IF</span>
                                 <input style={{ ...inp, flex: 1 }} type="text" value={cond.label || ''} onChange={e => {
                                   const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], label: e.target.value }; updateTableCell('conditions', c);
@@ -1563,27 +1565,65 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                                 <button onClick={() => updateTableCell('conditions', activeCellData.conditions.filter((_, idx) => idx !== i))}
                                   style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', fontWeight: 'bold' }}>×</button>
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText, marginTop: '4px' }}>THEN</span>
-                                  <textarea style={{ ...inp, flex: 1, resize: 'vertical' }} rows={2} value={cond.template || ''} onChange={e => {
-                                    const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], template: e.target.value }; updateTableCell('conditions', c);
-                                  }} placeholder="Total [number] employees..." />
+                              
+                              {/* THEN Row */}
+                              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, borderTop: `1px dashed ${T.border}`, paddingTop: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>THEN</span>
+                                  
+                                  {/* Segmented Mode Toggle */}
+                                  <div style={{ display: 'flex', gap: '2px', background: T.bg, padding: '2px', borderRadius: '6px', border: `1px solid ${T.border}` }}>
+                                    <button
+                                      onClick={() => {
+                                        const c = [...(activeCellData.conditions || [])];
+                                        c[i] = { ...c[i], thenMode: 'template' };
+                                        updateTableCell('conditions', c);
+                                      }}
+                                      style={{ background: cond.thenMode !== 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode !== 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                                    >
+                                      Fill-in-the-Blanks
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const c = [...(activeCellData.conditions || [])];
+                                        c[i] = { ...c[i], thenMode: 'richtext' };
+                                        updateTableCell('conditions', c);
+                                      }}
+                                      style={{ background: cond.thenMode === 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode === 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                                    >
+                                      Rich Text Editor
+                                    </button>
+                                  </div>
                                 </div>
-                                <div style={{ fontSize: '0.62rem', color: T.mutedText, marginTop: '4px', marginLeft: '34px' }}>
-                                  Tags: [text] [number] [date] [select] (Fill-in-the-blanks)
-                                </div>
+
+                                {/* Dynamic Content based on Toggle */}
+                                {cond.thenMode === 'richtext' ? (
+                                  <div style={{ background: T.bg, border: `1px dashed ${T.border}`, padding: '12px', borderRadius: '6px', fontSize: '0.75rem', color: T.mutedText, textAlign: 'center' }}>
+                                    <Layers size={14} style={{ marginBottom: '4px', opacity: 0.7 }} />
+                                    <br />
+                                    A multi-line Rich Text Editor will be displayed for this option.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <textarea style={{ ...inp, flex: 1, resize: 'vertical' }} rows={2} value={cond.template || ''} onChange={e => {
+                                      const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], template: e.target.value }; updateTableCell('conditions', c);
+                                    }} placeholder="Total [number] employees..." />
+                                    <div style={{ fontSize: '0.62rem', color: T.mutedText, marginTop: '6px' }}>
+                                      Tags: [text] [number] [date] [select]
+                                    </div>
+                                  </div>
+                                )}
+
                               </div>
                             </div>
                           ))}
                         </div>
-                        <button onClick={() => updateTableCell('conditions', [...(activeCellData.conditions || []), { label: 'New Option', template: '' }])}
+                        <button onClick={() => updateTableCell('conditions', [...(activeCellData.conditions || []), { label: 'New Option', template: '', thenMode: 'template' }])}
                           style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>
                           + Add Condition
                         </button>
                       </div>
                     )}
-
                     <div style={{ display: 'flex', gap: '10px', borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
                       <div style={{ flex: 1 }}>
                         <label style={lbl}>Col Span</label>
