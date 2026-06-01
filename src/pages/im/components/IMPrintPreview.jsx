@@ -6,16 +6,16 @@ const ensureArray = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
   if (typeof data === 'object') {
-    // If Firebase turned a sparse array into an object { "0": {...}, "1": {...} }
     const keys = Object.keys(data);
-    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
+    const isNumericKeys = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
     if (isNumericKeys) return Object.values(data);
-    return [data]; // If it's a standard object, wrap it safely
+    return [data]; 
   }
-  return [data]; // If it's a raw string or number, wrap it safely
+  return [data]; 
 };
 
 export default function IMPrintPreview({ schema, imData, excludedSections, projectName, onClose }) {
+  
   // 1. Calculate Visible Schema (Respect Exclusions)
   const visibleSchema = useMemo(() => {
     return ensureArray(schema).filter(s => !ensureArray(excludedSections).includes(s.id));
@@ -40,18 +40,56 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
   // 3. Data Retrieval Helper (Supports global imData OR local repeating context)
   const getValue = (path, contextData = null) => {
-    if (contextData !== null) return contextData[path]; // For Repeating Block Sets
+    if (contextData !== null) {
+      return path.split('.').reduce((obj, key) => obj?.[key], contextData);
+    }
     if (!path) return undefined;
     return path.split('.').reduce((obj, key) => obj?.[key], imData);
   };
 
-  // 4. Smart Table Parser
+  // 4. SMART TABLE PARSER (Deep Merges Schema with Firebase Deltas)
   const renderTable = (block, blockData) => {
-    const dataRows = ensureArray(blockData?.rows || block.rows);
+    const schemaRows = ensureArray(block.rows);
+    const dbRowsObj = blockData?.rows || {};
+    
+    // Calculate total rows based on schema length OR added database rows
+    let maxRows = schemaRows.length;
+    if (Array.isArray(dbRowsObj)) {
+      maxRows = Math.max(maxRows, dbRowsObj.length);
+    } else if (typeof dbRowsObj === 'object') {
+      const keys = Object.keys(dbRowsObj).map(Number).filter(n => !isNaN(n));
+      if (keys.length > 0) maxRows = Math.max(maxRows, Math.max(...keys) + 1);
+    }
+
+    const tableRows = [];
+    for (let r = 0; r < maxRows; r++) {
+      const sRow = schemaRows[r] || schemaRows[schemaRows.length - 1] || { cells: [] };
+      const dRow = dbRowsObj[r] || {};
+      
+      const sCells = ensureArray(sRow.cells);
+      const dCellsObj = dRow.cells || {};
+      
+      // Calculate max columns
+      let maxCols = Math.max(sCells.length, block.cols || 1);
+      if (Array.isArray(dCellsObj)) {
+         maxCols = Math.max(maxCols, dCellsObj.length);
+      } else if (typeof dCellsObj === 'object') {
+         const cKeys = Object.keys(dCellsObj).map(Number).filter(n => !isNaN(n));
+         if (cKeys.length > 0) maxCols = Math.max(maxCols, Math.max(...cKeys) + 1);
+      }
+
+      // Merge cell schema blueprint with user DB value
+      const mergedCells = [];
+      for (let c = 0; c < maxCols; c++) {
+        const sCell = sCells[c] || {};
+        const dCell = dCellsObj[c] || {};
+        mergedCells.push({ ...sCell, ...dCell });
+      }
+      tableRows.push({ id: dRow.id || sRow.id || `row_${r}`, cells: mergedCells });
+    }
     
     return (
       <div style={{ overflowX: 'auto', marginBottom: '24px', pageBreakInside: 'avoid' }}>
-        {/* Table Subheading (If enabled) */}
         {block.enableTableSubheading && blockData?.tableSubheadingRichText && (
           <div 
             style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic' }} 
@@ -69,19 +107,17 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             </tr>
           </thead>
           <tbody>
-            {dataRows.map((row, rIdx) => (
+            {tableRows.map((row, rIdx) => (
               <tr key={row.id || rIdx}>
                 {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '10px', textAlign: 'center', color: '#64748b' }}>{rIdx + 1}</td>}
-                {ensureArray(row.cells).map((cell, cIdx) => {
-                  const cellData = blockData?.rows?.[rIdx]?.cells?.[cIdx]?.value;
-                  let displayValue = cellData ?? cell.text ?? '-';
+                {row.cells.map((cell, cIdx) => {
+                  let displayValue = cell.value ?? cell.text ?? '-';
 
-                  // Handle Specific Cell Types safely
                   if (cell.cellType === 'fixed') displayValue = cell.text;
-                  if (cell.cellType === 'computed') displayValue = cellData || cell.formula || '-'; 
-                  if (cell.inputType === 'quill') displayValue = <div dangerouslySetInnerHTML={{ __html: cellData || '-' }} />;
-                  if (cell.cellType === 'smart-select') displayValue = cellData || '-';
-                  if (cell.cellType === 'mixed') displayValue = cellData?.compiledText || cellData || '-';
+                  if (cell.cellType === 'computed') displayValue = cell.value || cell.formula || '-'; 
+                  if (cell.inputType === 'quill') displayValue = <div dangerouslySetInnerHTML={{ __html: cell.value || cell.text || '-' }} />;
+                  if (cell.cellType === 'smart-select') displayValue = cell.value || '-';
+                  if (cell.cellType === 'mixed') displayValue = cell.compiledText || cell.value || '-';
 
                   return (
                     <td key={cIdx} colSpan={cell.colspan || 1} rowSpan={cell.rowspan || 1} style={{ border: '1px solid #e2e8f0', padding: '10px', verticalAlign: 'top', color: '#334155' }}>
@@ -100,49 +136,40 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
   // 5. Ultimate Block Compiler Engine
   const compileBlock = (block, contextData = null) => {
     if (!block) return null;
-    
-    // Skip instruction notes completely for print
     if (block.type === 'instruction') return null;
 
-    // Get value safely
     const dataKey = block.dataPath || block.id; 
     const val = getValue(dataKey, contextData);
 
     return (
       <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
-        {/* Standard Block Label */}
+        
         {block.label && !['fixed-text', 'instruction'].includes(block.type) && (
           <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{cleanTitle(block.label)}</h4>
         )}
         
-        {/* 1. Fixed Text */}
         {block.type === 'fixed-text' && (
           <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>
         )}
         
-        {/* 2. Text / Textarea / Generic Inputs */}
         {['text', 'textarea', 'number', 'currency', 'percentage', 'email', 'date'].includes(block.type) && (
           <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', whiteSpace: 'pre-wrap' }}>
             {val || '-'}
           </div>
         )}
 
-        {/* 3. Quill (Rich Text) */}
         {block.type === 'quill' && (
           <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: val || '<span style="color:#94a3b8">-</span>' }} />
         )}
 
-        {/* 4. Table */}
         {block.type === 'table' && renderTable(block, val)}
 
-        {/* 5. Boolean & Compliance */}
         {(block.type === 'boolean' || block.type === 'compliance') && (
           <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'inline-block' }}>
             {val || '-'}
           </div>
         )}
 
-        {/* 6. List (Bullet points) */}
         {block.type === 'list' && (
           <ul style={{ fontSize: '13px', color: '#334155', margin: 0, paddingLeft: '24px', lineHeight: 1.6 }}>
             {ensureArray(val).map((item, i) => (
@@ -152,7 +179,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </ul>
         )}
 
-        {/* 7. Image */}
         {block.type === 'image' && (
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
             {ensureArray(val).map((img, i) => (
@@ -165,7 +191,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </div>
         )}
 
-        {/* 8. File */}
         {block.type === 'file' && (
           <div style={{ fontSize: '12px', color: '#3b82f6', background: '#eff6ff', padding: '10px 14px', borderRadius: '6px', border: '1px dashed #bfdbfe' }}>
             {ensureArray(val).map((f, i) => (
@@ -175,7 +200,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </div>
         )}
 
-        {/* 9. Conditional Switcher */}
         {block.type === 'conditional-switch' && (() => {
           const selectedBranchId = val?.selectedBranch;
           if (!selectedBranchId) return null;
@@ -191,7 +215,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           );
         })()}
 
-        {/* 10. Repeating Block Set */}
         {block.type === 'repeating-block-set' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
             {ensureArray(val).map((instanceData, i) => (
@@ -204,7 +227,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </div>
         )}
 
-        {/* 11. Repeating Group */}
         {block.type === 'repeating-group' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
             {ensureArray(val).map((item, i) => (
@@ -221,7 +243,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </div>
         )}
 
-        {/* 12. Chart */}
         {block.type === 'chart' && (() => {
           const chartRows = val?.rows ? ensureArray(val.rows) : ensureArray(block.rowLabels);
           return (
@@ -249,7 +270,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           )
         })()}
 
-        {/* 13. Mixed */}
         {block.type === 'mixed' && (
           <div style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.6, background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
             {val?.compiledText || val || '-'} 
@@ -265,7 +285,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#cbd5e1', display: 'flex', flexDirection: 'column' }}>
       
-      {/* ── TOP ACTION BAR (Hidden in Print) ── */}
       <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer', color: '#475569' }}><X size={20} /></button>
@@ -276,13 +295,10 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
         </button>
       </div>
 
-      {/* ── SCROLLABLE PREVIEW CANVAS ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '40px 0' }} className="print-canvas">
         
-        {/* THE DOCUMENT PAPER */}
         <div id="print-document" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: '#ffffff', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', padding: '25mm 20mm' }}>
           
-          {/* COVER PAGE */}
           <div style={{ height: '240mm', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderBottom: '2px solid #e2e8f0', pageBreakAfter: 'always' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a', letterSpacing: '4px', margin: '0 0 40px 0' }}>REDWOOD <span style={{color: '#ef4444'}}>PARTNERS</span></h1>
             <h2 style={{ fontSize: '36px', fontWeight: 800, color: '#0f172a', margin: '0 0 16px 0' }}>INVESTMENT MEMORANDUM</h2>
@@ -290,7 +306,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             <p style={{ fontSize: '14px', color: '#94a3b8', fontWeight: 600 }}>Generated on: {new Date().toLocaleDateString('en-GB')}</p>
           </div>
 
-          {/* PRETEXT PAGE */}
           <div style={{ pageBreakAfter: 'always', paddingTop: '20mm' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>EVALUATION PARAMETERS</h3>
             <p style={{ fontSize: '12px', lineHeight: 1.6, color: '#334155', marginBottom: '16px' }}>This IM serves to project a detailed picture of the company to the Investor's various Investment Committees, supporting meeting the investment objectives and decision-making.</p>
@@ -307,7 +322,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             </p>
           </div>
 
-          {/* TABLE OF CONTENTS */}
           <div style={{ pageBreakAfter: 'always', paddingTop: '20mm' }}>
             <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginBottom: '24px', borderBottom: '2px solid #ef4444', paddingBottom: '8px' }}>Table of Contents</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -328,25 +342,21 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             </div>
           </div>
 
-          {/* ACTUAL CONTENT */}
           <div style={{ paddingTop: '10mm' }}>
             {parentSections.map(pSec => {
               const children = visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0));
               return (
                 <div key={pSec.id} style={{ marginBottom: '40px' }}>
                   
-                  {/* Parent Section Header */}
                   <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', pageBreakAfter: 'avoid' }}>
                     <span style={{ color: '#ef4444', marginRight: '8px' }}>{sectionNumberMap[pSec.id]}.</span>
                     {cleanTitle(pSec.heading || pSec.navLabel)}
                   </h2>
 
-                  {/* Parent Blocks */}
                   <div style={{ marginBottom: '24px' }}>
                     {ensureArray(pSec.blocks).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
                   </div>
 
-                  {/* Child Subsections */}
                   {children.map(cSec => (
                     <div key={cSec.id} style={{ marginBottom: '24px', paddingLeft: '16px' }}>
                       <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '12px', pageBreakAfter: 'avoid' }}>
@@ -366,10 +376,8 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
         </div>
       </div>
 
-      {/* ── GLOBAL PRINT CSS INJECTION ── */}
       <style>{`
         @media print {
-          /* 1. RESET HTML/BODY TO ALLOW FULL SCROLL PRINTING */
           html, body, #root {
             height: auto !important;
             overflow: visible !important;
@@ -378,12 +386,10 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             padding: 0 !important;
           }
 
-          /* 2. HIDE REACT ROOT & WORKSPACE APP */
           aside, header, main, .no-print {
             display: none !important;
           }
 
-          /* 3. FORMAT THE PRINT MOUNT POINT */
           #print-mount-point {
             position: static !important;
             display: block !important;
@@ -392,7 +398,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             overflow: visible !important;
           }
 
-          /* 4. STRIP BACKGROUNDS & SHADOWS FROM DOCUMENT */
           #print-document {
             box-shadow: none !important;
             width: 100% !important;
