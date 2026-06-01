@@ -1105,17 +1105,18 @@ case 'smart-select': {
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
 
-      {block.enableTableSubheading && (block.tableSubheadingRichText || '').trim() && (
+{(block.enableTableSubheading || block.tableSubheadingRichText) && (block.tableSubheadingRichText || '').trim() && (
         <div
           style={{
-            marginBottom: '10px',
-            padding: '10px 12px',
+            marginBottom: '12px',
+            padding: '12px 14px',
             borderRadius: '8px',
             border: `1px solid ${t.border}`,
             background: t.surface,
             color: t.text,
             lineHeight: 1.6,
             fontSize: '0.85rem',
+            whiteSpace: 'pre-wrap' /* Preserves standard line-breaks */
           }}
           dangerouslySetInnerHTML={{ __html: block.tableSubheadingRichText }}
         />
