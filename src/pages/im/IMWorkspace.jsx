@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User, Scissors, X, Trash2
+  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
@@ -30,7 +30,8 @@ export default function IMWorkspace() {
   const projectName = searchParams.get('name') || 'Active Dossier';
   
   const [user, setUser] = useState(null);
-  const [schema, setSchema] = useState([]);
+  const [schema, setSchema] = useState([]); // Master Schema (Read-Only here)
+  const [excludedSections, setExcludedSections] = useState([]); // Local IM Exclusions
   const [imData, setImData] = useState({});
   const [activeLocks, setActiveLocks] = useState({});
   const [activeSection, setActiveSection] = useState(null);
@@ -105,21 +106,27 @@ export default function IMWorkspace() {
     return unsub;
   }, [projectId, imId, projectName, navigate]);
 
+  // Master Schema Fetch
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'config', 'im-schema'), (snap) => {
       if (snap.exists()) {
         const sections = snap.data().sections || [];
         setSchema(sections);
-        setActiveSection(prev => prev ?? (sections[0]?.key || null));
+        // We set active section safely later based on visibleSchema
       }
     });
   }, [imId]);
 
+  // Local IM Data & Exclusions Fetch
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'investment-memos', imId), (snap) => {
-      if (snap.exists()) setImData(prev => ({ ...prev, ...(snap.data().data || {}) }));
+      if (snap.exists()) {
+        const data = snap.data();
+        setImData(prev => ({ ...prev, ...(data.data || {}) }));
+        setExcludedSections(data.excludedSections || []);
+      }
     });
   }, [imId]);
 
@@ -158,16 +165,28 @@ export default function IMWorkspace() {
     });
   }, [projectId, user]);
 
-  // ── DYNAMIC NUMBERING ENGINE ──
+  // ── VISIBLE SCHEMA CALCULATION ──
+  const visibleSchema = useMemo(() => {
+    return schema.filter(s => !excludedSections.includes(s.id));
+  }, [schema, excludedSections]);
+
+  // Set initial active section safely
+  useEffect(() => {
+    if (!activeSection && visibleSchema.length > 0) {
+      setActiveSection(visibleSchema[0].key);
+    }
+  }, [visibleSchema, activeSection]);
+
+  // ── DYNAMIC NUMBERING ENGINE (Using visibleSchema) ──
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
-    const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
     
     parents.forEach(p => {
       map[p.id] = `${parentCounter}`;
       let childCounter = 1;
-      const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+      const children = visibleSchema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
       
       children.forEach(c => {
         map[c.id] = `${parentCounter}.${childCounter}`;
@@ -176,20 +195,20 @@ export default function IMWorkspace() {
       parentCounter++;
     });
     return map;
-  }, [schema]);
+  }, [visibleSchema]);
 
   const flatSections = useMemo(() => {
-    const parents = schema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const result = [];
     parents.forEach(p => {
-      const children = schema
+      const children = visibleSchema
         .filter(s => s.parentId === p.id)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       result.push({ ...p, isParent: true, hasChildren: children.length > 0 });
       if (!collapsedGroups[p.id]) children.forEach(c => result.push({ ...c, isParent: false }));
     });
     return result;
-  }, [schema, collapsedGroups]);
+  }, [visibleSchema, collapsedGroups]);
 
   const getSectionName = useCallback((key) => {
     const sec = flatSections.find(s => s.key === key);
@@ -197,22 +216,50 @@ export default function IMWorkspace() {
     return `${sectionNumberMap[sec.id]}. ${cleanTitle(sec.navLabel || sec.heading)}`;
   }, [flatSections, sectionNumberMap]);
 
-  // ── HANDLE EXCLUDE SECTION (TAILOR) ──
-  const handleExcludeSection = async (sectionId) => {
-    if (!window.confirm('Exclude this section and all its contents?')) return;
-    const remaining = schema.filter(s => s.id !== sectionId && s.parentId !== sectionId);
+  // ── HANDLE LOCAL EXCLUDE / RESTORE (TAILOR TEMPLATE) ──
+  const toggleSectionExclusion = async (sectionId, isExcluding) => {
+    let newExclusions = new Set(excludedSections);
     
-    const activeExists = remaining.some(s => s.key === activeSection);
-    if (!activeExists && remaining.length > 0) {
-      setActiveSection(remaining[0].key);
-      setSectionTransition(true);
-      setTimeout(() => setSectionTransition(false), 130);
+    if (isExcluding) {
+      if (!window.confirm('Exclude this section from this IM?')) return;
+      newExclusions.add(sectionId);
+      // Auto-exclude children if a parent is excluded
+      schema.filter(s => s.parentId === sectionId).forEach(c => newExclusions.add(c.id));
+    } else {
+      newExclusions.delete(sectionId);
+      // Auto-restore parent if a child is restored
+      const sec = schema.find(s => s.id === sectionId);
+      if (sec?.parentId) newExclusions.delete(sec.parentId);
     }
     
+    const exclusionsArr = Array.from(newExclusions);
+    setExcludedSections(exclusionsArr); // Optimistic UI update
+
+    // If the active section is suddenly excluded, transition away
+    if (isExcluding) {
+      const targetSec = schema.find(s => s.id === sectionId);
+      const isCurrentlyActive = activeSection === targetSec?.key || schema.filter(s => s.parentId === sectionId).some(c => c.key === activeSection);
+      
+      if (isCurrentlyActive) {
+        const remaining = schema.filter(s => !newExclusions.has(s.id));
+        if (remaining.length > 0) {
+          setActiveSection(remaining[0].key);
+          setSectionTransition(true);
+          setTimeout(() => setSectionTransition(false), 130);
+        } else {
+          setActiveSection(null);
+        }
+      }
+    }
+
     try {
-      await updateDoc(doc(db, 'config', 'im-schema'), { sections: remaining });
+      // Save exclusions LOCALLY to the investment-memos document ONLY.
+      await updateDoc(doc(db, 'investment-memos', imId), { 
+        excludedSections: exclusionsArr,
+        updatedAt: serverTimestamp() 
+      });
     } catch (err) {
-      console.error("Failed to update schema", err);
+      console.error("Failed to update exclusions locally", err);
     }
   };
 
@@ -285,14 +332,14 @@ export default function IMWorkspace() {
     setCollapsedGroups(p => ({ ...p, [groupId]: !p[groupId] })), []);
 
   const activeSectionSchema = useMemo(() =>
-    schema.find(s => s.key === activeSection), [schema, activeSection]);
+    visibleSchema.find(s => s.key === activeSection), [visibleSchema, activeSection]);
 
   const activeSectionChildren = useMemo(() => {
     if (!activeSectionSchema?.id) return [];
-    return schema
+    return visibleSchema
       .filter(s => s.parentId === activeSectionSchema.id)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  }, [schema, activeSectionSchema]);
+  }, [visibleSchema, activeSectionSchema]);
 
   const activeSectionHasBlocks = (activeSectionSchema?.blocks || []).length > 0;
   const showSubsectionPrompt = !!activeSectionSchema && !activeSectionHasBlocks && activeSectionChildren.length > 0;
@@ -626,22 +673,22 @@ export default function IMWorkspace() {
           ref={mainRef}
           style={{ flex: 1, overflowY: 'auto', padding: '40px 48px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}
         >
-          {schema.length === 0 ? (
+          {visibleSchema.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16 }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: T.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Settings size={28} style={{ color: T.accent, opacity: 0.6 }} />
               </div>
-              <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>No schema configured</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>No visible schema</div>
               <div style={{ fontSize: 13, color: T.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>
-                Build the IM template in Settings before filling in content.
+                You may have excluded all sections, or the template is empty.
               </div>
               <button
-                onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
+                onClick={() => setShowTailorModal(true)}
                 style={{ marginTop: 4, padding: '10px 22px', borderRadius: 8, background: T.accent, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, boxShadow: `0 4px 14px ${T.accentGlow}`, transition: 'transform 0.15s, box-shadow 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 6px 20px ${T.accentGlow}`; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${T.accentGlow}`; }}
               >
-                Open Settings
+                Tailor Template (Restore)
               </button>
             </div>
           ) : !activeSectionSchema ? (
@@ -746,7 +793,7 @@ export default function IMWorkspace() {
                 <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
                   <Scissors size={18} color={T.accent} /> Tailor Template Structure
                 </h2>
-                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Exclude specific sections or subsections. The numbering will auto-recalculate.</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Exclude or restore sections specifically for this IM.</p>
               </div>
               <button onClick={() => setShowTailorModal(false)} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
                 <X size={18} />
@@ -755,38 +802,54 @@ export default function IMWorkspace() {
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
               {(() => {
+                // Render from the MASTER schema to show everything
                 const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
-                if (parents.length === 0) return <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist yet.</div>;
+                if (parents.length === 0) return <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist in master schema.</div>;
                 
                 return parents.map(p => {
                   const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+                  const isParentExcluded = excludedSections.includes(p.id);
+                  
                   return (
-                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden', opacity: isParentExcluded ? 0.5 : 1 }}>
                       <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text }}>
-                          <span style={{ color: T.accent, marginRight: '8px' }}>{sectionNumberMap[p.id]}.</span>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text, textDecoration: isParentExcluded ? 'line-through' : 'none' }}>
                           {cleanTitle(p.heading || p.navLabel || 'Untitled Section')}
                         </div>
-                        <button onClick={() => handleExcludeSection(p.id)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Trash2 size={12} /> Exclude
-                        </button>
+                        {isParentExcluded ? (
+                           <button onClick={() => toggleSectionExclusion(p.id, false)} style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                             <RotateCcw size={12} /> Restore
+                           </button>
+                        ) : (
+                           <button onClick={() => toggleSectionExclusion(p.id, true)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                             <Trash2 size={12} /> Exclude
+                           </button>
+                        )}
                       </div>
                       
                       {children.length > 0 && (
                         <div style={{ padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
-                          {children.map(c => (
-                            <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.textMuted }}>
-                                <span style={{ color: T.accent, marginRight: '8px' }}>{sectionNumberMap[c.id]}.</span>
-                                {cleanTitle(c.heading || c.navLabel || 'Untitled Subsection')}
+                          {children.map(c => {
+                            const isChildExcluded = excludedSections.includes(c.id);
+                            return (
+                              <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isChildExcluded ? 0.5 : 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.textMuted, textDecoration: isChildExcluded ? 'line-through' : 'none' }}>
+                                  {cleanTitle(c.heading || c.navLabel || 'Untitled Subsection')}
+                                </div>
+                                {isChildExcluded ? (
+                                  <button onClick={() => toggleSectionExclusion(c.id, false)} style={{ background: 'transparent', border: `1px solid ${T.green}`, color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <RotateCcw size={12} /> Restore
+                                  </button>
+                                ) : (
+                                  <button onClick={() => toggleSectionExclusion(c.id, true)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
+                                    <X size={12} /> Exclude
+                                  </button>
+                                )}
                               </div>
-                              <button onClick={() => handleExcludeSection(c.id)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
-                                onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
-                                onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
-                                <X size={12} /> Exclude
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
