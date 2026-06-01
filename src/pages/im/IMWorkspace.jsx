@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw
+  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
@@ -14,6 +14,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import BlockRegistry from './components/BlockRegistry.jsx';
 import CommentsSidebar from './components/CommentsSidebar.jsx';
 import IMTaskBoard from './components/IMTaskBoard.jsx';
+import IMPrintPreview from './components/IMPrintPreview.jsx';
 
 // ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -48,6 +49,7 @@ export default function IMWorkspace() {
   
   // Tailor Template Modal State
   const [showTailorModal, setShowTailorModal] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
@@ -623,6 +625,19 @@ export default function IMWorkspace() {
                 <Kanban size={15} />
               </button>
               <button
+                onClick={() => setIsPreviewOpen(true)}
+                title="Print Preview"
+                style={{
+                  background: 'none', border: 'none', color: T.textMuted,
+                  cursor: 'pointer', padding: 6, borderRadius: 6,
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+              >
+                <Printer size={15} />
+              </button>
+              <button
                 onClick={() => setCommentsSidebarOpen(p => !p)}
                 title="Comments"
                 style={{
@@ -871,6 +886,19 @@ export default function IMWorkspace() {
       
       {isTaskBoardOpen && (
         <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
+      )}
+
+      {/* ── PRINT COMPILER MODAL ── */}
+      {isPreviewOpen && (
+        <div id="print-mount-point">
+          <IMPrintPreview 
+            schema={schema} 
+            imData={imData} 
+            excludedSections={excludedSections} 
+            projectName={projectName} 
+            onClose={() => setIsPreviewOpen(false)} 
+          />
+        </div>
       )}
       
       <style>{`
