@@ -1,10 +1,24 @@
 import React, { useMemo } from 'react';
 import { X, Printer } from 'lucide-react';
 
+// BULLETPROOF ARRAY ENFORCER (Fixes Firebase Object-Array conversion crashes)
+const ensureArray = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'object') {
+    // If Firebase turned a sparse array into an object { "0": {...}, "1": {...} }
+    const keys = Object.keys(data);
+    const isNumericKeys = keys.every(k => !isNaN(Number(k)));
+    if (isNumericKeys) return Object.values(data);
+    return [data]; // If it's a standard object, wrap it safely
+  }
+  return [data]; // If it's a raw string or number, wrap it safely
+};
+
 export default function IMPrintPreview({ schema, imData, excludedSections, projectName, onClose }) {
   // 1. Calculate Visible Schema (Respect Exclusions)
   const visibleSchema = useMemo(() => {
-    return schema.filter(s => !excludedSections.includes(s.id));
+    return ensureArray(schema).filter(s => !ensureArray(excludedSections).includes(s.id));
   }, [schema, excludedSections]);
 
   // 2. Dynamic Numbering Engine
@@ -33,7 +47,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
   // 4. Smart Table Parser
   const renderTable = (block, blockData) => {
-    const dataRows = blockData?.rows || block.rows || [];
+    const dataRows = ensureArray(blockData?.rows || block.rows);
     
     return (
       <div style={{ overflowX: 'auto', marginBottom: '24px', pageBreakInside: 'avoid' }}>
@@ -49,7 +63,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           <thead>
             <tr>
               {block.showSno && <th style={{ border: '1px solid #cbd5e1', padding: '10px', background: '#f8fafc', textAlign: 'center', width: '40px', color: '#0f172a' }}>#</th>}
-              {(block.colHeaders || []).map((h, i) => (
+              {ensureArray(block.colHeaders).map((h, i) => (
                 <th key={i} style={{ border: '1px solid #cbd5e1', padding: '10px', background: '#f8fafc', textAlign: 'left', fontWeight: 700, color: '#0f172a' }}>{h}</th>
               ))}
             </tr>
@@ -58,7 +72,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             {dataRows.map((row, rIdx) => (
               <tr key={row.id || rIdx}>
                 {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '10px', textAlign: 'center', color: '#64748b' }}>{rIdx + 1}</td>}
-                {(row.cells || []).map((cell, cIdx) => {
+                {ensureArray(row.cells).map((cell, cIdx) => {
                   const cellData = blockData?.rows?.[rIdx]?.cells?.[cIdx]?.value;
                   let displayValue = cellData ?? cell.text ?? '-';
 
@@ -83,14 +97,14 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
     );
   };
 
-  // 5. Ultimate Block Compiler Engine (Covers all 16 Schema Types)
+  // 5. Ultimate Block Compiler Engine
   const compileBlock = (block, contextData = null) => {
     if (!block) return null;
     
     // Skip instruction notes completely for print
     if (block.type === 'instruction') return null;
 
-    // Get value safely (respecting if we are inside a repeating loop)
+    // Get value safely
     const dataKey = block.dataPath || block.id; 
     const val = getValue(dataKey, contextData);
 
@@ -131,33 +145,33 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
         {/* 6. List (Bullet points) */}
         {block.type === 'list' && (
           <ul style={{ fontSize: '13px', color: '#334155', margin: 0, paddingLeft: '24px', lineHeight: 1.6 }}>
-            {(val || []).map((item, i) => (
+            {ensureArray(val).map((item, i) => (
               <li key={i} style={{ marginBottom: '6px' }}>{typeof item === 'object' ? item.value : item}</li>
             ))}
-            {(!val || val.length === 0) && <li style={{ color: '#94a3b8', listStyleType: 'none', marginLeft: '-24px' }}>-</li>}
+            {ensureArray(val).length === 0 && <li style={{ color: '#94a3b8', listStyleType: 'none', marginLeft: '-24px' }}>-</li>}
           </ul>
         )}
 
         {/* 7. Image */}
         {block.type === 'image' && (
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
-            {(Array.isArray(val) ? val : (val ? [val] : [])).map((img, i) => (
+            {ensureArray(val).map((img, i) => (
               <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <img src={img.url || img} alt="" style={{ maxWidth: block.imageWidth || '300px', height: block.imageHeight || 'auto', objectFit: block.objectFit || 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }} />
                 {img.caption && <span style={{ fontSize: '11px', color: '#64748b' }}>{img.caption}</span>}
               </div>
             ))}
-            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>No images uploaded</div>}
+            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>No images uploaded</div>}
           </div>
         )}
 
         {/* 8. File */}
         {block.type === 'file' && (
           <div style={{ fontSize: '12px', color: '#3b82f6', background: '#eff6ff', padding: '10px 14px', borderRadius: '6px', border: '1px dashed #bfdbfe' }}>
-            {(Array.isArray(val) ? val : (val ? [val] : [])).map((f, i) => (
+            {ensureArray(val).map((f, i) => (
                <div key={i}>📄 {f.name || 'Attached File'}</div>
             ))}
-            {(!val || val.length === 0) && <span style={{color: '#94a3b8'}}>-</span>}
+            {ensureArray(val).length === 0 && <span style={{color: '#94a3b8'}}>-</span>}
           </div>
         )}
 
@@ -166,13 +180,13 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           const selectedBranchId = val?.selectedBranch;
           if (!selectedBranchId) return null;
           
-          const branch = block.branches?.find(b => b.id === selectedBranchId);
+          const branch = ensureArray(block.branches).find(b => b.id === selectedBranchId);
           if (!branch || !branch.blocks) return null;
 
           return (
             <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
               <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
-              {branch.blocks.map(b => compileBlock(b, contextData))}
+              {ensureArray(branch.blocks).map(b => compileBlock(b, contextData))}
             </div>
           );
         })()}
@@ -180,23 +194,22 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
         {/* 10. Repeating Block Set */}
         {block.type === 'repeating-block-set' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
-            {(val || []).map((instanceData, i) => (
+            {ensureArray(val).map((instanceData, i) => (
               <div key={i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc' }}>
                 <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
-                {/* Recursively compile sub-blocks passing the instanceData as the new context */}
-                {(block.blocks || []).map(subBlock => compileBlock(subBlock, instanceData))}
+                {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData))}
               </div>
             ))}
-            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
+            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
           </div>
         )}
 
-        {/* 11. Repeating Group (Founders, Testimonials, etc) */}
+        {/* 11. Repeating Group */}
         {block.type === 'repeating-group' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
-            {(val || []).map((item, i) => (
+            {ensureArray(val).map((item, i) => (
               <div key={i} style={{ padding: '14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff' }}>
-                {(block.template || []).map(field => (
+                {ensureArray(block.template).map(field => (
                   <div key={field.id} style={{ marginBottom: '10px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>{field.label}</div>
                     <div style={{ fontSize: '13px', color: '#0f172a' }}>{item[field.id] || '-'}</div>
@@ -204,36 +217,39 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
                 ))}
               </div>
             ))}
-            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
+            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
           </div>
         )}
 
-        {/* 12. Chart (Fallback to Data Table for Print safety) */}
-        {block.type === 'chart' && (
-          <div style={{ marginTop: '12px' }}>
-            <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontStyle: 'italic' }}>Chart Data Representation</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-              <thead>
-                <tr>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{block.xAxisLabel || 'Category'}</th>
-                  {(block.series || []).map((s, i) => <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{s}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {(val?.rows || block.rowLabels || []).map((row, rIdx) => (
-                  <tr key={rIdx}>
-                    <td style={{ border: '1px solid #e2e8f0', padding: '8px', fontWeight: 600 }}>{row.label || row || `Row ${rIdx+1}`}</td>
-                    {(block.series || []).map((s, cIdx) => (
-                      <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px', color: '#334155' }}>{row.values?.[cIdx] ?? val?.[`${rIdx}_${cIdx}`] ?? '-'}</td>
-                    ))}
+        {/* 12. Chart */}
+        {block.type === 'chart' && (() => {
+          const chartRows = val?.rows ? ensureArray(val.rows) : ensureArray(block.rowLabels);
+          return (
+            <div style={{ marginTop: '12px' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontStyle: 'italic' }}>Chart Data Representation</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+                <thead>
+                  <tr>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{block.xAxisLabel || 'Category'}</th>
+                    {ensureArray(block.series).map((s, i) => <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{s}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {chartRows.map((row, rIdx) => (
+                    <tr key={rIdx}>
+                      <td style={{ border: '1px solid #e2e8f0', padding: '8px', fontWeight: 600 }}>{row.label || row || `Row ${rIdx+1}`}</td>
+                      {ensureArray(block.series).map((s, cIdx) => (
+                        <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px', color: '#334155' }}>{row.values?.[cIdx] ?? val?.[`${rIdx}_${cIdx}`] ?? '-'}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
 
-        {/* 13. Mixed (Fill-in-the-blanks) */}
+        {/* 13. Mixed */}
         {block.type === 'mixed' && (
           <div style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.6, background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
             {val?.compiledText || val || '-'} 
@@ -327,7 +343,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
                   {/* Parent Blocks */}
                   <div style={{ marginBottom: '24px' }}>
-                    {(pSec.blocks || []).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
+                    {ensureArray(pSec.blocks).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
                   </div>
 
                   {/* Child Subsections */}
@@ -337,7 +353,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
                         {sectionNumberMap[cSec.id]}. {cleanTitle(cSec.heading || cSec.navLabel)}
                       </h3>
                       <div>
-                        {(cSec.blocks || []).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
+                        {ensureArray(cSec.blocks).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
                       </div>
                     </div>
                   ))}
