@@ -483,7 +483,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
           {baseConfig.enableTableSubheading || baseConfig.tableSubheadingRichText ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: T.surface2, padding: '12px', borderRadius: '8px', border: `1px solid ${T.border}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <label style={{ ...lbl, color: T.primary, margin: 0 }}>Fixed Table Subheading</label>
+                <label style={{ ...lbl, color: T.primary, margin: 0 }}>Table Subheading (Supports Tags)</label>
                 <button
                   onClick={() => onChangeConfig({ enableTableSubheading: false, tableSubheadingRichText: '' })}
                   style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center' }}
@@ -496,8 +496,11 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                 style={{ ...inp, minHeight: '86px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
                 value={baseConfig.tableSubheadingRichText || ''}
                 onChange={e => onChangeConfig({ tableSubheadingRichText: e.target.value })}
-                placeholder="Enter static instructions or context to display above this table..."
+                placeholder="e.g. As of [date], the [text:Company] reported [currency:Revenue]..."
               />
+              <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px' }}>
+                Type <strong style={{color: T.text}}>{"[text]"}</strong>, <strong style={{color: T.text}}>{"[date]"}</strong>, <strong style={{color: T.text}}>{"[number]"}</strong>, or <strong style={{color: T.text}}>{"[currency]"}</strong> to create inline inputs.
+              </div>
             </div>
           ) : (
             <button
@@ -511,7 +514,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.primaryBorder; e.currentTarget.style.color = T.primary; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.mutedText; }}
             >
-              <Plus size={14} /> Add Fixed Table Subheading
+              <Plus size={14} /> Add Table Subheading
             </button>
           )}
         </div>
