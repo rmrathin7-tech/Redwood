@@ -74,10 +74,16 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
   const cleanTitle = (text) => text ? text.replace(/^([0-9]+\.)+\s*/, '') : '';
 
-  // 3. Data Retrieval Helper
-  const getValue = (path, contextData = null) => {
+  // 3. Data Retrieval Helper (NOW SUPPORTS RELATIVE PATHS FOR REPEATING SETS)
+  const getValue = (path, contextData = null, parentDataPath = null) => {
     if (contextData !== null) {
-      return path.split('.').reduce((obj, key) => obj?.[key], contextData);
+      let relativePath = path;
+      // Strip the parent's base path so we can look up the relative key inside the repeating array object
+      if (parentDataPath && path.startsWith(`${parentDataPath}.`)) {
+        const regex = new RegExp(`^${parentDataPath}\\.`);
+        relativePath = path.replace(regex, '');
+      }
+      return relativePath.split('.').reduce((obj, key) => obj?.[key], contextData);
     }
     if (!path) return undefined;
     return path.split('.').reduce((obj, key) => obj?.[key], imData);
@@ -89,7 +95,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
     let runtimeSchemaRows = ensureArray(block.rows);
     let headers = ensureArray(block.colHeaders);
 
-    // Extract exact data structure based on how SmartTableBlock saves it
     if (Array.isArray(instanceData)) {
       dbRows = instanceData;
     } else if (instanceData && typeof instanceData === 'object') {
@@ -164,7 +169,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
                       } 
                       else if (cell.cellType === 'smart-select') {
                         if (rawVal && typeof rawVal === 'object') {
-                          // Handle Fill-in-the-blanks inside select
                           displayValue = rawVal.selected ? `${rawVal.selected} ${rawVal.inputs?.length ? `- ${rawVal.inputs.join(' ')}` : ''}` : '-';
                           if (rawVal.richtext) displayValue = <div dangerouslySetInnerHTML={{ __html: rawVal.richtext }} />;
                         } else {
@@ -210,12 +214,12 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
   };
 
   // 5. Ultimate Block Compiler Engine
-  const compileBlock = (block, contextData = null) => {
+  const compileBlock = (block, contextData = null, parentDataPath = null) => {
     if (!block) return null;
     if (block.type === 'instruction') return null;
 
     const dataKey = block.dataPath || block.id; 
-    const val = getValue(dataKey, contextData);
+    const val = getValue(dataKey, contextData, parentDataPath);
 
     return (
       <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
@@ -280,6 +284,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           </div>
         )}
 
+        {/* Note how parentDataPath is passed into the conditional blocks to maintain nested context mapping */}
         {block.type === 'conditional-switch' && (() => {
           const selectedBranchId = val?.selectedBranch;
           if (!selectedBranchId) return null;
@@ -290,7 +295,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           return (
             <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
               <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
-              {ensureArray(branch.blocks).map(b => compileBlock(b, contextData))}
+              {ensureArray(branch.blocks).map(b => compileBlock(b, contextData, parentDataPath))}
             </div>
           );
         })()}
@@ -300,7 +305,8 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             {ensureArray(val).map((instanceData, i) => (
               <div key={i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc' }}>
                 <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
-                {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData))}
+                {/* We pass 'dataKey' down so sub-blocks know how to strip the relative path */}
+                {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData, dataKey))}
               </div>
             ))}
             {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
