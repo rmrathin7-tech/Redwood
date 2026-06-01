@@ -4,8 +4,7 @@ import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
   Image as ImageIcon, Table, Copy, Trash2, ArrowUp, ArrowDown,
   Info, Layers, PanelLeft, PanelRight, Grid3X3, X, AlignJustify,
-  Sun, Moon, ToggleRight, CheckSquare, FileText, Mail, Percent,
-  IndianRupee, List, Hash, GitBranch, BarChart3, Upload, Download
+  Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download
 } from 'lucide-react';
 import { db } from '../../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -134,6 +133,12 @@ export default function IMSettings() {
     };
     loadSchema();
   }, []);
+
+  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
+  const cleanTitle = (text) => {
+    if (!text) return '';
+    return text.replace(/^([0-9]+\.)+\s*/, '');
+  };
 
   // ── DYNAMIC NUMBERING ENGINE ──
   const sectionNumberMap = useMemo(() => {
@@ -1205,7 +1210,7 @@ export default function IMSettings() {
                 return parentSections.map(sec => {
                   const children = sections.filter(s => s.parentId === sec.id).sort((a,b) => (a.order||0) - (b.order||0));
                   const isActiveParent = activeSectionId === sec.id;
-                  const secNum = sectionNumberMap[sec.id];
+                  const secNum = sectionNumberMap[sec.id]; // Dynamic Num
                   return (
                     <React.Fragment key={sec.id}>
                       <div
@@ -1216,7 +1221,7 @@ export default function IMSettings() {
                         <div style={{ overflow: 'hidden' }}>
                           <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{secNum}.</span>
-                            {sec.heading || 'Untitled Section'}
+                            {cleanTitle(sec.heading || sec.navLabel || 'Untitled Section')}
                           </div>
                           <div style={{ fontSize: '0.68rem', color: T.mutedText, marginTop: '2px', marginLeft: '16px' }}>{sec.blocks?.length || 0} blocks</div>
                         </div>
@@ -1233,7 +1238,7 @@ export default function IMSettings() {
                       </div>
                       {children.map(child => {
                         const isActiveChild = activeSectionId === child.id;
-                        const childNum = sectionNumberMap[child.id];
+                        const childNum = sectionNumberMap[child.id]; // Dynamic Num
                         return (
                           <div
                             key={child.id}
@@ -1244,7 +1249,7 @@ export default function IMSettings() {
                             <div style={{ overflow: 'hidden' }}>
                               <div style={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{childNum}.</span>
-                                {child.heading || 'Untitled Subsection'}
+                                {cleanTitle(child.heading || child.navLabel || 'Untitled Subsection')}
                               </div>
                               <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px', marginLeft: '22px' }}>{child.blocks?.length || 0} blocks</div>
                             </div>
@@ -1375,7 +1380,7 @@ export default function IMSettings() {
                     <label style={lbl}>Move to Section</label>
                     <select style={{ ...inp, background: T.selectBg, cursor: 'pointer' }} value={activeSectionId} onChange={e => moveBlockToSection(activeBlock.id, e.target.value)}>
                       {sections.map(s => (
-                        <option key={s.id} value={s.id}>{sectionNumberMap[s.id]}. {s.navLabel || s.heading || 'Untitled Section'}</option>
+                        <option key={s.id} value={s.id}>{sectionNumberMap[s.id]}. {cleanTitle(s.navLabel || s.heading || 'Untitled Section')}</option>
                       ))}
                     </select>
                   </div>
