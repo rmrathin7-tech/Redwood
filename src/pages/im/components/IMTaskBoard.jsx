@@ -553,12 +553,32 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
             key={col.id} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, col.id)}
             style={{ flex: '0 0 320px', minWidth: '320px', display: 'flex', flexDirection: 'column', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', transition: 'background 0.2s ease', backdropFilter: 'blur(16px)' }}
           >
-            {/* Column Header */}
+           {/* Column Header */}
             <div style={{ padding: '16px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: col.color, fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                <CircleDashed size={14} /> {col.label}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: col.color, fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px', flex: 1, minWidth: 0 }}>
+                <CircleDashed size={14} style={{ flexShrink: 0 }} />
+                <span
+                  contentEditable
+                  suppressContentEditableWarning
+                  title="Click to rename stage"
+                  onBlur={async (e) => {
+                    const newLabel = e.currentTarget.textContent.trim();
+                    if (!newLabel || newLabel === col.label) {
+                      e.currentTarget.textContent = col.label; // Revert if left blank
+                      return;
+                    }
+                    const newCols = columns.map(c => c.id === col.id ? { ...c, label: newLabel } : c);
+                    await updateDoc(doc(db, 'im-task-config', imId), { columns: newCols });
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+                  style={{ outline: 'none', cursor: 'text', borderBottom: '1px dashed transparent', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'border-color 0.2s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderBottom = `1px dashed ${col.color}80`}
+                  onMouseLeave={e => e.currentTarget.style.borderBottom = '1px dashed transparent'}
+                >
+                  {col.label}
+                </span>
               </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
                 <div style={{ background: T.surface3, color: T.textMuted, padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 800 }}>{colTasks.length}</div>
                 <button onClick={() => handleDeleteColumn(col.id)} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}><Trash2 size={12} /></button>
               </div>
