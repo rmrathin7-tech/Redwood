@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User
+  MessageSquare, Kanban, User, Scissors, X, Trash2
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
@@ -45,6 +45,9 @@ export default function IMWorkspace() {
   const [myLockedBlock, setMyLockedBlock] = useState(null);
   const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
   
+  // Tailor Template Modal State
+  const [showTailorModal, setShowTailorModal] = useState(false);
+
   // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
   const [taskColumns, setTaskColumns] = useState([]);
@@ -56,6 +59,12 @@ export default function IMWorkspace() {
   
   const isDark = theme === 'dark';
   
+  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
+  const cleanTitle = (text) => {
+    if (!text) return '';
+    return text.replace(/^([0-9]+\.)+\s*/, '');
+  };
+
   const T = useMemo(() => ({
     bg:         isDark ? '#060910' : '#f1f5f9',
     surface:    isDark ? '#0d1117' : '#ffffff',
@@ -149,7 +158,7 @@ export default function IMWorkspace() {
     });
   }, [projectId, user]);
 
-  // ── DYNAMIC NUMBERING ENGINE (SYNCED WITH IMSETTINGS) ──
+  // ── DYNAMIC NUMBERING ENGINE ──
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
@@ -182,12 +191,30 @@ export default function IMWorkspace() {
     return result;
   }, [schema, collapsedGroups]);
 
-  // Updated to include the Dynamic Number prefix in Task/Matrix views
   const getSectionName = useCallback((key) => {
     const sec = flatSections.find(s => s.key === key);
     if (!sec) return key;
-    return `${sectionNumberMap[sec.id]}. ${sec.navLabel || sec.heading}`;
+    return `${sectionNumberMap[sec.id]}. ${cleanTitle(sec.navLabel || sec.heading)}`;
   }, [flatSections, sectionNumberMap]);
+
+  // ── HANDLE EXCLUDE SECTION (TAILOR) ──
+  const handleExcludeSection = async (sectionId) => {
+    if (!window.confirm('Exclude this section and all its contents?')) return;
+    const remaining = schema.filter(s => s.id !== sectionId && s.parentId !== sectionId);
+    
+    const activeExists = remaining.some(s => s.key === activeSection);
+    if (!activeExists && remaining.length > 0) {
+      setActiveSection(remaining[0].key);
+      setSectionTransition(true);
+      setTimeout(() => setSectionTransition(false), 130);
+    }
+    
+    try {
+      await updateDoc(doc(db, 'config', 'im-schema'), { sections: remaining });
+    } catch (err) {
+      console.error("Failed to update schema", err);
+    }
+  };
 
   const handleDataChange = useCallback(async (dataPath, value, blockId) => {
     if (!dataPath || !imId) return;
@@ -403,7 +430,7 @@ export default function IMWorkspace() {
                     {isActive && <div style={{ width: 3, height: 14, borderRadius: 2, background: T.accent, flexShrink: 0, boxShadow: `0 0 8px ${T.accentGlow}` }} />}
                     <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.accent : 'inherit' }}>
                       <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
-                      {section.navLabel}
+                      {cleanTitle(section.navLabel)}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -441,7 +468,7 @@ export default function IMWorkspace() {
                 }
                 <span style={{ fontSize: 11.5, fontWeight: isActive ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
                   <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
-                  {section.navLabel}
+                  {cleanTitle(section.navLabel)}
                 </span>
                 {viewers.length > 0 && (
                   <div style={{ display: 'flex', flexShrink: 0 }}>
@@ -505,7 +532,7 @@ export default function IMWorkspace() {
                 transition: 'opacity 0.15s ease, transform 0.15s ease',
                 maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {activeSectionSchema ? `${sectionNumberMap[activeSectionSchema.id]}. ${activeSectionSchema.heading || activeSectionSchema.navLabel}` : 'Investment Memo'}
+                {activeSectionSchema ? `${sectionNumberMap[activeSectionSchema.id]}. ${cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}` : 'Investment Memo'}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -513,6 +540,24 @@ export default function IMWorkspace() {
               {SaveChip()}
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 2px' }} />
               
+              <button
+                onClick={() => setShowTailorModal(true)}
+                title="Tailor Template"
+                style={{
+                  background: showTailorModal ? T.accentDim : 'none', border: 'none',
+                  color: showTailorModal ? T.accent : T.textMuted,
+                  cursor: 'pointer', padding: 6, borderRadius: 6,
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = showTailorModal ? T.accentDim : 'transparent';
+                  e.currentTarget.style.color = showTailorModal ? T.accent : T.textMuted;
+                }}
+              >
+                <Scissors size={15} />
+              </button>
+
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
                 title="Operations Board"
@@ -607,7 +652,7 @@ export default function IMWorkspace() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '52vh', gap: 10, textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>
                 <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
-                {activeSectionSchema.heading || activeSectionSchema.navLabel}
+                {cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
               </div>
               <div style={{ maxWidth: 420, fontSize: 13, color: T.textMuted, lineHeight: 1.6 }}>
                 This section has only subsections. Choose a subsection from the left sidebar to continue.
@@ -624,7 +669,7 @@ export default function IMWorkspace() {
                   <div style={{ width: 4, height: 32, borderRadius: 3, flexShrink: 0, background: `linear-gradient(180deg, ${T.accent}, rgba(239,68,68,0.3))` }} />
                   <h2 style={{ fontSize: 24, fontWeight: 800, color: T.text, margin: 0, letterSpacing: -0.3, lineHeight: 1.2 }}>
                     <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
-                    {activeSectionSchema.heading || activeSectionSchema.navLabel}
+                    {cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
                   </h2>
                 </div>
                 
@@ -691,6 +736,73 @@ export default function IMWorkspace() {
           )}
         </main>
       </div>
+
+      {/* ── TAILOR TEMPLATE MODAL ── */}
+      {showTailorModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
+            <div style={{ padding: '20px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2, borderRadius: '14px 14px 0 0' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
+                  <Scissors size={18} color={T.accent} /> Tailor Template Structure
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Exclude specific sections or subsections. The numbering will auto-recalculate.</p>
+              </div>
+              <button onClick={() => setShowTailorModal(false)} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+              {(() => {
+                const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+                if (parents.length === 0) return <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist yet.</div>;
+                
+                return parents.map(p => {
+                  const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+                  return (
+                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text }}>
+                          <span style={{ color: T.accent, marginRight: '8px' }}>{sectionNumberMap[p.id]}.</span>
+                          {cleanTitle(p.heading || p.navLabel || 'Untitled Section')}
+                        </div>
+                        <button onClick={() => handleExcludeSection(p.id)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Trash2 size={12} /> Exclude
+                        </button>
+                      </div>
+                      
+                      {children.length > 0 && (
+                        <div style={{ padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
+                          {children.map(c => (
+                            <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.textMuted }}>
+                                <span style={{ color: T.accent, marginRight: '8px' }}>{sectionNumberMap[c.id]}.</span>
+                                {cleanTitle(c.heading || c.navLabel || 'Untitled Subsection')}
+                              </div>
+                              <button onClick={() => handleExcludeSection(c.id)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+                                onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
+                                <X size={12} /> Exclude
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            
+            <div style={{ padding: '16px 24px', borderTop: `1px solid ${T.border}`, background: T.surface2, borderRadius: '0 0 14px 14px', display: 'flex', justifyContent: 'flex-end' }}>
+               <button onClick={() => setShowTailorModal(false)} style={{ padding: '8px 24px', background: T.accent, color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 800, cursor: 'pointer' }}>
+                 Done Tailoring
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <CommentsSidebar imId={imId} isDark={isDark} isOpen={commentsSidebarOpen} onClose={() => setCommentsSidebarOpen(false)} />
       
