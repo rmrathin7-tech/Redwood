@@ -300,18 +300,22 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           );
         })()}
 
-        {block.type === 'repeating-block-set' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
-            {ensureArray(val).map((instanceData, i) => (
-              <div key={i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc' }}>
-                <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
-                {/* We pass 'dataKey' down so sub-blocks know how to strip the relative path */}
-                {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData, dataKey))}
-              </div>
-            ))}
-            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
-          </div>
-        )}
+        {block.type === 'repeating-block-set' && (() => {
+          // EXTRACT INSTANCES ARRAY FROM THE VAL PAYLOAD
+          const instances = val?.instances ? ensureArray(val.instances) : (Array.isArray(val) ? val : []);
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
+              {instances.map((instanceData, i) => (
+                <div key={instanceData._setId || i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc', pageBreakInside: 'avoid' }}>
+                  <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
+                  {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData, dataKey))}
+                </div>
+              ))}
+              {instances.length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
+            </div>
+          );
+        })()}
 
         {block.type === 'repeating-group' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
