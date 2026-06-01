@@ -25,6 +25,7 @@ function parseValue(value, block) {
       }),
       runtimeSchemaRows: Array.isArray(value.runtimeSchemaRows) ? value.runtimeSchemaRows : null,
       mainInstanceName: value.mainInstanceName || '',
+      subheadingInputs: Array.isArray(value.subheadingInputs) ? value.subheadingInputs : [],
     };
   }
   let rows = value;
@@ -37,7 +38,7 @@ function parseValue(value, block) {
   } else {
     rows = rows.map(addRowId);
   }
-  return { rows, headers: block.colHeaders || [], repeatedTables: [], runtimeSchemaRows: null, mainInstanceName: '' };
+  return { rows, headers: block.colHeaders || [], repeatedTables: [], runtimeSchemaRows: null, mainInstanceName: '', subheadingInputs: [] };
 }
 
 // ── SEED EMPTY DATA ROW ──────────────────────────────────────────────────────
@@ -349,6 +350,8 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const [runtimeSchemaRows, setRuntimeSchemaRows] = useState(initial.runtimeSchemaRows || block.rows || []);
   const hasSchema = runtimeSchemaRows.length > 0;
 
+  const [subheadingInputs, setSubheadingInputs] = useState(initial.subheadingInputs || []);
+
   const [records, setRecords] = useState(() => {
     let currentRows = initial.rows;
     if (hasSchema) {
@@ -398,9 +401,9 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   
   const cleanRepeatedPayload = (rep) => (rep || []).map(tObj => ({ ...tObj, rows: preserveStablePayload(tObj.rows) }));
 
-  const stateRefs = useRef({ records, headers, repeatedTables, runtimeSchemaRows, mainInstanceName });
+  const stateRefs = useRef({ records, headers, repeatedTables, runtimeSchemaRows, mainInstanceName, subheadingInputs });
   useEffect(() => {
-    stateRefs.current = { records, headers, repeatedTables, runtimeSchemaRows, mainInstanceName };
+    stateRefs.current = { records, headers, repeatedTables, runtimeSchemaRows, mainInstanceName, subheadingInputs };
   });
 
   const handleFocus = useCallback(() => {
@@ -447,10 +450,11 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
 
     setRuntimeSchemaRows(prev => JSON.stringify(currentSchemaRows) !== JSON.stringify(prev) ? currentSchemaRows : prev);
     setMainInstanceName(parsed.mainInstanceName || '');
+    setSubheadingInputs(prev => JSON.stringify(parsed.subheadingInputs) !== JSON.stringify(prev) ? parsed.subheadingInputs : prev);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, block]); 
 
-  const save = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName) => {
+  const save = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName, overrideSubInputs) => {
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => {
       if (!onChange) return;
@@ -459,19 +463,20 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
       const curRep  = overrideRepeated !== undefined ? overrideRepeated : stateRefs.current.repeatedTables;
       const sch     = overrideSchema   !== undefined ? overrideSchema : stateRefs.current.runtimeSchemaRows;
       const mName   = overrideMainName !== undefined ? overrideMainName : stateRefs.current.mainInstanceName;
+      const curSub  = overrideSubInputs !== undefined ? overrideSubInputs : stateRefs.current.subheadingInputs;
       
       const cleanRecords = preserveStablePayload(curRec);
       const cleanRep     = cleanRepeatedPayload(curRep);
       
-      if (block.editableHeaders || block.allowRepeatTable || cleanRep.length > 0 || sch !== block.rows || block.allowInstanceNames) {
-        onChange(block.dataPath, { rows: cleanRecords, headers: curHead, repeatedTables: cleanRep, runtimeSchemaRows: sch, mainInstanceName: mName });
+      if (block.editableHeaders || block.allowRepeatTable || cleanRep.length > 0 || sch !== block.rows || block.allowInstanceNames || curSub.length > 0 || (block.tableSubheadingRichText && block.tableSubheadingRichText.includes('['))) {
+        onChange(block.dataPath, { rows: cleanRecords, headers: curHead, repeatedTables: cleanRep, runtimeSchemaRows: sch, mainInstanceName: mName, subheadingInputs: curSub });
       } else {
         onChange(block.dataPath, cleanRecords);
       }
     }, 600);
-  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames]);
+  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames, block.tableSubheadingRichText]);
 
-  const flushSave = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName) => {
+  const flushSave = useCallback((overrideRecords, overrideHeaders, overrideRepeated, overrideSchema, overrideMainName, overrideSubInputs) => {
     clearTimeout(typingTimeout.current);
     if (!onChange) return;
     const curRec  = overrideRecords  !== undefined ? overrideRecords : stateRefs.current.records;
@@ -479,16 +484,17 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     const curRep  = overrideRepeated !== undefined ? overrideRepeated : stateRefs.current.repeatedTables;
     const sch     = overrideSchema   !== undefined ? overrideSchema : stateRefs.current.runtimeSchemaRows;
     const mName   = overrideMainName !== undefined ? overrideMainName : stateRefs.current.mainInstanceName;
+    const curSub  = overrideSubInputs !== undefined ? overrideSubInputs : stateRefs.current.subheadingInputs;
     
     const cleanRecords = preserveStablePayload(curRec);
     const cleanRep     = cleanRepeatedPayload(curRep);
     
-    if (block.editableHeaders || block.allowRepeatTable || cleanRep.length > 0 || sch !== block.rows || block.allowInstanceNames) {
-      onChange(block.dataPath, { rows: cleanRecords, headers: curHead, repeatedTables: cleanRep, runtimeSchemaRows: sch, mainInstanceName: mName });
+    if (block.editableHeaders || block.allowRepeatTable || cleanRep.length > 0 || sch !== block.rows || block.allowInstanceNames || curSub.length > 0 || (block.tableSubheadingRichText && block.tableSubheadingRichText.includes('['))) {
+      onChange(block.dataPath, { rows: cleanRecords, headers: curHead, repeatedTables: cleanRep, runtimeSchemaRows: sch, mainInstanceName: mName, subheadingInputs: curSub });
     } else {
       onChange(block.dataPath, cleanRecords);
     }
-  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames]);
+  }, [onChange, block.dataPath, block.editableHeaders, block.allowRepeatTable, block.rows, block.allowInstanceNames, block.tableSubheadingRichText]);
 
   const updateCell = useCallback((rIdx, cellId, mixedIdx, val) => {
     const nextRecords = stateRefs.current.records.map((r, i) => {
@@ -852,6 +858,54 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     } catch (err) { console.error('Paste failed:', err); }
   };
 
+  // ── DYNAMIC TEMPLATE INPUT PARSER (SHARED) ────────────────────────────────
+  const renderTemplateInput = useCallback((part, keyIdx, inputVal, onInputChange, disabled) => {
+    const inner = part.slice(1, -1);
+    const colonIdx = inner.indexOf(':');
+    let typeStr = colonIdx !== -1 ? inner.slice(0, colonIdx).trim().toLowerCase() : inner.trim().toLowerCase();
+    let placeholderText = colonIdx !== -1 ? inner.slice(colonIdx + 1).trim() : inner.trim();
+
+    if (!['text', 'number', 'date', 'currency', 'select'].includes(typeStr)) {
+      placeholderText = inner.trim();
+      typeStr = 'text';
+    }
+
+    const baseStyle = {
+      display: 'inline-block', padding: '2px 6px', margin: '0 4px',
+      border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem',
+      color: t.text, background: 'transparent', outline: 'none', verticalAlign: 'middle',
+      cursor: disabled ? 'not-allowed' : 'text'
+    };
+
+    if (typeStr === 'date') {
+      return <input key={keyIdx} type="date" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} disabled={disabled} style={{ ...baseStyle, minWidth: '110px', colorScheme: isDark ? 'dark' : 'light' }} {...focusHandlers} />;
+    }
+    if (typeStr === 'number') {
+      return <input key={keyIdx} type="number" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} placeholder={placeholderText} disabled={disabled} style={{ ...baseStyle, width: '90px' }} {...focusHandlers} />;
+    }
+    if (typeStr === 'currency') {
+      return (
+        <span key={keyIdx} style={{ display: 'inline-flex', alignItems: 'center', margin: '0 4px', background: 'transparent', border: `1px solid ${t.border}`, borderRadius: '4px', overflow: 'hidden' }}>
+          <span style={{ padding: '2px 6px', fontSize: '0.75rem', color: t.textMuted, borderRight: `1px solid ${t.border}`, background: t.surface2 }}>₹</span>
+          <input type="number" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} placeholder={placeholderText} disabled={disabled} style={{ padding: '2px 6px', border: 'none', background: 'transparent', outline: 'none', color: t.text, fontSize: '0.8rem', width: '80px' }} {...focusHandlers} />
+        </span>
+      );
+    }
+    if (typeStr === 'select') {
+       const options = colonIdx !== -1 ? inner.slice(colonIdx + 1).split(',').map(s => s.trim()) : [];
+       if (options.length > 0) {
+          return (
+            <select key={keyIdx} value={inputVal || ''} onChange={e => onInputChange(e.target.value)} disabled={disabled} style={{ ...baseStyle, cursor: disabled ? 'not-allowed' : 'pointer', backgroundColor: isDark ? '#0f172a' : '#ffffff', colorScheme: isDark ? 'dark' : 'light' }} {...focusHandlers}>
+               <option value="" style={{color: t.textMuted}}>Select...</option>
+               {options.map((opt, i) => <option key={i} value={opt} style={{background: t.surface, color: t.text}}>{opt}</option>)}
+            </select>
+          );
+       }
+    }
+
+    return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} />;
+  }, [t, isDark, focusHandlers]);
+
   // ── UNIFIED RICH CELL RENDERING ───────────────────────────────────────────
   const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtectedRow = false, tableInstanceId = 'main', contextRows = records) => {
     const cellPlaceholder = cell.placeholder || '';
@@ -875,54 +929,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         {cellPlaceholder}
       </div>
     ) : null;
-
-    // ── NEW: DYNAMIC TEMPLATE INPUT PARSER ──
-    const renderTemplateInput = (part, keyIdx, inputVal, onInputChange, disabled) => {
-      const inner = part.slice(1, -1);
-      const colonIdx = inner.indexOf(':');
-      let typeStr = colonIdx !== -1 ? inner.slice(0, colonIdx).trim().toLowerCase() : inner.trim().toLowerCase();
-      let placeholderText = colonIdx !== -1 ? inner.slice(colonIdx + 1).trim() : inner.trim();
-
-      if (!['text', 'number', 'date', 'currency', 'select'].includes(typeStr)) {
-        placeholderText = inner.trim();
-        typeStr = 'text';
-      }
-
-      const baseStyle = {
-        display: 'inline-block', padding: '2px 6px', margin: '0 4px',
-        border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem',
-        color: t.text, background: 'transparent', outline: 'none', verticalAlign: 'middle',
-        cursor: disabled ? 'not-allowed' : 'text'
-      };
-
-      if (typeStr === 'date') {
-        return <input key={keyIdx} type="date" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} disabled={disabled} style={{ ...baseStyle, minWidth: '110px', colorScheme: isDark ? 'dark' : 'light' }} {...focusHandlers} />;
-      }
-      if (typeStr === 'number') {
-        return <input key={keyIdx} type="number" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} placeholder={placeholderText} disabled={disabled} style={{ ...baseStyle, width: '90px' }} {...focusHandlers} />;
-      }
-      if (typeStr === 'currency') {
-        return (
-          <span key={keyIdx} style={{ display: 'inline-flex', alignItems: 'center', margin: '0 4px', background: 'transparent', border: `1px solid ${t.border}`, borderRadius: '4px', overflow: 'hidden' }}>
-            <span style={{ padding: '2px 6px', fontSize: '0.75rem', color: t.textMuted, borderRight: `1px solid ${t.border}`, background: t.surface2 }}>₹</span>
-            <input type="number" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} placeholder={placeholderText} disabled={disabled} style={{ padding: '2px 6px', border: 'none', background: 'transparent', outline: 'none', color: t.text, fontSize: '0.8rem', width: '80px' }} {...focusHandlers} />
-          </span>
-        );
-      }
-      if (typeStr === 'select') {
-         const options = colonIdx !== -1 ? inner.slice(colonIdx + 1).split(',').map(s => s.trim()) : [];
-         if (options.length > 0) {
-            return (
-              <select key={keyIdx} value={inputVal || ''} onChange={e => onInputChange(e.target.value)} disabled={disabled} style={{ ...baseStyle, cursor: disabled ? 'not-allowed' : 'pointer', backgroundColor: isDark ? '#0f172a' : '#ffffff', colorScheme: isDark ? 'dark' : 'light' }} {...focusHandlers}>
-                 <option value="" style={{color: t.textMuted}}>Select...</option>
-                 {options.map((opt, i) => <option key={i} value={opt} style={{background: t.surface, color: t.text}}>{opt}</option>)}
-              </select>
-            );
-         }
-      }
-
-      return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} />;
-    };
 
     switch (cell.cellType) {
       case 'fixed':
@@ -1105,7 +1111,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula]);
+  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput]);
 
   const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
@@ -1126,6 +1132,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
 
+      {/* NEW: DYNAMIC SMART SUBHEADING */}
       {(block.enableTableSubheading || block.tableSubheadingRichText) && (block.tableSubheadingRichText || '').trim() && (
         <div
           style={{
@@ -1135,12 +1142,34 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
             border: `1px solid ${t.border}`,
             background: t.surface,
             color: t.text,
-            lineHeight: 1.6,
+            lineHeight: 1.8,
             fontSize: '0.85rem',
-            whiteSpace: 'pre-wrap'
           }}
-          dangerouslySetInnerHTML={{ __html: block.tableSubheadingRichText }}
-        />
+        >
+          {(() => {
+            const rawText = block.tableSubheadingRichText || '';
+            // Fast fail if there are no brackets to parse
+            if (!rawText.includes('[')) {
+              return <span dangerouslySetInnerHTML={{ __html: rawText }} style={{ whiteSpace: 'pre-wrap' }} />;
+            }
+            
+            const parts = rawText.split(/(\[[^\]]+\])/g);
+            let inputIdx = 0;
+            return parts.map((part, pi) => {
+              if (/^\[.+\]$/.test(part)) {
+                const idx = inputIdx++;
+                return renderTemplateInput(part, pi, subheadingInputs[idx], (newVal) => {
+                  const newInputs = [...subheadingInputs];
+                  newInputs[idx] = newVal;
+                  setSubheadingInputs(newInputs);
+                  save(undefined, undefined, undefined, undefined, undefined, newInputs);
+                }, !!lockedBy);
+              }
+              // Render safely handling potential HTML wrapped around tags
+              return <span key={pi} dangerouslySetInnerHTML={{ __html: part }} style={{ whiteSpace: 'pre-wrap' }} />;
+            });
+          })()}
+        </div>
       )}
 
       {/* Top action bar */}
