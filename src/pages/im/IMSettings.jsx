@@ -479,28 +479,42 @@ const moveBlockToSection = (blockId, targetSectionId) => {
           })}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text }}>
-            <input
-              type="checkbox"
-              checked={!!baseConfig.enableTableSubheading}
-              onChange={e => onChangeConfig({ enableTableSubheading: e.target.checked })}
-            />
-            Enable table subheading
-          </label>
-          {baseConfig.enableTableSubheading && (
-            <div>
-              <label style={{ ...lbl, color: T.primary }}>Subheading (Rich Text / HTML)</label>
+<div style={{ marginTop: '12px', marginBottom: '8px' }}>
+          {baseConfig.enableTableSubheading || baseConfig.tableSubheadingRichText ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: T.surface2, padding: '12px', borderRadius: '8px', border: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ ...lbl, color: T.primary, margin: 0 }}>Fixed Table Subheading</label>
+                <button
+                  onClick={() => onChangeConfig({ enableTableSubheading: false, tableSubheadingRichText: '' })}
+                  style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center' }}
+                  title="Remove Subheading"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
               <textarea
                 style={{ ...inp, minHeight: '86px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
                 value={baseConfig.tableSubheadingRichText || ''}
                 onChange={e => onChangeConfig({ tableSubheadingRichText: e.target.value })}
-                placeholder="Add table subheading text..."
+                placeholder="Enter static instructions or context to display above this table..."
               />
             </div>
+          ) : (
+            <button
+              onClick={() => onChangeConfig({ enableTableSubheading: true })}
+              style={{
+                background: T.surface2, border: `1px dashed ${T.border}`, color: T.mutedText,
+                padding: '8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer',
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.primaryBorder; e.currentTarget.style.color = T.primary; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.mutedText; }}
+            >
+              <Plus size={14} /> Add Fixed Table Subheading
+            </button>
           )}
         </div>
-
         <div style={{ marginTop: '4px', marginBottom: '4px' }}>
           <label style={{ ...lbl, color: T.text }}>Configure Headers & Widths</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
