@@ -28,6 +28,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   // Data States
   const [tasks, setTasks] = useState([]);
   const [schema, setSchema] = useState([]);
+  const [excludedSections, setExcludedSections] = useState([]);
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
   const [columns, setColumns] = useState([]);
   const [comments, setComments] = useState([]);
@@ -61,6 +62,12 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     accent:     '#ef4444',
     amber:      '#f59e0b',
   }), [isDark]);
+
+  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
+  const cleanTitle = (text) => {
+    if (!text) return '';
+    return text.replace(/^([0-9]+\.)+\s*/, '');
+  };
 
   // ── INTERACTIVE CANVAS ENGINE ──
   useEffect(() => {
@@ -150,6 +157,10 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     unsubs.push(onSnapshot(doc(db, 'config', 'im-schema'), (snap) => {
       if (snap.exists()) setSchema(snap.data().sections || []);
     }));
+    // Fetch Local IM Exclusions
+    unsubs.push(onSnapshot(doc(db, 'investment-memos', imId), (snap) => {
+      if (snap.exists()) setExcludedSections(snap.data().excludedSections || []);
+    }));
     unsubs.push(onSnapshot(query(collection(db, 'im-tasks'), where('imId', '==', imId)), (snap) => {
       setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }));
@@ -164,18 +175,50 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
 
   // ── COMPUTED PROPERTIES ──
+  const visibleSchema = useMemo(() => {
+    return schema.filter(s => !excludedSections.includes(s.id));
+  }, [schema, excludedSections]);
+
+  const sectionNumberMap = useMemo(() => {
+    const map = {};
+    let parentCounter = 1;
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    
+    parents.forEach(p => {
+      map[p.id] = `${parentCounter}`;
+      let childCounter = 1;
+      const children = visibleSchema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+      
+      children.forEach(c => {
+        map[c.id] = `${parentCounter}.${childCounter}`;
+        childCounter++;
+      });
+      parentCounter++;
+    });
+    return map;
+  }, [visibleSchema]);
+
   const flatSections = useMemo(() => {
     const result = [];
-    const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
     parents.forEach(p => {
       result.push({ ...p, isParent: true });
-      schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0))
+      visibleSchema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0))
             .forEach(c => result.push({ ...c, isParent: false }));
     });
     return result;
-  }, [schema]);
+  }, [visibleSchema]);
 
-  const getSectionName = useCallback((key) => flatSections.find(s => s.key === key)?.navLabel || key, [flatSections]);
+  const getSectionName = useCallback((key) => {
+    const sec = flatSections.find(s => s.key === key);
+    if (!sec) {
+      // Fallback if task is linked to an excluded section
+      const hiddenSec = schema.find(s => s.key === key);
+      if (hiddenSec) return `(Excluded) ${cleanTitle(hiddenSec.navLabel || hiddenSec.heading)}`;
+      return key;
+    }
+    return `${sectionNumberMap[sec.id]}. ${cleanTitle(sec.navLabel || sec.heading)}`;
+  }, [flatSections, sectionNumberMap, schema]);
 
   const getDueDateState = useCallback((task) => {
     if (!task?.dueDate) {
@@ -207,8 +250,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   }, [tasks, searchQuery, filterAssignee, filterReviewer]);
 
   const sectionChildKeysByParent = useMemo(() => {
-    const sectionById = new Map(schema.map(s => [s.id, s]));
-    return schema.reduce((acc, sec) => {
+    const sectionById = new Map(visibleSchema.map(s => [s.id, s]));
+    return visibleSchema.reduce((acc, sec) => {
       if (!sec.parentId) return acc;
       const parent = sectionById.get(sec.parentId);
       if (!parent?.key || !sec.key) return acc;
@@ -216,7 +259,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
       acc[parent.key].push(sec.key);
       return acc;
     }, {});
-  }, [schema]);
+  }, [visibleSchema]);
 
   const parentKeyByChild = useMemo(() => {
     const map = {};
@@ -673,7 +716,10 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {!section.isParent && <ArrowRight size={14} color={T.textMuted} style={{ marginLeft: '16px' }} />}
-                    <span style={{ fontSize: section.isParent ? '0.9rem' : '0.85rem', fontWeight: section.isParent ? 700 : 500, color: section.isParent ? T.text : T.textMuted }}>{section.navLabel}</span>
+                    <span style={{ fontSize: section.isParent ? '0.9rem' : '0.85rem', fontWeight: section.isParent ? 700 : 500, color: section.isParent ? T.text : T.textMuted }}>
+                      <span style={{ color: T.primary, marginRight: '6px', fontWeight: 800 }}>{sectionNumberMap[section.id]}.</span>
+                      {cleanTitle(section.navLabel || section.heading)}
+                    </span>
                     {activeTask && (
                       <>
                         <button onClick={() => openEditModal(activeTask)} title="Edit existing allocation" style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
@@ -831,7 +877,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           style={{ accentColor: T.accent }}
                         />
                         <span style={{ fontWeight: sec.isParent ? 700 : 400 }}>
-                          {sec.navLabel}
+                          <span style={{ color: T.primary, marginRight: '6px', fontWeight: 800 }}>{sectionNumberMap[sec.id]}.</span>
+                          {cleanTitle(sec.navLabel || sec.heading)}
                         </span>
                         {isLockedByOther && (
                           <span style={{ fontSize: '0.65rem', color: T.textMuted, border: `1px solid ${T.border}`, borderRadius: '4px', padding: '2px 6px', marginLeft: 'auto' }}>
