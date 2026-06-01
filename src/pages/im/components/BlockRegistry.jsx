@@ -67,6 +67,7 @@ export default function BlockRegistry({ block, value, onChange, lockedBy, onFocu
 
     // All simple field types go to BasicInputBlock
     case 'instruction':
+    case 'fixed-text':
     case 'text':
     case 'textarea':
     case 'mixed':

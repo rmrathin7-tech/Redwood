@@ -12,6 +12,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const BLOCK_TYPES = [
   { id: 'instruction',     icon: <Info size={15} />,         label: 'Instruction Note',   desc: 'Read-only guidance text' },
+  { id: 'fixed-text',      icon: <AlignLeft size={15} />,    label: 'Fixed Text',         desc: 'Static text display block' },
   { id: 'text',            icon: <Type size={15} />,         label: 'Short Text',          desc: 'Single line input' },
   { id: 'textarea',        icon: <AlignLeft size={15} />,    label: 'Long Text',           desc: 'Multi-line text box' },
   { id: 'quill',           icon: <Layers size={15} />,       label: 'Rich Text Editor',    desc: 'Formatted text with toolbar' },
@@ -47,6 +48,8 @@ table: {
   protectTotalsRow: true,
   colHeaders: ['Column 1', 'Column 2'],
   rows: [],
+  enableTableSubheading: false,
+  tableSubheadingRichText: '',
 },
 chart: {
   title: 'Revenue by Quarter',
@@ -79,6 +82,7 @@ chart: {
     addLabel: 'Add Entry',
     allowImage: false,
   },
+  'fixed-text': { content: 'Enter fixed text...' },
   mixed:      { template: 'Example [text] and [number]', options: [] },
   boolean:    { options: ['Yes', 'No'] },
   compliance: { options: ['Yes', 'No', 'NA'] },
@@ -459,7 +463,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
             { key: 'editableHeaders',      label: 'Allow editing headers in workspace' },
             { key: 'allowNA',              label: 'Add NA option in select cells' },
             { key: 'allowAddSideHeadings', label: 'Allow side headings between rows' },
-            { key: 'allowInstanceNames',   label: 'Add Table Subheadings' },
+            { key: 'allowInstanceNames',   label: 'Allow per-copy subheading input' },
           ].map(opt => {
             const isChecked = opt.defaultTrue ? baseConfig[opt.key] !== false : !!baseConfig[opt.key];
             return (
@@ -473,6 +477,28 @@ const moveBlockToSection = (blockId, targetSectionId) => {
               </label>
             );
           })}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text }}>
+            <input
+              type="checkbox"
+              checked={!!baseConfig.enableTableSubheading}
+              onChange={e => onChangeConfig({ enableTableSubheading: e.target.checked })}
+            />
+            Enable table subheading
+          </label>
+          {baseConfig.enableTableSubheading && (
+            <div>
+              <label style={{ ...lbl, color: T.primary }}>Subheading (Rich Text / HTML)</label>
+              <textarea
+                style={{ ...inp, minHeight: '86px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+                value={baseConfig.tableSubheadingRichText || ''}
+                onChange={e => onChangeConfig({ tableSubheadingRichText: e.target.value })}
+                placeholder="Add table subheading text..."
+              />
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: '4px', marginBottom: '4px' }}>
@@ -1272,13 +1298,13 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                   </div>
                   
                   {/* Swaps Description for Instruction Text when appropriate */}
-                  {activeBlock.type === 'instruction' ? (
+                  {activeBlock.type === 'instruction' || activeBlock.type === 'fixed-text' ? (
                     <div>
-                      <label style={{ ...lbl, color: T.primary }}>Instruction Text</label>
+                      <label style={{ ...lbl, color: T.primary }}>{activeBlock.type === 'fixed-text' ? 'Fixed Text Content' : 'Instruction Text'}</label>
                       <textarea style={{ ...inp, resize: 'vertical', minHeight: '80px', lineHeight: 1.5 }}
                         value={activeBlock.content || ''}
                         onChange={e => updateActiveBlock({ content: e.target.value })}
-                        placeholder="Type the guidance text here..." />
+                        placeholder={activeBlock.type === 'fixed-text' ? 'Type fixed text to display in workspace...' : 'Type the guidance text here...'} />
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
