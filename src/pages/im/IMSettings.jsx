@@ -216,6 +216,41 @@ export default function IMSettings() {
     }
   };
 
+  // ── NEW: SECTION REORDERING LOGIC ──
+  const moveSection = (sectionId, direction) => {
+    setSections(prevSections => {
+      const targetSection = prevSections.find(s => s.id === sectionId);
+      if (!targetSection) return prevSections;
+
+      // Get siblings (sections sharing the same parentId)
+      const siblings = prevSections
+        .filter(s => s.parentId === targetSection.parentId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+      const idx = siblings.findIndex(s => s.id === sectionId);
+      if (idx === -1) return prevSections;
+
+      // Prevent moving out of bounds
+      if (direction === 'up' && idx === 0) return prevSections;
+      if (direction === 'down' && idx === siblings.length - 1) return prevSections;
+
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      
+      // We create a new array to force re-render, and swap their orders
+      const newSections = [...prevSections];
+      
+      const targetDbIdx = newSections.findIndex(s => s.id === siblings[idx].id);
+      const swapDbIdx = newSections.findIndex(s => s.id === siblings[swapIdx].id);
+
+      // Swap the physical order values so the sorting logic picks it up
+      const tempOrder = newSections[targetDbIdx].order;
+      newSections[targetDbIdx].order = newSections[swapDbIdx].order;
+      newSections[swapDbIdx].order = tempOrder;
+
+      return newSections;
+    });
+  };
+
   const updateActiveSection = (updates) =>
     setSections(sections.map(sec => sec.id === activeSectionId ? { ...sec, ...updates } : sec));
 
@@ -1226,6 +1261,17 @@ export default function IMSettings() {
                           <div style={{ fontSize: '0.68rem', color: T.mutedText, marginTop: '2px', marginLeft: '16px' }}>{sec.blocks?.length || 0} blocks</div>
                         </div>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          
+                          {/* NEW: REORDER BUTTONS FOR PARENT SECTIONS */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '2px' }}>
+                            <button onClick={e => { e.stopPropagation(); moveSection(sec.id, 'up'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                              <ArrowUp size={11} />
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); moveSection(sec.id, 'down'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                              <ArrowDown size={11} />
+                            </button>
+                          </div>
+
                           <button onClick={e => { e.stopPropagation(); handleAddSection(sec.id); }} title="Add Subsection"
                             style={{ background: 'none', border: 'none', color: T.primary, cursor: 'pointer', opacity: 0.8, padding: '2px' }}>
                             <Plus size={14} />
@@ -1253,10 +1299,23 @@ export default function IMSettings() {
                               </div>
                               <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px', marginLeft: '22px' }}>{child.blocks?.length || 0} blocks</div>
                             </div>
-                            <button onClick={e => { e.stopPropagation(); deleteSection(child.id); }} title="Delete Subsection"
-                              style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
-                              <Trash2 size={12} />
-                            </button>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              
+                              {/* NEW: REORDER BUTTONS FOR CHILD SUBSECTIONS */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '2px' }}>
+                                <button onClick={e => { e.stopPropagation(); moveSection(child.id, 'up'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                                  <ArrowUp size={11} />
+                                </button>
+                                <button onClick={e => { e.stopPropagation(); moveSection(child.id, 'down'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                                  <ArrowDown size={11} />
+                                </button>
+                              </div>
+
+                              <button onClick={e => { e.stopPropagation(); deleteSection(child.id); }} title="Delete Subsection"
+                                style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
