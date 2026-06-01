@@ -5,7 +5,7 @@ import {
   Image as ImageIcon, Table, Copy, Trash2, ArrowUp, ArrowDown,
   Info, Layers, PanelLeft, PanelRight, Grid3X3, X, AlignJustify,
   Sun, Moon, ToggleRight, CheckSquare, FileText, Mail, Percent,
-  IndianRupee, List, Hash, GitBranch, BarChart3, Upload, Download, Scissors
+  IndianRupee, List, Hash, GitBranch, BarChart3, Upload, Download
 } from 'lucide-react';
 import { db } from '../../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -116,7 +116,6 @@ export default function IMSettings() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   
   const [showTableModal, setShowTableModal] = useState(false);
-  const [showTailorModal, setShowTailorModal] = useState(false); // NEW: Tailor Modal State
   const [activeCellRow, setActiveCellRow] = useState(0);
   const [activeCellCol, setActiveCellCol] = useState(0);
   const [matrixPath, setMatrixPath] = useState('root');
@@ -136,7 +135,7 @@ export default function IMSettings() {
     loadSchema();
   }, []);
 
-  // ── NEW: DYNAMIC NUMBERING ENGINE ──
+  // ── DYNAMIC NUMBERING ENGINE ──
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
@@ -202,8 +201,7 @@ export default function IMSettings() {
   };
 
   const deleteSection = (sectionId) => {
-    if (!window.confirm('Exclude this section and all its contents?')) return;
-    // Removing parent also automatically removes children in this filter
+    if (!window.confirm('Delete this section and all its contents?')) return;
     const remaining = sections.filter(s => s.id !== sectionId && s.parentId !== sectionId);
     setSections(remaining);
     const activeExists = remaining.some(s => s.id === activeSectionId);
@@ -297,7 +295,8 @@ export default function IMSettings() {
     }));
     setActiveBlockId(uid);
   };
-const moveBlockToSection = (blockId, targetSectionId) => {
+
+  const moveBlockToSection = (blockId, targetSectionId) => {
     if (targetSectionId === activeSectionId) return;
     let movedBlock = null;
     
@@ -327,6 +326,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
     // 3. Switch active section so user follows the block
     setActiveSectionId(targetSectionId);
   };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveMsg('');
@@ -1176,12 +1176,6 @@ const moveBlockToSection = (blockId, targetSectionId) => {
             <Download size={13} /> Export JSON
           </button>
 
-          {/* NEW: Tailor Template Button */}
-          <button onClick={() => setShowTailorModal(true)}
-            style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text, padding: '7px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
-            <Scissors size={14} /> Tailor Template
-          </button>
-
           <button onClick={() => handleAddSection(null)}
             style={{ background: T.surface2, border: `1px dashed ${T.border}`, color: T.text, padding: '7px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={14} /> Add Section
@@ -1211,7 +1205,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                 return parentSections.map(sec => {
                   const children = sections.filter(s => s.parentId === sec.id).sort((a,b) => (a.order||0) - (b.order||0));
                   const isActiveParent = activeSectionId === sec.id;
-                  const secNum = sectionNumberMap[sec.id]; // Dynamic Num
+                  const secNum = sectionNumberMap[sec.id];
                   return (
                     <React.Fragment key={sec.id}>
                       <div
@@ -1231,11 +1225,15 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                             style={{ background: 'none', border: 'none', color: T.primary, cursor: 'pointer', opacity: 0.8, padding: '2px' }}>
                             <Plus size={14} />
                           </button>
+                          <button onClick={e => { e.stopPropagation(); deleteSection(sec.id); }} title="Delete Section"
+                            style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       </div>
                       {children.map(child => {
                         const isActiveChild = activeSectionId === child.id;
-                        const childNum = sectionNumberMap[child.id]; // Dynamic Num
+                        const childNum = sectionNumberMap[child.id];
                         return (
                           <div
                             key={child.id}
@@ -1250,6 +1248,10 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                               </div>
                               <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px', marginLeft: '22px' }}>{child.blocks?.length || 0} blocks</div>
                             </div>
+                            <button onClick={e => { e.stopPropagation(); deleteSection(child.id); }} title="Delete Subsection"
+                              style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
+                              <Trash2 size={12} />
+                            </button>
                           </div>
                         );
                       })}
@@ -1389,73 +1391,6 @@ const moveBlockToSection = (blockId, targetSectionId) => {
           </div>
         </aside>
       </div>
-
-      {/* ── TAILOR TEMPLATE MODAL (NEW) ── */}
-      {showTailorModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
-          <div style={{ background: T.surface, border: `1px solid ${T.primaryBorder}`, borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
-            <div style={{ padding: '20px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2, borderRadius: '14px 14px 0 0' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
-                  <Scissors size={18} color={T.primary} /> Tailor Template Structure
-                </h2>
-                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.mutedText }}>Exclude specific sections or subsections. The numbering will auto-recalculate.</p>
-              </div>
-              <button onClick={() => setShowTailorModal(false)} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
-                <X size={18} />
-              </button>
-            </div>
-            
-            <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-              {(() => {
-                const parents = sections.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
-                if (parents.length === 0) return <div style={{ color: T.mutedText, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist yet.</div>;
-                
-                return parents.map(p => {
-                  const children = sections.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
-                  return (
-                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden' }}>
-                      <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text }}>
-                          <span style={{ color: T.primary, marginRight: '8px' }}>{sectionNumberMap[p.id]}.</span>
-                          {p.heading || p.navLabel || 'Untitled Section'}
-                        </div>
-                        <button onClick={() => deleteSection(p.id)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.danger, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Trash2 size={12} /> Exclude
-                        </button>
-                      </div>
-                      
-                      {children.length > 0 && (
-                        <div style={{ padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
-                          {children.map(c => (
-                            <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.mutedText }}>
-                                <span style={{ color: T.primary, marginRight: '8px' }}>{sectionNumberMap[c.id]}.</span>
-                                {c.heading || c.navLabel || 'Untitled Subsection'}
-                              </div>
-                              <button onClick={() => deleteSection(c.id)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.mutedText, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
-                                onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger; }}
-                                onMouseLeave={e => { e.currentTarget.style.color = T.mutedText; e.currentTarget.style.borderColor = T.border; }}>
-                                <X size={12} /> Exclude
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-            
-            <div style={{ padding: '16px 24px', borderTop: `1px solid ${T.border}`, background: T.surface2, borderRadius: '0 0 14px 14px', display: 'flex', justifyContent: 'flex-end' }}>
-               <button onClick={() => setShowTailorModal(false)} style={{ padding: '8px 24px', background: T.primary, color: '#000', border: 'none', borderRadius: '6px', fontWeight: 800, cursor: 'pointer' }}>
-                 Done Tailoring
-               </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showTableModal && activeBlock && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
