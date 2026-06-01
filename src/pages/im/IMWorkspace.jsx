@@ -3,23 +3,23 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User // <-- Added Kanban and User icons
+  MessageSquare, Kanban, User
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
   doc, onSnapshot, updateDoc, serverTimestamp, setDoc, collection,
-  query, where // <-- Added query and where for the tasks listener
+  query, where
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import BlockRegistry from './components/BlockRegistry.jsx';
 import CommentsSidebar from './components/CommentsSidebar.jsx';
-import IMTaskBoard from './components/IMTaskBoard.jsx'; // <-- Imported the Task Board
+import IMTaskBoard from './components/IMTaskBoard.jsx';
 
-// ── AVATAR COLOR POOL ──────────────────────────────────────────────────────
+// ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
 const avatarColor = (uid) => AVATAR_COLORS[(uid?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
-// ── STAGGER DELAY per block index ─────────────────────────────────────────
+// ── STAGGER DELAY per block index ──
 const STAGGER_MS = 40;
 
 export default function IMWorkspace() {
@@ -28,7 +28,7 @@ export default function IMWorkspace() {
   const projectId = searchParams.get('project');
   const imId = searchParams.get('im');
   const projectName = searchParams.get('name') || 'Active Dossier';
-
+  
   const [user, setUser] = useState(null);
   const [schema, setSchema] = useState([]);
   const [imData, setImData] = useState({});
@@ -45,35 +45,36 @@ export default function IMWorkspace() {
   const [myLockedBlock, setMyLockedBlock] = useState(null);
   const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
   
-  // <-- ADDED: Task Board & Dynamic Columns State
+  // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
   const [taskColumns, setTaskColumns] = useState([]);
   const [isTaskBoardOpen, setIsTaskBoardOpen] = useState(false);
-
+  
   const saveTimers = useRef({});
   const savedTimers = useRef({});
   const mainRef = useRef(null);
+  
   const isDark = theme === 'dark';
-
+  
   const T = useMemo(() => ({
-    bg:         isDark ? '#060910'                    : '#f1f5f9',
-    surface:    isDark ? '#0d1117'                    : '#ffffff',
-    surface2:   isDark ? '#111827'                    : '#f8fafc',
-    surface3:   isDark ? 'rgba(255,255,255,0.03)'     : 'rgba(0,0,0,0.03)',
-    border:     isDark ? 'rgba(255,255,255,0.07)'     : 'rgba(0,0,0,0.09)',
-    text:       isDark ? '#f1f5f9'                    : '#0f172a',
-    textMuted:  isDark ? '#64748b'                    : '#94a3b8',
-    textSub:    isDark ? '#475569'                    : '#cbd5e1',
+    bg:         isDark ? '#060910' : '#f1f5f9',
+    surface:    isDark ? '#0d1117' : '#ffffff',
+    surface2:   isDark ? '#111827' : '#f8fafc',
+    surface3:   isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    border:     isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.09)',
+    text:       isDark ? '#f1f5f9' : '#0f172a',
+    textMuted:  isDark ? '#64748b' : '#94a3b8',
+    textSub:    isDark ? '#475569' : '#cbd5e1',
     accent:     '#ef4444',
-    accentDim:  isDark ? 'rgba(239,68,68,0.12)'       : 'rgba(239,68,68,0.07)',
+    accentDim:  isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.07)',
     accentGlow: 'rgba(239,68,68,0.2)',
     green:      '#10b981',
     amber:      '#f59e0b',
     amberDim:   'rgba(245,158,11,0.12)',
-    header:     isDark ? 'rgba(6,9,16,0.92)'          : 'rgba(255,255,255,0.92)',
-    sidebar:    isDark ? '#080c14'                    : '#ffffff',
+    header:     isDark ? 'rgba(6,9,16,0.92)' : 'rgba(255,255,255,0.92)',
+    sidebar:    isDark ? '#080c14' : '#ffffff',
     shadow:     isDark ? '0 1px 3px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.06)',
-    shadowLg:   isDark ? '0 8px 32px rgba(0,0,0,0.6)': '0 8px 32px rgba(0,0,0,0.1)',
+    shadowLg:   isDark ? '0 8px 32px rgba(0,0,0,0.6)' : '0 8px 32px rgba(0,0,0,0.1)',
   }), [isDark]);
 
   useEffect(() => {
@@ -113,7 +114,6 @@ export default function IMWorkspace() {
     });
   }, [imId]);
 
-  // <-- ADDED: Fetch Tasks for this IM
   useEffect(() => {
     if (!imId) return;
     const q = query(collection(db, 'im-tasks'), where('imId', '==', imId));
@@ -122,7 +122,6 @@ export default function IMWorkspace() {
     });
   }, [imId]);
 
-  // <-- ADDED: Fetch Dynamic Task Columns
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'im-task-config', imId), (snap) => {
@@ -150,6 +149,46 @@ export default function IMWorkspace() {
     });
   }, [projectId, user]);
 
+  // ── DYNAMIC NUMBERING ENGINE (SYNCED WITH IMSETTINGS) ──
+  const sectionNumberMap = useMemo(() => {
+    const map = {};
+    let parentCounter = 1;
+    const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    
+    parents.forEach(p => {
+      map[p.id] = `${parentCounter}`;
+      let childCounter = 1;
+      const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+      
+      children.forEach(c => {
+        map[c.id] = `${parentCounter}.${childCounter}`;
+        childCounter++;
+      });
+      parentCounter++;
+    });
+    return map;
+  }, [schema]);
+
+  const flatSections = useMemo(() => {
+    const parents = schema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const result = [];
+    parents.forEach(p => {
+      const children = schema
+        .filter(s => s.parentId === p.id)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      result.push({ ...p, isParent: true, hasChildren: children.length > 0 });
+      if (!collapsedGroups[p.id]) children.forEach(c => result.push({ ...c, isParent: false }));
+    });
+    return result;
+  }, [schema, collapsedGroups]);
+
+  // Updated to include the Dynamic Number prefix in Task/Matrix views
+  const getSectionName = useCallback((key) => {
+    const sec = flatSections.find(s => s.key === key);
+    if (!sec) return key;
+    return `${sectionNumberMap[sec.id]}. ${sec.navLabel || sec.heading}`;
+  }, [flatSections, sectionNumberMap]);
+
   const handleDataChange = useCallback(async (dataPath, value, blockId) => {
     if (!dataPath || !imId) return;
     setImData(prev => {
@@ -163,6 +202,7 @@ export default function IMWorkspace() {
       cur[keys[keys.length - 1]] = value;
       return next;
     });
+    
     setSaveStatus('saving');
     clearTimeout(saveTimers.current[dataPath]);
     saveTimers.current[dataPath] = setTimeout(async () => {
@@ -219,12 +259,14 @@ export default function IMWorkspace() {
 
   const activeSectionSchema = useMemo(() =>
     schema.find(s => s.key === activeSection), [schema, activeSection]);
+
   const activeSectionChildren = useMemo(() => {
     if (!activeSectionSchema?.id) return [];
     return schema
       .filter(s => s.parentId === activeSectionSchema.id)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [schema, activeSectionSchema]);
+
   const activeSectionHasBlocks = (activeSectionSchema?.blocks || []).length > 0;
   const showSubsectionPrompt = !!activeSectionSchema && !activeSectionHasBlocks && activeSectionChildren.length > 0;
 
@@ -260,19 +302,6 @@ export default function IMWorkspace() {
     return () => window.removeEventListener('im-open-comments-sidebar', handler);
   }, []);
 
-  const flatSections = useMemo(() => {
-    const parents = schema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    const result = [];
-    parents.forEach(p => {
-      const children = schema
-        .filter(s => s.parentId === p.id)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      result.push({ ...p, isParent: true, hasChildren: children.length > 0 });
-      if (!collapsedGroups[p.id]) children.forEach(c => result.push({ ...c, isParent: false }));
-    });
-    return result;
-  }, [schema, collapsedGroups]);
-
   const exitToHub = async () => {
     if (user) await updateDoc(doc(db, 'workspace-users', user.uid), {
       currentBlockId: null, currentPage: 'module-hub',
@@ -282,19 +311,18 @@ export default function IMWorkspace() {
 
   const SaveChip = () => {
     const config = {
-      saving: { icon: <Loader2 size={11} style={{ animation: 'imSpin 0.8s linear infinite' }} />, label: 'Saving',  color: T.textMuted, bg: T.surface3,               border: 'transparent' },
-      error:  { icon: <ShieldAlert size={11} />,                                                   label: 'Failed',  color: '#ef4444',   bg: 'rgba(239,68,68,0.1)',    border: 'rgba(239,68,68,0.25)' },
-      saved:  { icon: <CheckCircle2 size={11} />,                                                  label: 'Saved',   color: T.green,     bg: 'rgba(16,185,129,0.1)',   border: 'rgba(16,185,129,0.25)' },
-      idle:   { icon: <CheckCircle2 size={11} />,                                                  label: 'Saved',   color: T.textSub,   bg: 'transparent',            border: 'transparent' },
+      saving: { icon: <Loader2 size={11} style={{ animation: 'imSpin 0.8s linear infinite' }} />, label: 'Saving',  color: T.textMuted, bg: T.surface3, border: 'transparent' },
+      error:  { icon: <ShieldAlert size={11} />, label: 'Failed', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.25)' },
+      saved:  { icon: <CheckCircle2 size={11} />, label: 'Saved', color: T.green, bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.25)' },
+      idle:   { icon: <CheckCircle2 size={11} />, label: 'Saved', color: T.textSub, bg: 'transparent', border: 'transparent' },
     }[saveStatus] ?? { icon: null, label: '', color: T.textMuted, bg: 'transparent', border: 'transparent' };
-
+    
     return (
       <div style={{
         display: 'flex', alignItems: 'center', gap: 5,
         padding: '4px 10px', borderRadius: 20,
         background: config.bg, color: config.color,
-        fontSize: 11, fontWeight: 700,
-        border: `1px solid ${config.border}`,
+        fontSize: 11, fontWeight: 700, border: `1px solid ${config.border}`,
         transition: 'all 0.35s cubic-bezier(0.4,0,0.2,1)',
       }}>
         {config.icon} {config.label}
@@ -325,17 +353,12 @@ export default function IMWorkspace() {
       background: T.bg, color: T.text,
       fontFamily: "'Inter', 'DM Sans', system-ui, sans-serif",
     }}>
-
       <aside style={{
-        width: isSidebarOpen ? 272 : 0,
-        minWidth: isSidebarOpen ? 272 : 0,
-        overflow: 'hidden',
-        background: T.sidebar,
-        borderRight: `1px solid ${T.border}`,
+        width: isSidebarOpen ? 272 : 0, minWidth: isSidebarOpen ? 272 : 0,
+        overflow: 'hidden', background: T.sidebar, borderRight: `1px solid ${T.border}`,
         display: 'flex', flexDirection: 'column',
         transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1), min-width 0.3s cubic-bezier(0.4,0,0.2,1)',
-        flexShrink: 0,
-        zIndex: 20,
+        flexShrink: 0, zIndex: 20,
       }}>
         <div style={{ padding: '18px 20px 16px', borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
@@ -357,25 +380,20 @@ export default function IMWorkspace() {
             <PanelLeftClose size={14} />
           </button>
         </div>
-
         <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}>
           {flatSections.map(section => {
             const isActive = activeSection === section.key;
             const isCollapsed = collapsedGroups[section.id];
             const viewers = onlineUsers.filter(u => u.section === section.key && u.uid !== user?.uid);
-
+            
             if (section.isParent) return (
               <div key={section.id}>
                 <div
-                  onClick={() => {
-                    handleSectionClick(section.key);
-                    if (isCollapsed) toggleGroup(section.id);
-                  }}
+                  onClick={() => { handleSectionClick(section.key); if (isCollapsed) toggleGroup(section.id); }}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '7px 10px', borderRadius: 7, cursor: 'pointer', marginBottom: 1,
-                    color: isActive ? T.text : T.textMuted,
-                    background: isActive ? T.accentDim : 'transparent',
+                    color: isActive ? T.text : T.textMuted, background: isActive ? T.accentDim : 'transparent',
                     userSelect: 'none', transition: 'all 0.15s ease',
                   }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface3; }}
@@ -384,6 +402,7 @@ export default function IMWorkspace() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflow: 'hidden' }}>
                     {isActive && <div style={{ width: 3, height: 14, borderRadius: 2, background: T.accent, flexShrink: 0, boxShadow: `0 0 8px ${T.accentGlow}` }} />}
                     <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.accent : 'inherit' }}>
+                      <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
                       {section.navLabel}
                     </span>
                   </div>
@@ -394,13 +413,7 @@ export default function IMWorkspace() {
                       </div>
                     ))}
                     {section.hasChildren && (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleGroup(section.id);
-                        }}
-                        style={{ color: T.textSub, transition: 'transform 0.22s ease', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', padding: '4px' }}
-                      >
+                      <div onClick={(e) => { e.stopPropagation(); toggleGroup(section.id); }} style={{ color: T.textSub, transition: 'transform 0.22s ease', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', padding: '4px' }}>
                         <ChevronDown size={13} />
                       </div>
                     )}
@@ -408,7 +421,6 @@ export default function IMWorkspace() {
                 </div>
               </div>
             );
-
             return (
               <div
                 key={section.id}
@@ -417,8 +429,7 @@ export default function IMWorkspace() {
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '6px 10px 6px 22px', borderRadius: 7, cursor: 'pointer',
                   marginBottom: 1, userSelect: 'none', position: 'relative',
-                  transition: 'all 0.15s ease',
-                  background: isActive ? T.accentDim : 'transparent',
+                  transition: 'all 0.15s ease', background: isActive ? T.accentDim : 'transparent',
                   color: isActive ? T.accent : T.textMuted,
                 }}
                 onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; } }}
@@ -429,6 +440,7 @@ export default function IMWorkspace() {
                   : <div style={{ position: 'absolute', left: 13, width: 4, height: 4, borderRadius: '50%', background: T.textSub }} />
                 }
                 <span style={{ fontSize: 11.5, fontWeight: isActive ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
+                  <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
                   {section.navLabel}
                 </span>
                 {viewers.length > 0 && (
@@ -444,7 +456,6 @@ export default function IMWorkspace() {
             );
           })}
         </nav>
-
         {onlineUsers.length > 0 && (
           <div style={{ padding: '12px 16px', borderTop: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <div style={{ display: 'flex' }}>
@@ -463,13 +474,9 @@ export default function IMWorkspace() {
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-
         <header style={{
-          flexShrink: 0,
-          background: T.header,
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          position: 'sticky', top: 0, zIndex: 10,
+          flexShrink: 0, background: T.header, backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10,
         }}>
           <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -482,7 +489,6 @@ export default function IMWorkspace() {
               >
                 <Menu size={17} />
               </button>
-
               <button
                 onClick={exitToHub}
                 style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '6px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, transition: 'color 0.15s, background 0.15s' }}
@@ -491,9 +497,7 @@ export default function IMWorkspace() {
               >
                 <ArrowLeft size={13} /> Hub
               </button>
-
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 4px' }} />
-
               <div style={{
                 fontSize: 13, fontWeight: 700, color: T.text,
                 opacity: sectionTransition ? 0 : 1,
@@ -501,27 +505,22 @@ export default function IMWorkspace() {
                 transition: 'opacity 0.15s ease, transform 0.15s ease',
                 maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {activeSectionSchema?.heading || activeSectionSchema?.navLabel || 'Investment Memo'}
+                {activeSectionSchema ? `${sectionNumberMap[activeSectionSchema.id]}. ${activeSectionSchema.heading || activeSectionSchema.navLabel}` : 'Investment Memo'}
               </div>
             </div>
-
-<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-  {LockIndicator()}
-  {SaveChip()}
-
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {LockIndicator()}
+              {SaveChip()}
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 2px' }} />
-
-              {/* <-- ADDED: Kanban Task Board Button --> */}
+              
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
                 title="Operations Board"
                 style={{
-                  background: isTaskBoardOpen ? T.amberDim : 'none',
-                  border: 'none',
+                  background: isTaskBoardOpen ? T.amberDim : 'none', border: 'none',
                   color: isTaskBoardOpen ? T.amber : T.textMuted,
                   cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                  transition: 'color 0.15s, background 0.15s',
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
                 onMouseLeave={e => {
@@ -531,17 +530,14 @@ export default function IMWorkspace() {
               >
                 <Kanban size={15} />
               </button>
-
               <button
                 onClick={() => setCommentsSidebarOpen(p => !p)}
                 title="Comments"
                 style={{
-                  background: commentsSidebarOpen ? T.amberDim : 'none',
-                  border: 'none',
+                  background: commentsSidebarOpen ? T.amberDim : 'none', border: 'none',
                   color: commentsSidebarOpen ? T.amber : T.textMuted,
                   cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                  transition: 'color 0.15s, background 0.15s',
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
                 onMouseLeave={e => {
@@ -551,7 +547,6 @@ export default function IMWorkspace() {
               >
                 <MessageSquare size={15} />
               </button>
-
               <button
                 onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')}
                 title="Toggle theme"
@@ -561,7 +556,6 @@ export default function IMWorkspace() {
               >
                 {isDark ? <Sun size={15} /> : <Moon size={15} />}
               </button>
-
               <button
                 onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
                 title="IM Settings"
@@ -573,15 +567,11 @@ export default function IMWorkspace() {
               </button>
             </div>
           </div>
-
           <div style={{ height: 2, background: T.border, position: 'relative' }}>
             <div style={{
-              position: 'absolute', top: 0, left: 0, height: 2,
-              width: `${scrollProgress}%`,
-              background: `linear-gradient(90deg, ${T.accent}, #f97316)`,
-              borderRadius: '0 2px 2px 0',
-              transition: 'width 0.1s linear',
-              boxShadow: `0 0 8px ${T.accentGlow}`,
+              position: 'absolute', top: 0, left: 0, height: 2, width: `${scrollProgress}%`,
+              background: `linear-gradient(90deg, ${T.accent}, #f97316)`, borderRadius: '0 2px 2px 0',
+              transition: 'width 0.1s linear', boxShadow: `0 0 8px ${T.accentGlow}`,
               opacity: scrollProgress > 2 ? 1 : 0,
             }} />
           </div>
@@ -589,10 +579,7 @@ export default function IMWorkspace() {
 
         <main
           ref={mainRef}
-          style={{
-            flex: 1, overflowY: 'auto', padding: '40px 48px',
-            scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent`,
-          }}
+          style={{ flex: 1, overflowY: 'auto', padding: '40px 48px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}
         >
           {schema.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16 }}>
@@ -619,6 +606,7 @@ export default function IMWorkspace() {
           ) : showSubsectionPrompt ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '52vh', gap: 10, textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>
+                <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
                 {activeSectionSchema.heading || activeSectionSchema.navLabel}
               </div>
               <div style={{ maxWidth: 420, fontSize: 13, color: T.textMuted, lineHeight: 1.6 }}>
@@ -628,19 +616,18 @@ export default function IMWorkspace() {
           ) : (
             <div style={{
               maxWidth: 820, margin: '0 auto',
-              opacity: sectionTransition ? 0 : 1,
-              transform: sectionTransition ? 'translateY(10px)' : 'translateY(0)',
+              opacity: sectionTransition ? 0 : 1, transform: sectionTransition ? 'translateY(10px)' : 'translateY(0)',
               transition: 'opacity 0.2s ease, transform 0.2s ease',
             }}>
               <div style={{ marginBottom: 32 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
                   <div style={{ width: 4, height: 32, borderRadius: 3, flexShrink: 0, background: `linear-gradient(180deg, ${T.accent}, rgba(239,68,68,0.3))` }} />
                   <h2 style={{ fontSize: 24, fontWeight: 800, color: T.text, margin: 0, letterSpacing: -0.3, lineHeight: 1.2 }}>
+                    <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
                     {activeSectionSchema.heading || activeSectionSchema.navLabel}
                   </h2>
                 </div>
-
-                {/* <-- UPDATED: Dynamic Task Assignment Pill Below Title --> */}
+                
                 {(() => {
                   const sectionTask = tasks.find(t => t.linkedSections?.includes(activeSectionSchema.key));
                   if (!sectionTask) return null;
@@ -670,7 +657,7 @@ export default function IMWorkspace() {
                 )}
                 <div style={{ marginTop: 16, height: 1, background: `linear-gradient(90deg, ${T.border} 0%, transparent 80%)` }} />
               </div>
-
+              
               {(activeSectionSchema.blocks || [])
                 .slice()
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -684,8 +671,7 @@ export default function IMWorkspace() {
                     <div
                       key={block.id}
                       style={{
-                        opacity: isVisible ? 1 : 0,
-                        transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
+                        opacity: isVisible ? 1 : 0, transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
                         transition: 'opacity 0.25s ease, transform 0.25s ease',
                       }}
                     >
@@ -705,24 +691,13 @@ export default function IMWorkspace() {
           )}
         </main>
       </div>
-
-      <CommentsSidebar
-        imId={imId}
-        isDark={isDark}
-        isOpen={commentsSidebarOpen}
-        onClose={() => setCommentsSidebarOpen(false)}
-      />
-
-      {/* <-- ADDED: Task Board Modal Component --> */}
+      
+      <CommentsSidebar imId={imId} isDark={isDark} isOpen={commentsSidebarOpen} onClose={() => setCommentsSidebarOpen(false)} />
+      
       {isTaskBoardOpen && (
-        <IMTaskBoard
-          imId={imId}
-          projectId={projectId}
-          isDark={isDark}
-          onClose={() => setIsTaskBoardOpen(false)}
-        />
+        <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
       )}
-
+      
       <style>{`
         @keyframes imSpin    { from { transform: rotate(0deg); }   to   { transform: rotate(360deg); } }
         @keyframes imPulse   { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.2); } }
