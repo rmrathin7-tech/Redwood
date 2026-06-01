@@ -1,5 +1,5 @@
-import React, { useMemo, useEffect } from 'react';
-import { X, Printer, Download } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { X, Printer } from 'lucide-react';
 
 export default function IMPrintPreview({ schema, imData, excludedSections, projectName, onClose }) {
   // 1. Calculate Visible Schema (Respect Exclusions)
@@ -24,24 +24,33 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
   const cleanTitle = (text) => text ? text.replace(/^([0-9]+\.)+\s*/, '') : '';
 
-  // 3. Data Retrieval Helper
-  const getValue = (path) => {
+  // 3. Data Retrieval Helper (Supports global imData OR local repeating context)
+  const getValue = (path, contextData = null) => {
+    if (contextData !== null) return contextData[path]; // For Repeating Block Sets
     if (!path) return undefined;
     return path.split('.').reduce((obj, key) => obj?.[key], imData);
   };
 
   // 4. Smart Table Parser
-  const renderTable = (block) => {
-    const dataRows = getValue(block.dataPath)?.rows || block.rows || [];
+  const renderTable = (block, blockData) => {
+    const dataRows = blockData?.rows || block.rows || [];
     
     return (
-      <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+      <div style={{ overflowX: 'auto', marginBottom: '24px', pageBreakInside: 'avoid' }}>
+        {/* Table Subheading (If enabled) */}
+        {block.enableTableSubheading && blockData?.tableSubheadingRichText && (
+          <div 
+            style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic' }} 
+            dangerouslySetInnerHTML={{ __html: blockData.tableSubheadingRichText }} 
+          />
+        )}
+        
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0' }}>
           <thead>
             <tr>
-              {block.showSno && <th style={{ border: '1px solid #e2e8f0', padding: '10px', background: '#f8fafc', textAlign: 'center', width: '40px' }}>#</th>}
+              {block.showSno && <th style={{ border: '1px solid #cbd5e1', padding: '10px', background: '#f8fafc', textAlign: 'center', width: '40px', color: '#0f172a' }}>#</th>}
               {(block.colHeaders || []).map((h, i) => (
-                <th key={i} style={{ border: '1px solid #e2e8f0', padding: '10px', background: '#f8fafc', textAlign: 'left', fontWeight: 700, color: '#0f172a' }}>{h}</th>
+                <th key={i} style={{ border: '1px solid #cbd5e1', padding: '10px', background: '#f8fafc', textAlign: 'left', fontWeight: 700, color: '#0f172a' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -50,13 +59,15 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
               <tr key={row.id || rIdx}>
                 {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '10px', textAlign: 'center', color: '#64748b' }}>{rIdx + 1}</td>}
                 {(row.cells || []).map((cell, cIdx) => {
-                  const cellData = getValue(`${block.dataPath}.rows.${rIdx}.cells.${cIdx}.value`);
-                  let displayValue = cellData ?? '-';
+                  const cellData = blockData?.rows?.[rIdx]?.cells?.[cIdx]?.value;
+                  let displayValue = cellData ?? cell.text ?? '-';
 
+                  // Handle Specific Cell Types safely
                   if (cell.cellType === 'fixed') displayValue = cell.text;
-                  if (cell.cellType === 'computed') displayValue = cellData || '-'; // Assuming computed values are saved in DB
+                  if (cell.cellType === 'computed') displayValue = cellData || cell.formula || '-'; 
                   if (cell.inputType === 'quill') displayValue = <div dangerouslySetInnerHTML={{ __html: cellData || '-' }} />;
                   if (cell.cellType === 'smart-select') displayValue = cellData || '-';
+                  if (cell.cellType === 'mixed') displayValue = cellData?.compiledText || cellData || '-';
 
                   return (
                     <td key={cIdx} colSpan={cell.colspan || 1} rowSpan={cell.rowspan || 1} style={{ border: '1px solid #e2e8f0', padding: '10px', verticalAlign: 'top', color: '#334155' }}>
@@ -72,33 +83,86 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
     );
   };
 
-  // 5. Block Compiler Engine
-  const compileBlock = (block) => {
-    const val = getValue(block.dataPath);
-
-    // Skip instructions
+  // 5. Ultimate Block Compiler Engine (Covers all 16 Schema Types)
+  const compileBlock = (block, contextData = null) => {
+    if (!block) return null;
+    
+    // Skip instruction notes completely for print
     if (block.type === 'instruction') return null;
+
+    // Get value safely (respecting if we are inside a repeating loop)
+    const dataKey = block.dataPath || block.id; 
+    const val = getValue(dataKey, contextData);
 
     return (
       <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
+        {/* Standard Block Label */}
         {block.label && !['fixed-text', 'instruction'].includes(block.type) && (
           <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{cleanTitle(block.label)}</h4>
         )}
         
-        {block.type === 'fixed-text' && <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>}
+        {/* 1. Fixed Text */}
+        {block.type === 'fixed-text' && (
+          <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>
+        )}
         
-        {(block.type === 'text' || block.type === 'textarea') && (
-          <div style={{ fontSize: '13px', color: '#475569', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>{val || 'N/A'}</div>
+        {/* 2. Text / Textarea / Generic Inputs */}
+        {['text', 'textarea', 'number', 'currency', 'percentage', 'email', 'date'].includes(block.type) && (
+          <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', whiteSpace: 'pre-wrap' }}>
+            {val || '-'}
+          </div>
         )}
 
+        {/* 3. Quill (Rich Text) */}
         {block.type === 'quill' && (
-          <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: val || '<span style="color:#94a3b8">N/A</span>' }} />
+          <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: val || '<span style="color:#94a3b8">-</span>' }} />
         )}
 
-        {block.type === 'table' && renderTable(block)}
+        {/* 4. Table */}
+        {block.type === 'table' && renderTable(block, val)}
 
+        {/* 5. Boolean & Compliance */}
+        {(block.type === 'boolean' || block.type === 'compliance') && (
+          <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'inline-block' }}>
+            {val || '-'}
+          </div>
+        )}
+
+        {/* 6. List (Bullet points) */}
+        {block.type === 'list' && (
+          <ul style={{ fontSize: '13px', color: '#334155', margin: 0, paddingLeft: '24px', lineHeight: 1.6 }}>
+            {(val || []).map((item, i) => (
+              <li key={i} style={{ marginBottom: '6px' }}>{typeof item === 'object' ? item.value : item}</li>
+            ))}
+            {(!val || val.length === 0) && <li style={{ color: '#94a3b8', listStyleType: 'none', marginLeft: '-24px' }}>-</li>}
+          </ul>
+        )}
+
+        {/* 7. Image */}
+        {block.type === 'image' && (
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+            {(Array.isArray(val) ? val : (val ? [val] : [])).map((img, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <img src={img.url || img} alt="" style={{ maxWidth: block.imageWidth || '300px', height: block.imageHeight || 'auto', objectFit: block.objectFit || 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }} />
+                {img.caption && <span style={{ fontSize: '11px', color: '#64748b' }}>{img.caption}</span>}
+              </div>
+            ))}
+            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>No images uploaded</div>}
+          </div>
+        )}
+
+        {/* 8. File */}
+        {block.type === 'file' && (
+          <div style={{ fontSize: '12px', color: '#3b82f6', background: '#eff6ff', padding: '10px 14px', borderRadius: '6px', border: '1px dashed #bfdbfe' }}>
+            {(Array.isArray(val) ? val : (val ? [val] : [])).map((f, i) => (
+               <div key={i}>📄 {f.name || 'Attached File'}</div>
+            ))}
+            {(!val || val.length === 0) && <span style={{color: '#94a3b8'}}>-</span>}
+          </div>
+        )}
+
+        {/* 9. Conditional Switcher */}
         {block.type === 'conditional-switch' && (() => {
-          // Find which branch was selected in the DB
           const selectedBranchId = val?.selectedBranch;
           if (!selectedBranchId) return null;
           
@@ -106,18 +170,76 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           if (!branch || !branch.blocks) return null;
 
           return (
-            <div style={{ paddingLeft: '16px', borderLeft: '2px solid #e2e8f0', marginTop: '12px' }}>
-              {branch.blocks.map(b => compileBlock(b))}
+            <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
+              {branch.blocks.map(b => compileBlock(b, contextData))}
             </div>
           );
         })()}
 
-        {block.type === 'mixed' && (
-          <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            {/* Extremely basic fallback for mixed templates if they aren't pre-rendered in DB */}
-            {val?.compiledText || val || 'N/A'} 
+        {/* 10. Repeating Block Set */}
+        {block.type === 'repeating-block-set' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
+            {(val || []).map((instanceData, i) => (
+              <div key={i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc' }}>
+                <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
+                {/* Recursively compile sub-blocks passing the instanceData as the new context */}
+                {(block.blocks || []).map(subBlock => compileBlock(subBlock, instanceData))}
+              </div>
+            ))}
+            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
           </div>
         )}
+
+        {/* 11. Repeating Group (Founders, Testimonials, etc) */}
+        {block.type === 'repeating-group' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
+            {(val || []).map((item, i) => (
+              <div key={i} style={{ padding: '14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff' }}>
+                {(block.template || []).map(field => (
+                  <div key={field.id} style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>{field.label}</div>
+                    <div style={{ fontSize: '13px', color: '#0f172a' }}>{item[field.id] || '-'}</div>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {(!val || val.length === 0) && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
+          </div>
+        )}
+
+        {/* 12. Chart (Fallback to Data Table for Print safety) */}
+        {block.type === 'chart' && (
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontStyle: 'italic' }}>Chart Data Representation</div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+              <thead>
+                <tr>
+                  <th style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{block.xAxisLabel || 'Category'}</th>
+                  {(block.series || []).map((s, i) => <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{s}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {(val?.rows || block.rowLabels || []).map((row, rIdx) => (
+                  <tr key={rIdx}>
+                    <td style={{ border: '1px solid #e2e8f0', padding: '8px', fontWeight: 600 }}>{row.label || row || `Row ${rIdx+1}`}</td>
+                    {(block.series || []).map((s, cIdx) => (
+                      <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px', color: '#334155' }}>{row.values?.[cIdx] ?? val?.[`${rIdx}_${cIdx}`] ?? '-'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* 13. Mixed (Fill-in-the-blanks) */}
+        {block.type === 'mixed' && (
+          <div style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.6, background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            {val?.compiledText || val || '-'} 
+          </div>
+        )}
+
       </div>
     );
   };
@@ -128,7 +250,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#cbd5e1', display: 'flex', flexDirection: 'column' }}>
       
       {/* ── TOP ACTION BAR (Hidden in Print) ── */}
-      <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+      <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer', color: '#475569' }}><X size={20} /></button>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>Print Preview: {projectName}</h2>
@@ -139,7 +261,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
       </div>
 
       {/* ── SCROLLABLE PREVIEW CANVAS ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '40px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '40px 0' }} className="print-canvas">
         
         {/* THE DOCUMENT PAPER */}
         <div id="print-document" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: '#ffffff', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', padding: '25mm 20mm' }}>
@@ -231,22 +353,47 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
       {/* ── GLOBAL PRINT CSS INJECTION ── */}
       <style>{`
         @media print {
-          @page { size: A4; margin: 15mm; }
-          body { background: #fff; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
-          
-          /* Hide everything in the app EXCEPT the document */
-          body > *:not(#print-mount-point) { display: none !important; }
-          .no-print { display: none !important; }
-          
-          /* Reset Document bounds for printing */
-          #print-document { 
-            width: 100% !important; 
-            margin: 0 !important; 
-            padding: 0 !important; 
-            box-shadow: none !important; 
+          /* 1. RESET HTML/BODY TO ALLOW FULL SCROLL PRINTING */
+          html, body, #root {
+            height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
-          
-          /* Ensure headers/footers appear on every page if needed natively by browser */
+
+          /* 2. HIDE REACT ROOT & WORKSPACE APP */
+          aside, header, main, .no-print {
+            display: none !important;
+          }
+
+          /* 3. FORMAT THE PRINT MOUNT POINT */
+          #print-mount-point {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          /* 4. STRIP BACKGROUNDS & SHADOWS FROM DOCUMENT */
+          #print-document {
+            box-shadow: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          .print-canvas {
+            overflow: visible !important;
+            padding: 0 !important;
+          }
+
+          @page {
+            size: A4;
+            margin: 15mm;
+          }
         }
       `}</style>
     </div>
