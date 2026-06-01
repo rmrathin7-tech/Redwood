@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
   Image as ImageIcon, Table, Copy, Trash2, ArrowUp, ArrowDown,
   Info, Layers, PanelLeft, PanelRight, Grid3X3, X, AlignJustify,
-  Sun, Moon, ToggleRight, CheckSquare, FileText, Mail, Percent,
-  IndianRupee, List, Hash, GitBranch, BarChart3, Upload, Download
+  Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download
 } from 'lucide-react';
 import { db } from '../../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const BLOCK_TYPES = [
   { id: 'instruction',     icon: <Info size={15} />,         label: 'Instruction Note',   desc: 'Read-only guidance text' },
+  { id: 'fixed-text',      icon: <AlignLeft size={15} />,    label: 'Fixed Text',         desc: 'Static text display block' },
   { id: 'text',            icon: <Type size={15} />,         label: 'Short Text',          desc: 'Single line input' },
   { id: 'textarea',        icon: <AlignLeft size={15} />,    label: 'Long Text',           desc: 'Multi-line text box' },
   { id: 'quill',           icon: <Layers size={15} />,       label: 'Rich Text Editor',    desc: 'Formatted text with toolbar' },
@@ -47,6 +47,8 @@ table: {
   protectTotalsRow: true,
   colHeaders: ['Column 1', 'Column 2'],
   rows: [],
+  enableTableSubheading: false,
+  tableSubheadingRichText: '',
 },
 chart: {
   title: 'Revenue by Quarter',
@@ -79,6 +81,7 @@ chart: {
     addLabel: 'Add Entry',
     allowImage: false,
   },
+  'fixed-text': { content: 'Enter fixed text...' },
   mixed:      { template: 'Example [text] and [number]', options: [] },
   boolean:    { options: ['Yes', 'No'] },
   compliance: { options: ['Yes', 'No', 'NA'] },
@@ -131,6 +134,32 @@ export default function IMSettings() {
     loadSchema();
   }, []);
 
+  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
+  const cleanTitle = (text) => {
+    if (!text) return '';
+    return text.replace(/^([0-9]+\.)+\s*/, '');
+  };
+
+  // ── DYNAMIC NUMBERING ENGINE ──
+  const sectionNumberMap = useMemo(() => {
+    const map = {};
+    let parentCounter = 1;
+    const parents = sections.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    
+    parents.forEach(p => {
+      map[p.id] = `${parentCounter}`;
+      let childCounter = 1;
+      const children = sections.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+      
+      children.forEach(c => {
+        map[c.id] = `${parentCounter}.${childCounter}`;
+        childCounter++;
+      });
+      parentCounter++;
+    });
+    return map;
+  }, [sections]);
+
   const generateId = () => crypto.randomUUID().split('-')[0];
 
   const handleExportJSON = () => {
@@ -177,7 +206,7 @@ export default function IMSettings() {
   };
 
   const deleteSection = (sectionId) => {
-    if (!window.confirm('Delete this section and all its blocks?')) return;
+    if (!window.confirm('Delete this section and all its contents?')) return;
     const remaining = sections.filter(s => s.id !== sectionId && s.parentId !== sectionId);
     setSections(remaining);
     const activeExists = remaining.some(s => s.id === activeSectionId);
@@ -185,6 +214,41 @@ export default function IMSettings() {
       setActiveSectionId(remaining[0]?.id || null);
       setActiveBlockId(null);
     }
+  };
+
+  // ── NEW: SECTION REORDERING LOGIC ──
+  const moveSection = (sectionId, direction) => {
+    setSections(prevSections => {
+      const targetSection = prevSections.find(s => s.id === sectionId);
+      if (!targetSection) return prevSections;
+
+      // Get siblings (sections sharing the same parentId)
+      const siblings = prevSections
+        .filter(s => s.parentId === targetSection.parentId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+      const idx = siblings.findIndex(s => s.id === sectionId);
+      if (idx === -1) return prevSections;
+
+      // Prevent moving out of bounds
+      if (direction === 'up' && idx === 0) return prevSections;
+      if (direction === 'down' && idx === siblings.length - 1) return prevSections;
+
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      
+      // We create a new array to force re-render, and swap their orders
+      const newSections = [...prevSections];
+      
+      const targetDbIdx = newSections.findIndex(s => s.id === siblings[idx].id);
+      const swapDbIdx = newSections.findIndex(s => s.id === siblings[swapIdx].id);
+
+      // Swap the physical order values so the sorting logic picks it up
+      const tempOrder = newSections[targetDbIdx].order;
+      newSections[targetDbIdx].order = newSections[swapDbIdx].order;
+      newSections[swapDbIdx].order = tempOrder;
+
+      return newSections;
+    });
   };
 
   const updateActiveSection = (updates) =>
@@ -271,7 +335,8 @@ export default function IMSettings() {
     }));
     setActiveBlockId(uid);
   };
-const moveBlockToSection = (blockId, targetSectionId) => {
+
+  const moveBlockToSection = (blockId, targetSectionId) => {
     if (targetSectionId === activeSectionId) return;
     let movedBlock = null;
     
@@ -301,6 +366,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
     // 3. Switch active section so user follows the block
     setActiveSectionId(targetSectionId);
   };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveMsg('');
@@ -459,7 +525,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
             { key: 'editableHeaders',      label: 'Allow editing headers in workspace' },
             { key: 'allowNA',              label: 'Add NA option in select cells' },
             { key: 'allowAddSideHeadings', label: 'Allow side headings between rows' },
-            { key: 'allowInstanceNames',   label: 'Add Table Subheadings' },
+            { key: 'allowInstanceNames',   label: 'Allow per-copy subheading input' },
           ].map(opt => {
             const isChecked = opt.defaultTrue ? baseConfig[opt.key] !== false : !!baseConfig[opt.key];
             return (
@@ -475,6 +541,45 @@ const moveBlockToSection = (blockId, targetSectionId) => {
           })}
         </div>
 
+        <div style={{ marginTop: '12px', marginBottom: '8px' }}>
+          {baseConfig.enableTableSubheading || baseConfig.tableSubheadingRichText ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: T.surface2, padding: '12px', borderRadius: '8px', border: `1px solid ${T.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ ...lbl, color: T.primary, margin: 0 }}>Table Subheading (Supports Tags)</label>
+                <button
+                  onClick={() => onChangeConfig({ enableTableSubheading: false, tableSubheadingRichText: '' })}
+                  style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center' }}
+                  title="Remove Subheading"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <textarea
+                style={{ ...inp, minHeight: '86px', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+                value={baseConfig.tableSubheadingRichText || ''}
+                onChange={e => onChangeConfig({ tableSubheadingRichText: e.target.value })}
+                placeholder="e.g. As of [date], the [text:Company] reported [currency:Revenue]..."
+              />
+              <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px' }}>
+                Type <strong style={{color: T.text}}>{"[text]"}</strong>, <strong style={{color: T.text}}>{"[date]"}</strong>, <strong style={{color: T.text}}>{"[number]"}</strong>, or <strong style={{color: T.text}}>{"[currency]"}</strong> to create inline inputs.
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => onChangeConfig({ enableTableSubheading: true })}
+              style={{
+                background: T.surface2, border: `1px dashed ${T.border}`, color: T.mutedText,
+                padding: '8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer',
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.primaryBorder; e.currentTarget.style.color = T.primary; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.mutedText; }}
+            >
+              <Plus size={14} /> Add Table Subheading
+            </button>
+          )}
+        </div>
         <div style={{ marginTop: '4px', marginBottom: '4px' }}>
           <label style={{ ...lbl, color: T.text }}>Configure Headers & Widths</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -813,6 +918,30 @@ const moveBlockToSection = (blockId, targetSectionId) => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         
+        {/* Universal Instruction & Placeholder Routing */}
+        {blockConfig.type === 'instruction' || blockConfig.type === 'fixed-text' ? (
+          <div>
+            <label style={{ ...lbl, color: T.primary }}>{blockConfig.type === 'fixed-text' ? 'Fixed Text Content' : 'Instruction Text'}</label>
+            <textarea style={{ ...inp, resize: 'vertical', minHeight: '80px', lineHeight: 1.5 }}
+              value={blockConfig.content || ''}
+              onChange={e => onChangeConfig({ content: e.target.value })}
+              placeholder={blockConfig.type === 'fixed-text' ? 'Type fixed text to display in workspace...' : 'Type the guidance text here...'} />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <label style={lbl}>Placeholder / Description</label>
+              <textarea style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }} value={blockConfig.desc || ''} onChange={e => onChangeConfig({ desc: e.target.value })} rows={3} />
+            </div>
+            {['text', 'textarea', 'quill'].includes(blockConfig.type) && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!blockConfig.showPlaceholderAsGuide} onChange={e => onChangeConfig({ showPlaceholderAsGuide: e.target.checked })} />
+                Show placeholder as a guide in workspace
+              </label>
+            )}
+          </div>
+        )}
+
         {(blockConfig.type === 'boolean' || blockConfig.type === 'compliance') && (
           <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '16px' }}>
             <label style={{ ...lbl, color: T.primary }}>Options (comma separated)</label>
@@ -1088,7 +1217,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
           </button>
 
           <button onClick={() => handleAddSection(null)}
-            style={{ background: T.surface2, border: `1px solid ${T.border}`, color: T.text, padding: '7px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
+            style={{ background: T.surface2, border: `1px dashed ${T.border}`, color: T.text, padding: '7px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={14} /> Add Section
           </button>
           <button onClick={handleSave} disabled={isSaving}
@@ -1116,6 +1245,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                 return parentSections.map(sec => {
                   const children = sections.filter(s => s.parentId === sec.id).sort((a,b) => (a.order||0) - (b.order||0));
                   const isActiveParent = activeSectionId === sec.id;
+                  const secNum = sectionNumberMap[sec.id]; // Dynamic Num
                   return (
                     <React.Fragment key={sec.id}>
                       <div
@@ -1124,10 +1254,24 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                         onMouseEnter={e => { if (!isActiveParent) e.currentTarget.style.background = T.surface2; }}
                         onMouseLeave={e => { if (!isActiveParent) e.currentTarget.style.background = 'transparent'; }}>
                         <div style={{ overflow: 'hidden' }}>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sec.heading || 'Untitled Section'}</div>
-                          <div style={{ fontSize: '0.68rem', color: T.mutedText, marginTop: '2px' }}>{sec.blocks?.length || 0} blocks</div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{secNum}.</span>
+                            {cleanTitle(sec.heading || sec.navLabel || 'Untitled Section')}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: T.mutedText, marginTop: '2px', marginLeft: '16px' }}>{sec.blocks?.length || 0} blocks</div>
                         </div>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          
+                          {/* NEW: REORDER BUTTONS FOR PARENT SECTIONS */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '2px' }}>
+                            <button onClick={e => { e.stopPropagation(); moveSection(sec.id, 'up'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                              <ArrowUp size={11} />
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); moveSection(sec.id, 'down'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                              <ArrowDown size={11} />
+                            </button>
+                          </div>
+
                           <button onClick={e => { e.stopPropagation(); handleAddSection(sec.id); }} title="Add Subsection"
                             style={{ background: 'none', border: 'none', color: T.primary, cursor: 'pointer', opacity: 0.8, padding: '2px' }}>
                             <Plus size={14} />
@@ -1140,6 +1284,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                       </div>
                       {children.map(child => {
                         const isActiveChild = activeSectionId === child.id;
+                        const childNum = sectionNumberMap[child.id]; // Dynamic Num
                         return (
                           <div
                             key={child.id}
@@ -1148,13 +1293,29 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                             onMouseEnter={e => { if (!isActiveChild) e.currentTarget.style.background = T.surface2; }}
                             onMouseLeave={e => { if (!isActiveChild) e.currentTarget.style.background = 'transparent'; }}>
                             <div style={{ overflow: 'hidden' }}>
-                              <div style={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{child.heading || 'Untitled Subsection'}</div>
-                              <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px' }}>{child.blocks?.length || 0} blocks</div>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{childNum}.</span>
+                                {cleanTitle(child.heading || child.navLabel || 'Untitled Subsection')}
+                              </div>
+                              <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px', marginLeft: '22px' }}>{child.blocks?.length || 0} blocks</div>
                             </div>
-                            <button onClick={e => { e.stopPropagation(); deleteSection(child.id); }} title="Delete Subsection"
-                              style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
-                              <Trash2 size={12} />
-                            </button>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              
+                              {/* NEW: REORDER BUTTONS FOR CHILD SUBSECTIONS */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginRight: '2px' }}>
+                                <button onClick={e => { e.stopPropagation(); moveSection(child.id, 'up'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                                  <ArrowUp size={11} />
+                                </button>
+                                <button onClick={e => { e.stopPropagation(); moveSection(child.id, 'down'); }} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '0px' }}>
+                                  <ArrowDown size={11} />
+                                </button>
+                              </div>
+
+                              <button onClick={e => { e.stopPropagation(); deleteSection(child.id); }} title="Delete Subsection"
+                                style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', opacity: 0.6, padding: '2px', flexShrink: 0 }}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
@@ -1180,12 +1341,15 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                 ))}
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
-                <input
-                  value={activeSection.heading}
-                  onChange={e => updateActiveSection({ heading: e.target.value })}
-                  style={{ background: 'transparent', border: 'none', color: T.text, fontSize: '1.8rem', fontWeight: 300, width: '100%', outline: 'none', marginBottom: '28px', borderBottom: `1px solid ${T.border}`, paddingBottom: '10px' }}
-                  placeholder="Section Heading…"
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', borderBottom: `1px solid ${T.border}`, paddingBottom: '10px' }}>
+                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: T.primary }}>{sectionNumberMap[activeSection.id]}.</span>
+                  <input
+                    value={activeSection.heading}
+                    onChange={e => updateActiveSection({ heading: e.target.value })}
+                    style={{ background: 'transparent', border: 'none', color: T.text, fontSize: '1.8rem', fontWeight: 300, width: '100%', outline: 'none' }}
+                    placeholder="Section Heading…"
+                  />
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[...(activeSection.blocks || [])].sort((a, b) => (a.order || 0) - (b.order || 0)).map((block, idx) => (
                     <div key={block.id}
@@ -1256,7 +1420,7 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                 </div>
               )}
 
-{activeBlock && (
+              {activeBlock && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: T.primaryLight, border: `1px solid ${T.primaryBorder}`, borderRadius: '7px' }}>
                     <span style={{ fontSize: '0.72rem', fontWeight: 800, color: T.primary, textTransform: 'uppercase', letterSpacing: '1px' }}>{activeBlock.type}</span>
@@ -1270,37 +1434,12 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                     <label style={lbl}>Data Path</label>
                     <input style={{ ...inp, fontFamily: 'monospace', fontSize: '0.75rem' }} value={activeBlock.dataPath || ''} onChange={e => updateActiveBlock({ dataPath: e.target.value })} />
                   </div>
-                  
-                  {/* Swaps Description for Instruction Text when appropriate */}
-                  {activeBlock.type === 'instruction' ? (
-                    <div>
-                      <label style={{ ...lbl, color: T.primary }}>Instruction Text</label>
-                      <textarea style={{ ...inp, resize: 'vertical', minHeight: '80px', lineHeight: 1.5 }}
-                        value={activeBlock.content || ''}
-                        onChange={e => updateActiveBlock({ content: e.target.value })}
-                        placeholder="Type the guidance text here..." />
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div>
-                        <label style={lbl}>Placeholder / Description</label>
-                        <textarea style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }} value={activeBlock.desc || ''} onChange={e => updateActiveBlock({ desc: e.target.value })} rows={3} />
-                      </div>
-                      {['text', 'textarea', 'quill'].includes(activeBlock.type) && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={!!activeBlock.showPlaceholderAsGuide} onChange={e => updateActiveBlock({ showPlaceholderAsGuide: e.target.checked })} />
-                          Show placeholder as a guide in workspace
-                        </label>
-                      )}
-                    </div>
-                  )}
 
-                  {/* Move to Section Dropdown Safely Inside the Active Block Check */}
-                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '16px' }}>
+                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '16px', paddingBottom: '16px' }}>
                     <label style={lbl}>Move to Section</label>
                     <select style={{ ...inp, background: T.selectBg, cursor: 'pointer' }} value={activeSectionId} onChange={e => moveBlockToSection(activeBlock.id, e.target.value)}>
                       {sections.map(s => (
-                        <option key={s.id} value={s.id}>{s.navLabel || s.heading || 'Untitled Section'}</option>
+                        <option key={s.id} value={s.id}>{sectionNumberMap[s.id]}. {cleanTitle(s.navLabel || s.heading || 'Untitled Section')}</option>
                       ))}
                     </select>
                   </div>
@@ -1509,13 +1648,15 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                       </div>
                     )}
 
-                    {activeCellData.cellType === 'smart-select' && (
+{activeCellData.cellType === 'smart-select' && (
                       <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
                         <label style={{ ...lbl, color: '#f472b6' }}>Smart Conditions (IF → THEN)</label>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
                           {(activeCellData.conditions || []).map((cond, i) => (
                             <div key={i} style={{ padding: '8px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '6px' }}>
-                              <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                              
+                              {/* IF Row */}
+                              <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', alignItems: 'center' }}>
                                 <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>IF</span>
                                 <input style={{ ...inp, flex: 1 }} type="text" value={cond.label || ''} onChange={e => {
                                   const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], label: e.target.value }; updateTableCell('conditions', c);
@@ -1523,27 +1664,65 @@ const moveBlockToSection = (blockId, targetSectionId) => {
                                 <button onClick={() => updateTableCell('conditions', activeCellData.conditions.filter((_, idx) => idx !== i))}
                                   style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', fontWeight: 'bold' }}>×</button>
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText, marginTop: '4px' }}>THEN</span>
-                                  <textarea style={{ ...inp, flex: 1, resize: 'vertical' }} rows={2} value={cond.template || ''} onChange={e => {
-                                    const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], template: e.target.value }; updateTableCell('conditions', c);
-                                  }} placeholder="Total [number] employees..." />
+                              
+                              {/* THEN Row */}
+                              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, borderTop: `1px dashed ${T.border}`, paddingTop: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>THEN</span>
+                                  
+                                  {/* Segmented Mode Toggle */}
+                                  <div style={{ display: 'flex', gap: '2px', background: T.bg, padding: '2px', borderRadius: '6px', border: `1px solid ${T.border}` }}>
+                                    <button
+                                      onClick={() => {
+                                        const c = [...(activeCellData.conditions || [])];
+                                        c[i] = { ...c[i], thenMode: 'template' };
+                                        updateTableCell('conditions', c);
+                                      }}
+                                      style={{ background: cond.thenMode !== 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode !== 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                                    >
+                                      Fill-in-the-Blanks
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const c = [...(activeCellData.conditions || [])];
+                                        c[i] = { ...c[i], thenMode: 'richtext' };
+                                        updateTableCell('conditions', c);
+                                      }}
+                                      style={{ background: cond.thenMode === 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode === 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                                    >
+                                      Rich Text Editor
+                                    </button>
+                                  </div>
                                 </div>
-                                <div style={{ fontSize: '0.62rem', color: T.mutedText, marginTop: '4px', marginLeft: '34px' }}>
-                                  Tags: [text] [number] [date] [select] (Fill-in-the-blanks)
-                                </div>
+
+                                {/* Dynamic Content based on Toggle */}
+                                {cond.thenMode === 'richtext' ? (
+                                  <div style={{ background: T.bg, border: `1px dashed ${T.border}`, padding: '12px', borderRadius: '6px', fontSize: '0.75rem', color: T.mutedText, textAlign: 'center' }}>
+                                    <Layers size={14} style={{ marginBottom: '4px', opacity: 0.7 }} />
+                                    <br />
+                                    A multi-line Rich Text Editor will be displayed for this option.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <textarea style={{ ...inp, flex: 1, resize: 'vertical' }} rows={2} value={cond.template || ''} onChange={e => {
+                                      const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], template: e.target.value }; updateTableCell('conditions', c);
+                                    }} placeholder="Total [number] employees..." />
+                                    <div style={{ fontSize: '0.62rem', color: T.mutedText, marginTop: '6px' }}>
+                                      Tags: [text] [number] [date] [select]
+                                    </div>
+                                  </div>
+                                )}
+
                               </div>
                             </div>
                           ))}
                         </div>
-                        <button onClick={() => updateTableCell('conditions', [...(activeCellData.conditions || []), { label: 'New Option', template: '' }])}
+                        <button onClick={() => updateTableCell('conditions', [...(activeCellData.conditions || []), { label: 'New Option', template: '', thenMode: 'template' }])}
                           style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>
                           + Add Condition
                         </button>
                       </div>
                     )}
-
                     <div style={{ display: 'flex', gap: '10px', borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
                       <div style={{ flex: 1 }}>
                         <label style={lbl}>Col Span</label>

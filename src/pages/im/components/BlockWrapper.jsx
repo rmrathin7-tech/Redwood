@@ -9,7 +9,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
   const flashTimer                  = useRef(null);
   const isLocked                    = Boolean(lockedBy);
 
-  const isInstruction = block?.type === 'instruction' || block?.type === 'h3' || block?.type === 'h4';
+  const isInstruction = block?.type === 'instruction' || block?.type === 'fixed-text' || block?.type === 'h3' || block?.type === 'h4';
 
   // ── THEME ──────────────────────────────────────────────────────────────────
   const T = {

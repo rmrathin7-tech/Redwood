@@ -213,6 +213,14 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       );
     }
 
+    if (block.type === 'fixed-text') {
+      return (
+        <div style={{ padding: '4px 0', fontSize: '0.9rem', lineHeight: 1.7, color: t.text, whiteSpace: 'pre-wrap' }}>
+          {block.content || block.desc || block.label || '—'}
+        </div>
+      );
+    }
+
     // 2. BOOLEAN yes/no toggle
     if (block.type === 'boolean') {
       const options = block.options || ['Yes', 'No'];

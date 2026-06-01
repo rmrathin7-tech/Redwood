@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  Kanban, ListTree, Plus, X, Search, Clock, 
-  CheckCircle2, CircleDashed, ArrowRight,
-  GripVertical, Trash2, UserSearch, UserCheck, 
-  MessageSquare, ChevronDown, ChevronUp, Eye, Edit3
+  Kanban, ListTree, Plus, X, Search,
+  CircleDashed, ArrowRight, Sparkles,
+  GripVertical, Trash2, UserCheck, 
+  MessageSquare, ChevronDown, ChevronUp, Eye, Edit3, CalendarClock, AlertTriangle, FileText, AlignLeft
 } from 'lucide-react';
-import { db, auth } from '../../../firebase.js'; 
+import { db } from '../../../firebase.js'; 
 import { 
   collection, query, where, onSnapshot, addDoc, 
   updateDoc, doc, serverTimestamp, deleteDoc, setDoc
@@ -13,6 +13,7 @@ import {
 
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
 const avatarColor = (uid) => AVATAR_COLORS[(uid?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_COLUMNS = [
   { id: 'pending', label: 'Pending Allocation', color: '#f59e0b' },
@@ -37,9 +38,12 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   const [filterReviewer, setFilterReviewer] = useState('');
   
   // UI & Edit States
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingTaskId, setEditingTaskId] = useState(null);
-  const [newTask, setNewTask] = useState({ title: '', assignee: '', reviewer: '', linkedSections: [] });
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  
+  const [activeTask, setActiveTask] = useState(null); // Used for Detail Modal
+  const [editingTaskId, setEditingTaskId] = useState(null); // Used for Create/Edit Modal
+  const [newTask, setNewTask] = useState({ title: '', description: '', assignee: '', reviewer: '', linkedSections: [], dueDate: '', customTitle: false });
   const [expandedComments, setExpandedComments] = useState({});
 
   // Canvas Refs
@@ -81,8 +85,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         vy: (Math.random() - 0.5) * 1.2,
         size: Math.random() * 2 + 1,
         color: Math.random() > 0.5 
-          ? (isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)')  // Red Accent
-          : (isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(14, 165, 233, 0.3)') // Blue Tech
+          ? (isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)')  
+          : (isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(14, 165, 233, 0.3)') 
       });
     }
 
@@ -96,7 +100,6 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         const dy = my - p.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         
-        // Mouse Repel Physics
         if (dist < 180) {
           p.x -= dx * 0.03;
           p.y -= dy * 0.03;
@@ -111,7 +114,6 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         ctx.fillStyle = p.color;
         ctx.fill();
 
-        // Draw connections
         for (let j = i + 1; j < particles.length; j++) {
           const p2 = particles[j];
           const d = Math.hypot(p.x - p2.x, p.y - p2.y);
@@ -175,18 +177,25 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
   const getSectionName = useCallback((key) => flatSections.find(s => s.key === key)?.navLabel || key, [flatSections]);
 
-  const sectionComments = useMemo(() => {
-    const map = {};
-    comments.forEach(c => {
-      if (c.status !== 'open') return;
-      const sec = schema.find(s => s.blocks?.some(b => b.id === c.blockId));
-      if (sec) {
-        if (!map[sec.key]) map[sec.key] = [];
-        map[sec.key].push(c);
-      }
-    });
-    return map;
-  }, [comments, schema]);
+  const getDueDateState = useCallback((task) => {
+    if (!task?.dueDate) {
+      return { level: 'none', label: 'No due date', accent: T.textMuted, bg: 'transparent', border: T.border };
+    }
+    const [year, month, day] = String(task.dueDate).split('-').map(Number);
+    if (!year || !month || !day) {
+      return { level: 'none', label: task.dueDate, accent: T.textMuted, bg: 'transparent', border: T.border };
+    }
+    const dueAt = new Date(year, month - 1, day, 23, 59, 59, 999);
+    const now = new Date();
+    const daysLeft = Math.ceil((dueAt.getTime() - now.getTime()) / DAY_MS);
+    if (daysLeft < 0) {
+      return { level: 'overdue', label: `Overdue ${Math.abs(daysLeft)}d`, accent: '#ef4444', bg: 'rgba(239,68,68,0.14)', border: 'rgba(239,68,68,0.45)' };
+    }
+    if (daysLeft <= 2) {
+      return { level: 'warning', label: daysLeft === 0 ? 'Due today' : `Due in ${daysLeft}d`, accent: '#f59e0b', bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.45)' };
+    }
+    return { level: 'safe', label: `Due in ${daysLeft}d`, accent: '#10b981', bg: 'rgba(16,185,129,0.14)', border: 'rgba(16,185,129,0.45)' };
+  }, [T.border, T.textMuted]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter(t => {
@@ -197,21 +206,123 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     });
   }, [tasks, searchQuery, filterAssignee, filterReviewer]);
 
+  const sectionChildKeysByParent = useMemo(() => {
+    const sectionById = new Map(schema.map(s => [s.id, s]));
+    return schema.reduce((acc, sec) => {
+      if (!sec.parentId) return acc;
+      const parent = sectionById.get(sec.parentId);
+      if (!parent?.key || !sec.key) return acc;
+      if (!acc[parent.key]) acc[parent.key] = [];
+      acc[parent.key].push(sec.key);
+      return acc;
+    }, {});
+  }, [schema]);
+
+  const parentKeyByChild = useMemo(() => {
+    const map = {};
+    Object.entries(sectionChildKeysByParent).forEach(([parentKey, childKeys]) => {
+      childKeys.forEach(childKey => { map[childKey] = parentKey; });
+    });
+    return map;
+  }, [sectionChildKeysByParent]);
+
+  const buildTaskTitleFromSections = useCallback((linkedSections = []) => {
+    const unique = Array.from(new Set(linkedSections)).filter(Boolean);
+    const collapsed = unique.filter((secKey) => {
+      const parentKey = parentKeyByChild[secKey];
+      return !(parentKey && unique.includes(parentKey));
+    });
+    const names = collapsed.map(getSectionName).filter(Boolean);
+    if (names.length === 0) return '';
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} + ${names[1]}`;
+    return `${names[0]} + ${names[1]} +${names.length - 2} more`;
+  }, [getSectionName, parentKeyByChild]);
+
+  // Global Lockout Mechanism for Allocations
+  const globallyAssignedSections = useMemo(() => {
+    const locked = new Set();
+    tasks.forEach(task => {
+      if (editingTaskId && task.id === editingTaskId) return; 
+      (task.linkedSections || []).forEach(secKey => locked.add(secKey));
+    });
+    return locked;
+  }, [tasks, editingTaskId]);
+
+  const normalizeLinkedSections = useCallback((linkedSections = []) => {
+    const merged = new Set(linkedSections);
+    linkedSections.forEach((key) => {
+      (sectionChildKeysByParent[key] || []).forEach(childKey => merged.add(childKey));
+    });
+    return Array.from(merged);
+  }, [sectionChildKeysByParent]);
+
+  const taskStats = useMemo(() => {
+    const reviewingCol = columns.find(c => c.label.toLowerCase().includes('review'))?.id || 'reviewing';
+    const dueSummary = filteredTasks.reduce((acc, task) => {
+      const state = getDueDateState(task).level;
+      if (state === 'warning') acc.dueSoon += 1;
+      if (state === 'overdue') acc.overdue += 1;
+      return acc;
+    }, { dueSoon: 0, overdue: 0 });
+    return {
+      total: filteredTasks.length,
+      reviewing: filteredTasks.filter(t => t.status === reviewingCol).length,
+      unassigned: filteredTasks.filter(t => !t.assignee?.uid).length,
+      dueSoon: dueSummary.dueSoon,
+      overdue: dueSummary.overdue
+    };
+  }, [columns, filteredTasks, getDueDateState]);
 
   // ── INLINE MUTATIONS ──
   const handleUpdateTaskField = async (taskId, field, userId) => {
     const user = workspaceUsers.find(u => u.userId === userId);
     const payload = user ? { uid: user.userId, email: user.email } : null;
     await updateDoc(doc(db, 'im-tasks', taskId), { [field]: payload, updatedAt: serverTimestamp() });
+    
+    // Update local state if Detail Modal is open to reflect immediately
+    if (activeTask && activeTask.id === taskId) {
+      setActiveTask(prev => ({ ...prev, [field]: payload }));
+    }
   };
 
   const handleUpdateStatus = async (taskId, status) => {
     await updateDoc(doc(db, 'im-tasks', taskId), { status, updatedAt: serverTimestamp() });
+    if (activeTask && activeTask.id === taskId) {
+      setActiveTask(prev => ({ ...prev, status }));
+    }
+  };
+
+  const handleUpdateDueDate = async (taskId, dueDate) => {
+    await updateDoc(doc(db, 'im-tasks', taskId), { dueDate, updatedAt: serverTimestamp() });
+    if (activeTask && activeTask.id === taskId) {
+      setActiveTask(prev => ({ ...prev, dueDate }));
+    }
+  };
+
+  const handleUpdateDescription = async (taskId, description) => {
+    await updateDoc(doc(db, 'im-tasks', taskId), { description, updatedAt: serverTimestamp() });
+    if (activeTask && activeTask.id === taskId) {
+      setActiveTask(prev => ({ ...prev, description }));
+    }
   };
 
   const handleDeleteColumn = async (colId) => {
     if (!window.confirm("Remove this pipeline stage?")) return;
     await updateDoc(doc(db, 'im-task-config', imId), { columns: columns.filter(c => c.id !== colId) });
+  };
+
+  const handleDeleteTask = async (task) => {
+    if (!window.confirm(`Delete "${task.title}" allocation card?`)) return;
+    await deleteDoc(doc(db, 'im-tasks', task.id));
+    if (editingTaskId === task.id) {
+      setIsCreateModalOpen(false);
+      setEditingTaskId(null);
+    }
+    if (activeTask && activeTask.id === task.id) {
+      setIsDetailModalOpen(false);
+      setActiveTask(null);
+    }
   };
 
   // ── DRAG AND DROP ──
@@ -230,54 +341,116 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     setEditingTaskId(task.id);
     setNewTask({
       title: task.title,
+      description: task.description || '',
       assignee: task.assignee?.uid || '',
       reviewer: task.reviewer?.uid || '',
-      linkedSections: task.linkedSections || []
+      linkedSections: normalizeLinkedSections(task.linkedSections || []),
+      dueDate: task.dueDate || '',
+      customTitle: task.customTitle ?? true
     });
-    setIsModalOpen(true);
+    setIsCreateModalOpen(true);
+  };
+
+  const openDetailModal = (task) => {
+    setActiveTask(task);
+    setIsDetailModalOpen(true);
   };
 
   const openQuickCreate = (secKey) => {
+    if (globallyAssignedSections.has(secKey)) {
+        alert("This section is already allocated to another task. Please edit the existing allocation.");
+        return;
+    }
     setEditingTaskId(null);
-    setNewTask({ title: `Draft ${getSectionName(secKey)}`, assignee: '', reviewer: '', linkedSections: [secKey] });
-    setIsModalOpen(true);
+    setNewTask({
+      title: buildTaskTitleFromSections([secKey]),
+      description: '',
+      assignee: '',
+      reviewer: '',
+      linkedSections: normalizeLinkedSections([secKey]),
+      dueDate: '',
+      customTitle: false
+    });
+    setIsCreateModalOpen(true);
   };
 
   const handleSaveTask = async () => {
-    if (!newTask.title.trim()) return alert("Task needs a title");
-    
     let assigneeObj = null, reviewerObj = null;
     const aUser = workspaceUsers.find(u => u.userId === newTask.assignee);
     const rUser = workspaceUsers.find(u => u.userId === newTask.reviewer);
     if (aUser) assigneeObj = { uid: aUser.userId, email: aUser.email };
     if (rUser) reviewerObj = { uid: rUser.userId, email: rUser.email };
 
+    const normalizedLinkedSections = normalizeLinkedSections(newTask.linkedSections);
+    const autoTitle = buildTaskTitleFromSections(normalizedLinkedSections).trim();
+    const resolvedTitle = newTask.customTitle ? newTask.title.trim() : autoTitle;
+    
+    if (!resolvedTitle) {
+      return alert(newTask.customTitle ? "Task needs a title" : "Select at least one section or enable custom title");
+    }
+
     if (editingTaskId) {
       await updateDoc(doc(db, 'im-tasks', editingTaskId), {
-        title: newTask.title,
         assignee: assigneeObj,
         reviewer: reviewerObj,
-        linkedSections: newTask.linkedSections,
+        linkedSections: normalizedLinkedSections,
+        dueDate: newTask.dueDate || '',
+        customTitle: !!newTask.customTitle,
+        title: resolvedTitle,
         updatedAt: serverTimestamp()
       });
     } else {
       const initialStatus = columns.length > 0 ? columns[0].id : 'pending';
       await addDoc(collection(db, 'im-tasks'), {
-        imId, projectId, title: newTask.title, 
+        imId, projectId, title: resolvedTitle, description: newTask.description || '',
         assignee: assigneeObj, reviewer: reviewerObj,
-        linkedSections: newTask.linkedSections, status: initialStatus,
+        linkedSections: normalizedLinkedSections, status: initialStatus,
+        dueDate: newTask.dueDate || '',
+        customTitle: !!newTask.customTitle,
         createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
     }
     
-    setIsModalOpen(false);
+    setIsCreateModalOpen(false);
     setEditingTaskId(null);
-    setNewTask({ title: '', assignee: '', reviewer: '', linkedSections: [] });
+    setNewTask({ title: '', description: '', assignee: '', reviewer: '', linkedSections: [], dueDate: '', customTitle: false });
   };
 
-  const toggleSectionLink = (secKey) => {
+  useEffect(() => {
+    if (newTask.customTitle) return;
+    const autoTitle = buildTaskTitleFromSections(newTask.linkedSections);
     setNewTask(prev => {
+      if (prev.customTitle || prev.title === autoTitle) return prev;
+      return { ...prev, title: autoTitle };
+    });
+  }, [buildTaskTitleFromSections, newTask.customTitle, newTask.linkedSections]);
+
+  const toggleSectionLink = (secKey) => {
+    // If it's globally locked by another task, prevent checking
+    if (globallyAssignedSections.has(secKey) && !newTask.linkedSections.includes(secKey)) return;
+
+    setNewTask(prev => {
+      const parentKey = parentKeyByChild[secKey];
+      if (parentKey && prev.linkedSections.includes(parentKey)) return prev;
+
+      const childKeys = sectionChildKeysByParent[secKey] || [];
       const exists = prev.linkedSections.includes(secKey);
+      
+      if (childKeys.length > 0) {
+        if (exists) {
+          return {
+            ...prev,
+            linkedSections: prev.linkedSections.filter(k => k !== secKey && !childKeys.includes(k))
+          };
+        }
+        
+        // Ensure child keys aren't locked before auto-selecting them
+        const assignableChildren = childKeys.filter(k => !globallyAssignedSections.has(k));
+        return {
+          ...prev,
+          linkedSections: Array.from(new Set([...prev.linkedSections, secKey, ...assignableChildren]))
+        };
+      }
       return {
         ...prev,
         linkedSections: exists 
@@ -291,10 +464,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
   const renderToolbar = () => (
     <div style={{ padding: '0 32px 20px', borderBottom: `1px solid ${T.border}`, marginBottom: '24px', position: 'relative', zIndex: 10 }}>
-      {/* BULLETPROOF WRAPPER: Flex container handling wrapping properly */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
         
-        {/* Search */}
         <div style={{ flex: '1 1 300px', minWidth: '200px', position: 'relative' }}>
           <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: T.textMuted }} />
           <input 
@@ -303,7 +474,6 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           />
         </div>
 
-        {/* Assignee Filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', padding: '0 12px', height: '40px', flexShrink: 0 }}>
           <UserCheck size={16} color={T.textMuted} />
           <select className="glass-select" value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} style={{ background: 'transparent', border: 'none', color: filterAssignee ? T.text : T.textMuted, fontSize: '0.85rem', outline: 'none', cursor: 'pointer', height: '100%', maxWidth: '140px' }}>
@@ -312,7 +482,6 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           </select>
         </div>
 
-        {/* Reviewer Filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '8px', padding: '0 12px', height: '40px', flexShrink: 0 }}>
           <Eye size={16} color={T.textMuted} />
           <select className="glass-select" value={filterReviewer} onChange={e => setFilterReviewer(e.target.value)} style={{ background: 'transparent', border: 'none', color: filterReviewer ? T.text : T.textMuted, fontSize: '0.85rem', outline: 'none', cursor: 'pointer', height: '100%', maxWidth: '140px' }}>
@@ -321,7 +490,6 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           </select>
         </div>
 
-        {/* Clear Filters */}
         {(searchQuery || filterAssignee || filterReviewer) && (
           <button onClick={() => { setSearchQuery(''); setFilterAssignee(''); setFilterReviewer(''); }} style={{ height: '40px', flexShrink: 0, background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '0 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
             Clear
@@ -340,7 +508,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         return (
           <div 
             key={col.id} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, col.id)}
-            style={{ flex: '0 0 300px', display: 'flex', flexDirection: 'column', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', transition: 'background 0.2s ease', backdropFilter: 'blur(16px)' }}
+            style={{ flex: '0 0 320px', minWidth: '320px', display: 'flex', flexDirection: 'column', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', transition: 'background 0.2s ease', backdropFilter: 'blur(16px)' }}
           >
             {/* Column Header */}
             <div style={{ padding: '16px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -353,20 +521,42 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
               </div>
             </div>
 
-            {/* Cards */}
+            {/* Cards Area */}
             <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {colTasks.map(task => (
+                (() => {
+                  const dueState = getDueDateState(task);
+                  const topAccent = dueState.level === 'none' || dueState.level === 'safe' ? col.color : dueState.accent;
+                  return (
                 <div 
-                  key={task.id} draggable className="kanban-card" onDragStart={(e) => handleDragStart(e, task.id)} onDragEnd={handleDragEnd}
-                  style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '8px', padding: '14px', cursor: 'grab', boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.05)', transition: 'all 0.2s cubic-bezier(0.23,1,0.32,1)' }}
+                  key={task.id} 
+                  draggable 
+                  className="kanban-card" 
+                  onDragStart={(e) => handleDragStart(e, task.id)} 
+                  onDragEnd={handleDragEnd}
+                  onClick={() => openDetailModal(task)}
+                  style={{ 
+                    flexShrink: 0, 
+                    background: `linear-gradient(160deg, ${T.surface2}, ${isDark ? '#1a2330' : '#ffffff'})`, 
+                    border: `1px solid ${dueState.level === 'none' || dueState.level === 'safe' ? T.border : dueState.border}`, 
+                    borderRadius: '10px', padding: '14px', cursor: 'pointer', 
+                    boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.26)' : '0 4px 14px rgba(0,0,0,0.06)', 
+                    transition: 'all 0.2s cubic-bezier(0.23,1,0.32,1)', position: 'relative', overflow: 'hidden' 
+                  }}
                 >
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: `linear-gradient(90deg, ${topAccent}, transparent)` }} />
+                  
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: T.text, lineHeight: 1.4 }}>{task.title}</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: T.text, lineHeight: 1.4, paddingRight: '12px' }}>{task.title}</h4>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <button onClick={() => openEditModal(task)} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); openEditModal(task); }} 
+                        style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} 
+                        onMouseEnter={e => e.currentTarget.style.opacity = 1} 
+                        onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+                      >
                         <Edit3 size={14} />
                       </button>
-                      <GripVertical size={14} color={T.textMuted} style={{ cursor: 'grab', opacity: 0.5 }} />
                     </div>
                   </div>
 
@@ -377,6 +567,21 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           {getSectionName(secKey)}
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {task.description && (
+                    <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px', color: T.textMuted, fontSize: '0.75rem' }}>
+                      <AlignLeft size={12} /> Description
+                    </div>
+                  )}
+
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '12px', background: `${col.color}1a`, border: `1px solid ${col.color}40`, color: col.color, padding: '3px 9px', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 800 }}>
+                    <Sparkles size={11} /> {col.label}
+                  </div>
+                  {task.dueDate && (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '12px', marginLeft: '8px', background: dueState.bg, border: `1px solid ${dueState.border}`, color: dueState.accent, padding: '3px 9px', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 800 }}>
+                      {dueState.level !== 'safe' && dueState.level !== 'none' ? <AlertTriangle size={11} /> : <CalendarClock size={11} />} {dueState.label}
                     </div>
                   )}
 
@@ -411,13 +616,15 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
                   </div>
                 </div>
+                  );
+                })()
               ))}
             </div>
           </div>
         );
       })}
 
-      <div style={{ flex: '0 0 300px', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: '0 0 320px', display: 'flex', flexDirection: 'column' }}>
         <button 
           onClick={async () => {
             const label = prompt("Enter the name of the new stage:");
@@ -438,11 +645,12 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', overflow: 'hidden', boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)' }}>
         
         {/* Matrix Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '16px 24px', background: T.surface2, borderBottom: `1px solid ${T.border}`, fontSize: '0.7rem', fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr', padding: '16px 24px', background: T.surface2, borderBottom: `1px solid ${T.border}`, fontSize: '0.7rem', fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>
           <div>Document Section</div>
           <div>Assignee</div>
           <div>Reviewer</div>
           <div>Task Status</div>
+          <div>Due Date</div>
           <div>Open Comments</div>
         </div>
         
@@ -451,7 +659,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           {flatSections.map(section => {
             const activeTask = filteredTasks.find(t => t.linkedSections?.includes(section.key));
             const colDef = activeTask ? columns.find(c => c.id === activeTask.status) : null;
-            const openComms = sectionComments[section.key] || [];
+            const dueState = activeTask ? getDueDateState(activeTask) : null;
+            const openComms = []; // Assuming no direct comment linkage required for the update focus
             const hasComments = openComms.length > 0;
             const isExpanded = expandedComments[section.key];
 
@@ -460,15 +669,17 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
             return (
               <React.Fragment key={section.id}>
                 {/* Main Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '12px 24px', borderBottom: `1px solid ${T.border}`, alignItems: 'center', transition: 'background 0.2s', background: isExpanded ? T.surface3 : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = isExpanded ? T.surface3 : 'transparent'}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr', padding: '12px 24px', borderBottom: `1px solid ${T.border}`, alignItems: 'center', transition: 'background 0.2s', background: isExpanded ? T.surface3 : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = isExpanded ? T.surface3 : 'transparent'}>
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {!section.isParent && <ArrowRight size={14} color={T.textMuted} style={{ marginLeft: '16px' }} />}
                     <span style={{ fontSize: section.isParent ? '0.9rem' : '0.85rem', fontWeight: section.isParent ? 700 : 500, color: section.isParent ? T.text : T.textMuted }}>{section.navLabel}</span>
                     {activeTask && (
-                      <button onClick={() => openEditModal(activeTask)} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
-                        <Edit3 size={12} />
-                      </button>
+                      <>
+                        <button onClick={() => openEditModal(activeTask)} title="Edit existing allocation" style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
+                          <Edit3 size={12} />
+                        </button>
+                      </>
                     )}
                   </div>
 
@@ -508,9 +719,23 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                         </select>
                       </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '90%' }}>
+                        <input
+                          type="date"
+                          value={activeTask.dueDate || ''}
+                          onChange={(e) => handleUpdateDueDate(activeTask.id, e.target.value)}
+                          style={{ width: '100%', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.78rem', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                        {activeTask.dueDate && (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', width: 'fit-content', padding: '2px 8px', borderRadius: '999px', fontSize: '0.65rem', fontWeight: 700, color: dueState?.accent, background: dueState?.bg, border: `1px solid ${dueState?.border}` }}>
+                            {dueState?.level === 'warning' || dueState?.level === 'overdue' ? <AlertTriangle size={10} /> : <CalendarClock size={10} />}
+                            {dueState?.label}
+                          </div>
+                        )}
+                      </div>
                     </>
                   ) : (
-                    <div style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center' }}>
+                    <div style={{ gridColumn: 'span 4', display: 'flex', alignItems: 'center' }}>
                       <button onClick={() => openQuickCreate(section.key)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.textMuted; }} onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
                         <Plus size={12} /> Create Task
                       </button>
@@ -519,39 +744,12 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
                   <div>
                     {hasComments ? (
-                      <button 
-                        onClick={() => setExpandedComments(prev => ({...prev, [section.key]: !prev[section.key]}))}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: T.amber, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        <MessageSquare size={12} /> {openComms.length} Issues {isExpanded ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
-                      </button>
+                      <span style={{ fontSize: '0.75rem', color: T.amber }}>Issues Available</span>
                     ) : (
                       <span style={{ fontSize: '0.75rem', color: T.textMuted, opacity: 0.5 }}>Clean</span>
                     )}
                   </div>
                 </div>
-
-                {isExpanded && hasComments && (
-                  <div style={{ padding: '16px 24px 16px 64px', background: T.surface2, borderBottom: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: 'inset 0 4px 10px rgba(0,0,0,0.1)' }}>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: T.textMuted }}>Unresolved Issues Thread</div>
-                    {openComms.map(c => (
-                      <div key={c.id} style={{ display: 'flex', gap: '12px', background: T.bg, border: `1px solid ${T.border}`, padding: '12px', borderRadius: '8px' }}>
-                        <div style={{ width: 24, height: 24, borderRadius: '50%', background: avatarColor(c.createdBy?.uid), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.7rem', fontWeight: 800, flexShrink: 0 }}>
-                          {(c.createdBy?.email || '?').charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: T.text }}>{c.createdBy?.email?.split('@')[0]}</div>
-                          {c.quote && (
-                            <div style={{ fontSize: '0.75rem', color: T.textMuted, fontStyle: 'italic', padding: '4px 8px', borderLeft: `2px solid ${T.amber}`, background: 'rgba(245,158,11,0.05)', borderRadius: '0 4px 4px 0', margin: '6px 0' }}>
-                              "{c.quote}"
-                            </div>
-                          )}
-                          {c.firstComment && <div style={{ fontSize: '0.85rem', color: T.text, marginTop: '4px' }}>{c.firstComment}</div>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </React.Fragment>
             )
           })}
@@ -561,7 +759,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   );
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: T.bg, display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease-out', overflow: 'hidden' }}>
+    <div style={{ fontFamily: '"DN Sans", sans-serif', position: 'fixed', inset: 0, zIndex: 1000, background: T.bg, display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease-out', overflow: 'hidden' }}>
       
       {/* BACKGROUND CANVAS EFFECT */}
       <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />
@@ -587,7 +785,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={() => { setEditingTaskId(null); setNewTask({ title: '', assignee: '', reviewer: '', linkedSections: [] }); setIsModalOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 20px', borderRadius: '8px', background: T.accent, color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 4px 14px rgba(239,68,68,0.3)', transition: 'transform 0.15s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+            <button onClick={() => { setEditingTaskId(null); setNewTask({ title: '', description: '', assignee: '', reviewer: '', linkedSections: [], dueDate: '', customTitle: false }); setIsCreateModalOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 20px', borderRadius: '8px', background: T.accent, color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 4px 14px rgba(239,68,68,0.3)', transition: 'transform 0.15s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
               <Plus size={16} /> Create Allocation
             </button>
             <button onClick={onClose} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.textMuted, padding: '8px', borderRadius: '8px', cursor: 'pointer' }}>
@@ -603,29 +801,80 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         </main>
       </div>
 
-      {/* CREATE / EDIT TASK MODAL */}
-      {isModalOpen && (
+      {/* ── CREATE / EDIT ALLOCATION MODAL (STRUCTURAL/WIDE LAYOUT) ── */}
+      {isCreateModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '16px', width: '500px', boxShadow: '0 24px 60px rgba(0,0,0,0.5)', overflow: 'hidden', display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease' }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '16px', width: '850px', maxWidth: '95vw', boxShadow: '0 24px 60px rgba(0,0,0,0.5)', overflow: 'hidden', display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease' }}>
+            
             <div style={{ padding: '20px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text }}>{editingTaskId ? "Edit Task Allocation" : "Create Task Allocation"}</h2>
-              <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer' }}><X size={18} /></button>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', color: T.text }}>{editingTaskId ? "Edit Task Allocation" : "Create Task Allocation"}</h2>
+              <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer' }}><X size={18} /></button>
             </div>
             
-            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Task Description</label>
-                <input type="text" autoFocus placeholder="e.g. Draft Q3 Financial Review" value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} style={{ width: '100%', boxSizing: 'border-box', padding: '12px', borderRadius: '8px', background: T.bg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem' }} />
-              </div>
+            <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px', maxHeight: '65vh', overflowY: 'auto' }}>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              {/* LEFT COLUMN: SECTIONS LOCKOUT */}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '12px' }}>
+                  <ListTree size={14} style={{display:'inline', verticalAlign:'text-bottom', marginRight:'4px'}}/> Link Document Sections
+                </label>
+                <div style={{ background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '8px', padding: '16px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {flatSections.map(sec => {
+                    const isLockedByOther = globallyAssignedSections.has(sec.key) && !newTask.linkedSections.includes(sec.key);
+                    return (
+                      <label key={sec.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: isLockedByOther ? T.textMuted : T.text, cursor: isLockedByOther ? 'not-allowed' : 'pointer', marginLeft: sec.isParent ? '0' : '20px', opacity: isLockedByOther ? 0.5 : 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={newTask.linkedSections.includes(sec.key)}
+                          onChange={() => toggleSectionLink(sec.key)}
+                          disabled={isLockedByOther || (!sec.isParent && newTask.linkedSections.includes(parentKeyByChild[sec.key]))}
+                          style={{ accentColor: T.accent }}
+                        />
+                        <span style={{ fontWeight: sec.isParent ? 700 : 400 }}>
+                          {sec.navLabel}
+                        </span>
+                        {isLockedByOther && (
+                          <span style={{ fontSize: '0.65rem', color: T.textMuted, border: `1px solid ${T.border}`, borderRadius: '4px', padding: '2px 6px', marginLeft: 'auto' }}>
+                            Assigned
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: EXECUTION PARAMS */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Assign To</label>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Task Title</label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '0.78rem', color: T.textMuted, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={newTask.customTitle}
+                      onChange={(e) => {
+                        const customTitle = e.target.checked;
+                        setNewTask(prev => ({
+                          ...prev,
+                          customTitle,
+                          title: customTitle ? prev.title : buildTaskTitleFromSections(prev.linkedSections)
+                        }));
+                      }}
+                      style={{ accentColor: T.accent }}
+                    />
+                    Custom title
+                  </label>
+                  <input type="text" autoFocus placeholder={newTask.customTitle ? "Enter distinct title..." : "Auto-generated from linked sections"} value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} disabled={!newTask.customTitle} style={{ width: '100%', boxSizing: 'border-box', padding: '12px', borderRadius: '8px', background: T.bg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem', opacity: newTask.customTitle ? 1 : 0.65, cursor: newTask.customTitle ? 'text' : 'not-allowed' }} />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Assignee</label>
                   <select className="glass-select" value={newTask.assignee} onChange={e => setNewTask({...newTask, assignee: e.target.value})} style={{ width: '100%', boxSizing: 'border-box', padding: '12px', borderRadius: '8px', background: T.bg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem', cursor: 'pointer' }}>
                     <option value="">Unassigned</option>
                     {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email}</option>)}
                   </select>
                 </div>
+
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Reviewer</label>
                   <select className="glass-select" value={newTask.reviewer} onChange={e => setNewTask({...newTask, reviewer: e.target.value})} style={{ width: '100%', boxSizing: 'border-box', padding: '12px', borderRadius: '8px', background: T.bg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem', cursor: 'pointer' }}>
@@ -633,24 +882,125 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                     {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email}</option>)}
                   </select>
                 </div>
-              </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Link Sections</label>
-                <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', padding: '12px', maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {flatSections.map(sec => (
-                    <label key={sec.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: T.text, cursor: 'pointer', marginLeft: sec.isParent ? '0' : '20px' }}>
-                      <input type="checkbox" checked={newTask.linkedSections.includes(sec.key)} onChange={() => toggleSectionLink(sec.key)} style={{ accentColor: T.accent }} />
-                      <span style={{ fontWeight: sec.isParent ? 700 : 400 }}>{sec.navLabel}</span>
-                    </label>
-                  ))}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Target Due Date</label>
+                  <input
+                    type="date"
+                    value={newTask.dueDate}
+                    onChange={e => setNewTask({ ...newTask, dueDate: e.target.value })}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '12px', borderRadius: '8px', background: T.bg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem' }}
+                  />
                 </div>
               </div>
             </div>
 
-            <div style={{ padding: '20px 24px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: '12px' }}>
-              <button onClick={() => setIsModalOpen(false)} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: `1px solid ${T.border}`, background: 'transparent', color: T.text, cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-              <button onClick={handleSaveTask} style={{ flex: 1, padding: '12px', borderRadius: '8px', background: T.accent, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>{editingTaskId ? "Save Changes" : "Create Allocation"}</button>
+            <div style={{ padding: '20px 24px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: '12px', justifyContent: 'flex-end', background: T.surface2 }}>
+              <button onClick={() => setIsCreateModalOpen(false)} style={{ padding: '12px 24px', borderRadius: '8px', border: `1px solid ${T.border}`, background: 'transparent', color: T.text, cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+              <button onClick={handleSaveTask} style={{ padding: '12px 32px', borderRadius: '8px', background: T.accent, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}>{editingTaskId ? "Save Allocation" : "Create Allocation"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TRELLO-STYLE TASK DETAIL MODAL ── */}
+      {isDetailModalOpen && activeTask && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 0' }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', width: '750px', maxWidth: '95vw', maxHeight: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.5)', overflow: 'hidden', display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '24px 32px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h2 style={{ margin: '0 0 8px 0', fontSize: '1.4rem', color: T.text, lineHeight: 1.3 }}>{activeTask.title}</h2>
+                <div style={{ fontSize: '0.8rem', color: T.textMuted }}>
+                  in column <span style={{ color: columns.find(c => c.id === activeTask.status)?.color, fontWeight: 700 }}>{columns.find(c => c.id === activeTask.status)?.label || 'Unknown'}</span>
+                </div>
+              </div>
+              <button onClick={() => { setIsDetailModalOpen(false); setActiveTask(null); }} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '4px' }}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', flex: 1, overflowY: 'auto' }}>
+              
+              {/* Main Content Area (Description) */}
+              <div style={{ padding: '24px 32px', borderRight: `1px solid ${T.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', color: T.text, fontWeight: 700 }}>
+                  <AlignLeft size={18} /> Description
+                </div>
+                <textarea 
+                  placeholder="Add a more detailed description..."
+                  value={activeTask.description || ''}
+                  onChange={(e) => setActiveTask({...activeTask, description: e.target.value})}
+                  onBlur={() => handleUpdateDescription(activeTask.id, activeTask.description)}
+                  style={{ width: '100%', boxSizing: 'border-box', minHeight: '200px', padding: '16px', borderRadius: '8px', background: T.surface2, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.9rem', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+                />
+                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: T.textMuted }}>Changes are saved automatically when you click outside the box.</div>
+              </div>
+
+              {/* Sidebar (Attributes) */}
+              <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', background: T.surface2 }}>
+                
+                {/* Status Dropdown */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Status</label>
+                  <select 
+                    className="glass-select" value={activeTask.status} onChange={(e) => handleUpdateStatus(activeTask.id, e.target.value)}
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.85rem', outline: 'none', cursor: 'pointer' }}
+                  >
+                    {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </div>
+
+                {/* Assignment Details */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Assignee</label>
+                    <select className="glass-select" value={activeTask.assignee?.uid || ''} onChange={(e) => handleUpdateTaskField(activeTask.id, 'assignee', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.85rem', outline: 'none', cursor: 'pointer' }}>
+                      <option value="">Unassigned</option>
+                      {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Reviewer</label>
+                    <select className="glass-select" value={activeTask.reviewer?.uid || ''} onChange={(e) => handleUpdateTaskField(activeTask.id, 'reviewer', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.85rem', outline: 'none', cursor: 'pointer' }}>
+                      <option value="">No Reviewer</option>
+                      {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Due Date */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Due Date</label>
+                  <input
+                    type="date" value={activeTask.dueDate || ''} onChange={(e) => handleUpdateDueDate(activeTask.id, e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', background: T.surface, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                {/* Linked Sections Read-only */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginBottom: '8px' }}>Linked Sections</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {(activeTask.linkedSections || []).map(secKey => (
+                      <div key={secKey} style={{ fontSize: '0.8rem', color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: '4px', padding: '6px 10px' }}>
+                        {getSectionName(secKey)}
+                      </div>
+                    ))}
+                    {(!activeTask.linkedSections || activeTask.linkedSections.length === 0) && (
+                      <span style={{ fontSize: '0.8rem', color: T.textMuted, fontStyle: 'italic' }}>No sections linked.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: `1px dashed ${T.border}` }}>
+                  <button onClick={() => handleDeleteTask(activeTask)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: `1px solid rgba(248,113,113,0.3)`, background: 'rgba(248,113,113,0.1)', color: '#fca5a5', cursor: 'pointer', fontWeight: 700, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(248,113,113,0.2)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(248,113,113,0.1)'}>
+                    Delete Task Card
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -658,15 +1008,30 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
       {/* ── CSS INJECTIONS ── */}
       <style>{`
-        /* FIX: Ensure dropdown options render correctly without white background */
         .glass-select option {
           background-color: ${T.surface};
           color: ${T.text};
         }
         
+        /* Localized scrolling override for Kanban Boards */
         .kanban-card:hover {
           border-color: ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'} !important;
           box-shadow: 0 8px 24px ${isDark ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.1)'} !important;
+        }
+
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent; 
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${T.border}; 
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${T.textMuted}; 
         }
       `}</style>
     </div>

@@ -3,23 +3,23 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User // <-- Added Kanban and User icons
+  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
   doc, onSnapshot, updateDoc, serverTimestamp, setDoc, collection,
-  query, where // <-- Added query and where for the tasks listener
+  query, where
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import BlockRegistry from './components/BlockRegistry.jsx';
 import CommentsSidebar from './components/CommentsSidebar.jsx';
-import IMTaskBoard from './components/IMTaskBoard.jsx'; // <-- Imported the Task Board
+import IMTaskBoard from './components/IMTaskBoard.jsx';
 
-// ── AVATAR COLOR POOL ──────────────────────────────────────────────────────
+// ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
 const avatarColor = (uid) => AVATAR_COLORS[(uid?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
-// ── STAGGER DELAY per block index ─────────────────────────────────────────
+// ── STAGGER DELAY per block index ──
 const STAGGER_MS = 40;
 
 export default function IMWorkspace() {
@@ -28,9 +28,10 @@ export default function IMWorkspace() {
   const projectId = searchParams.get('project');
   const imId = searchParams.get('im');
   const projectName = searchParams.get('name') || 'Active Dossier';
-
+  
   const [user, setUser] = useState(null);
-  const [schema, setSchema] = useState([]);
+  const [schema, setSchema] = useState([]); // Master Schema (Read-Only here)
+  const [excludedSections, setExcludedSections] = useState([]); // Local IM Exclusions
   const [imData, setImData] = useState({});
   const [activeLocks, setActiveLocks] = useState({});
   const [activeSection, setActiveSection] = useState(null);
@@ -45,35 +46,45 @@ export default function IMWorkspace() {
   const [myLockedBlock, setMyLockedBlock] = useState(null);
   const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
   
-  // <-- ADDED: Task Board & Dynamic Columns State
+  // Tailor Template Modal State
+  const [showTailorModal, setShowTailorModal] = useState(false);
+
+  // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
   const [taskColumns, setTaskColumns] = useState([]);
   const [isTaskBoardOpen, setIsTaskBoardOpen] = useState(false);
-
+  
   const saveTimers = useRef({});
   const savedTimers = useRef({});
   const mainRef = useRef(null);
+  
   const isDark = theme === 'dark';
+  
+  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
+  const cleanTitle = (text) => {
+    if (!text) return '';
+    return text.replace(/^([0-9]+\.)+\s*/, '');
+  };
 
   const T = useMemo(() => ({
-    bg:         isDark ? '#060910'                    : '#f1f5f9',
-    surface:    isDark ? '#0d1117'                    : '#ffffff',
-    surface2:   isDark ? '#111827'                    : '#f8fafc',
-    surface3:   isDark ? 'rgba(255,255,255,0.03)'     : 'rgba(0,0,0,0.03)',
-    border:     isDark ? 'rgba(255,255,255,0.07)'     : 'rgba(0,0,0,0.09)',
-    text:       isDark ? '#f1f5f9'                    : '#0f172a',
-    textMuted:  isDark ? '#64748b'                    : '#94a3b8',
-    textSub:    isDark ? '#475569'                    : '#cbd5e1',
+    bg:         isDark ? '#060910' : '#f1f5f9',
+    surface:    isDark ? '#0d1117' : '#ffffff',
+    surface2:   isDark ? '#111827' : '#f8fafc',
+    surface3:   isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    border:     isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.09)',
+    text:       isDark ? '#f1f5f9' : '#0f172a',
+    textMuted:  isDark ? '#64748b' : '#94a3b8',
+    textSub:    isDark ? '#475569' : '#cbd5e1',
     accent:     '#ef4444',
-    accentDim:  isDark ? 'rgba(239,68,68,0.12)'       : 'rgba(239,68,68,0.07)',
+    accentDim:  isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.07)',
     accentGlow: 'rgba(239,68,68,0.2)',
     green:      '#10b981',
     amber:      '#f59e0b',
     amberDim:   'rgba(245,158,11,0.12)',
-    header:     isDark ? 'rgba(6,9,16,0.92)'          : 'rgba(255,255,255,0.92)',
-    sidebar:    isDark ? '#080c14'                    : '#ffffff',
+    header:     isDark ? 'rgba(6,9,16,0.92)' : 'rgba(255,255,255,0.92)',
+    sidebar:    isDark ? '#080c14' : '#ffffff',
     shadow:     isDark ? '0 1px 3px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.06)',
-    shadowLg:   isDark ? '0 8px 32px rgba(0,0,0,0.6)': '0 8px 32px rgba(0,0,0,0.1)',
+    shadowLg:   isDark ? '0 8px 32px rgba(0,0,0,0.6)' : '0 8px 32px rgba(0,0,0,0.1)',
   }), [isDark]);
 
   useEffect(() => {
@@ -95,25 +106,30 @@ export default function IMWorkspace() {
     return unsub;
   }, [projectId, imId, projectName, navigate]);
 
+  // Master Schema Fetch
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'config', 'im-schema'), (snap) => {
       if (snap.exists()) {
         const sections = snap.data().sections || [];
         setSchema(sections);
-        setActiveSection(prev => prev ?? (sections[0]?.key || null));
+        // We set active section safely later based on visibleSchema
       }
     });
   }, [imId]);
 
+  // Local IM Data & Exclusions Fetch
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'investment-memos', imId), (snap) => {
-      if (snap.exists()) setImData(prev => ({ ...prev, ...(snap.data().data || {}) }));
+      if (snap.exists()) {
+        const data = snap.data();
+        setImData(prev => ({ ...prev, ...(data.data || {}) }));
+        setExcludedSections(data.excludedSections || []);
+      }
     });
   }, [imId]);
 
-  // <-- ADDED: Fetch Tasks for this IM
   useEffect(() => {
     if (!imId) return;
     const q = query(collection(db, 'im-tasks'), where('imId', '==', imId));
@@ -122,7 +138,6 @@ export default function IMWorkspace() {
     });
   }, [imId]);
 
-  // <-- ADDED: Fetch Dynamic Task Columns
   useEffect(() => {
     if (!imId) return;
     return onSnapshot(doc(db, 'im-task-config', imId), (snap) => {
@@ -150,6 +165,104 @@ export default function IMWorkspace() {
     });
   }, [projectId, user]);
 
+  // ── VISIBLE SCHEMA CALCULATION ──
+  const visibleSchema = useMemo(() => {
+    return schema.filter(s => !excludedSections.includes(s.id));
+  }, [schema, excludedSections]);
+
+  // Set initial active section safely
+  useEffect(() => {
+    if (!activeSection && visibleSchema.length > 0) {
+      setActiveSection(visibleSchema[0].key);
+    }
+  }, [visibleSchema, activeSection]);
+
+  // ── DYNAMIC NUMBERING ENGINE (Using visibleSchema) ──
+  const sectionNumberMap = useMemo(() => {
+    const map = {};
+    let parentCounter = 1;
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+    
+    parents.forEach(p => {
+      map[p.id] = `${parentCounter}`;
+      let childCounter = 1;
+      const children = visibleSchema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+      
+      children.forEach(c => {
+        map[c.id] = `${parentCounter}.${childCounter}`;
+        childCounter++;
+      });
+      parentCounter++;
+    });
+    return map;
+  }, [visibleSchema]);
+
+  const flatSections = useMemo(() => {
+    const parents = visibleSchema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const result = [];
+    parents.forEach(p => {
+      const children = visibleSchema
+        .filter(s => s.parentId === p.id)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      result.push({ ...p, isParent: true, hasChildren: children.length > 0 });
+      if (!collapsedGroups[p.id]) children.forEach(c => result.push({ ...c, isParent: false }));
+    });
+    return result;
+  }, [visibleSchema, collapsedGroups]);
+
+  const getSectionName = useCallback((key) => {
+    const sec = flatSections.find(s => s.key === key);
+    if (!sec) return key;
+    return `${sectionNumberMap[sec.id]}. ${cleanTitle(sec.navLabel || sec.heading)}`;
+  }, [flatSections, sectionNumberMap]);
+
+  // ── HANDLE LOCAL EXCLUDE / RESTORE (TAILOR TEMPLATE) ──
+  const toggleSectionExclusion = async (sectionId, isExcluding) => {
+    let newExclusions = new Set(excludedSections);
+    
+    if (isExcluding) {
+      if (!window.confirm('Exclude this section from this IM?')) return;
+      newExclusions.add(sectionId);
+      // Auto-exclude children if a parent is excluded
+      schema.filter(s => s.parentId === sectionId).forEach(c => newExclusions.add(c.id));
+    } else {
+      newExclusions.delete(sectionId);
+      // Auto-restore parent if a child is restored
+      const sec = schema.find(s => s.id === sectionId);
+      if (sec?.parentId) newExclusions.delete(sec.parentId);
+    }
+    
+    const exclusionsArr = Array.from(newExclusions);
+    setExcludedSections(exclusionsArr); // Optimistic UI update
+
+    // If the active section is suddenly excluded, transition away
+    if (isExcluding) {
+      const targetSec = schema.find(s => s.id === sectionId);
+      const isCurrentlyActive = activeSection === targetSec?.key || schema.filter(s => s.parentId === sectionId).some(c => c.key === activeSection);
+      
+      if (isCurrentlyActive) {
+        const remaining = schema.filter(s => !newExclusions.has(s.id));
+        if (remaining.length > 0) {
+          setActiveSection(remaining[0].key);
+          setSectionTransition(true);
+          setTimeout(() => setSectionTransition(false), 130);
+        } else {
+          setActiveSection(null);
+        }
+      }
+    }
+
+    try {
+      // Save exclusions LOCALLY to the investment-memos document ONLY.
+      await updateDoc(doc(db, 'investment-memos', imId), { 
+        excludedSections: exclusionsArr,
+        updatedAt: serverTimestamp() 
+      });
+    } catch (err) {
+      console.error("Failed to update exclusions locally", err);
+    }
+  };
+
   const handleDataChange = useCallback(async (dataPath, value, blockId) => {
     if (!dataPath || !imId) return;
     setImData(prev => {
@@ -163,6 +276,7 @@ export default function IMWorkspace() {
       cur[keys[keys.length - 1]] = value;
       return next;
     });
+    
     setSaveStatus('saving');
     clearTimeout(saveTimers.current[dataPath]);
     saveTimers.current[dataPath] = setTimeout(async () => {
@@ -218,13 +332,15 @@ export default function IMWorkspace() {
     setCollapsedGroups(p => ({ ...p, [groupId]: !p[groupId] })), []);
 
   const activeSectionSchema = useMemo(() =>
-    schema.find(s => s.key === activeSection), [schema, activeSection]);
+    visibleSchema.find(s => s.key === activeSection), [visibleSchema, activeSection]);
+
   const activeSectionChildren = useMemo(() => {
     if (!activeSectionSchema?.id) return [];
-    return schema
+    return visibleSchema
       .filter(s => s.parentId === activeSectionSchema.id)
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  }, [schema, activeSectionSchema]);
+  }, [visibleSchema, activeSectionSchema]);
+
   const activeSectionHasBlocks = (activeSectionSchema?.blocks || []).length > 0;
   const showSubsectionPrompt = !!activeSectionSchema && !activeSectionHasBlocks && activeSectionChildren.length > 0;
 
@@ -260,19 +376,6 @@ export default function IMWorkspace() {
     return () => window.removeEventListener('im-open-comments-sidebar', handler);
   }, []);
 
-  const flatSections = useMemo(() => {
-    const parents = schema.filter(s => !s.parentId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    const result = [];
-    parents.forEach(p => {
-      const children = schema
-        .filter(s => s.parentId === p.id)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      result.push({ ...p, isParent: true, hasChildren: children.length > 0 });
-      if (!collapsedGroups[p.id]) children.forEach(c => result.push({ ...c, isParent: false }));
-    });
-    return result;
-  }, [schema, collapsedGroups]);
-
   const exitToHub = async () => {
     if (user) await updateDoc(doc(db, 'workspace-users', user.uid), {
       currentBlockId: null, currentPage: 'module-hub',
@@ -282,19 +385,18 @@ export default function IMWorkspace() {
 
   const SaveChip = () => {
     const config = {
-      saving: { icon: <Loader2 size={11} style={{ animation: 'imSpin 0.8s linear infinite' }} />, label: 'Saving',  color: T.textMuted, bg: T.surface3,               border: 'transparent' },
-      error:  { icon: <ShieldAlert size={11} />,                                                   label: 'Failed',  color: '#ef4444',   bg: 'rgba(239,68,68,0.1)',    border: 'rgba(239,68,68,0.25)' },
-      saved:  { icon: <CheckCircle2 size={11} />,                                                  label: 'Saved',   color: T.green,     bg: 'rgba(16,185,129,0.1)',   border: 'rgba(16,185,129,0.25)' },
-      idle:   { icon: <CheckCircle2 size={11} />,                                                  label: 'Saved',   color: T.textSub,   bg: 'transparent',            border: 'transparent' },
+      saving: { icon: <Loader2 size={11} style={{ animation: 'imSpin 0.8s linear infinite' }} />, label: 'Saving',  color: T.textMuted, bg: T.surface3, border: 'transparent' },
+      error:  { icon: <ShieldAlert size={11} />, label: 'Failed', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.25)' },
+      saved:  { icon: <CheckCircle2 size={11} />, label: 'Saved', color: T.green, bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.25)' },
+      idle:   { icon: <CheckCircle2 size={11} />, label: 'Saved', color: T.textSub, bg: 'transparent', border: 'transparent' },
     }[saveStatus] ?? { icon: null, label: '', color: T.textMuted, bg: 'transparent', border: 'transparent' };
-
+    
     return (
       <div style={{
         display: 'flex', alignItems: 'center', gap: 5,
         padding: '4px 10px', borderRadius: 20,
         background: config.bg, color: config.color,
-        fontSize: 11, fontWeight: 700,
-        border: `1px solid ${config.border}`,
+        fontSize: 11, fontWeight: 700, border: `1px solid ${config.border}`,
         transition: 'all 0.35s cubic-bezier(0.4,0,0.2,1)',
       }}>
         {config.icon} {config.label}
@@ -325,17 +427,12 @@ export default function IMWorkspace() {
       background: T.bg, color: T.text,
       fontFamily: "'Inter', 'DM Sans', system-ui, sans-serif",
     }}>
-
       <aside style={{
-        width: isSidebarOpen ? 272 : 0,
-        minWidth: isSidebarOpen ? 272 : 0,
-        overflow: 'hidden',
-        background: T.sidebar,
-        borderRight: `1px solid ${T.border}`,
+        width: isSidebarOpen ? 272 : 0, minWidth: isSidebarOpen ? 272 : 0,
+        overflow: 'hidden', background: T.sidebar, borderRight: `1px solid ${T.border}`,
         display: 'flex', flexDirection: 'column',
         transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1), min-width 0.3s cubic-bezier(0.4,0,0.2,1)',
-        flexShrink: 0,
-        zIndex: 20,
+        flexShrink: 0, zIndex: 20,
       }}>
         <div style={{ padding: '18px 20px 16px', borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
@@ -357,25 +454,20 @@ export default function IMWorkspace() {
             <PanelLeftClose size={14} />
           </button>
         </div>
-
         <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}>
           {flatSections.map(section => {
             const isActive = activeSection === section.key;
             const isCollapsed = collapsedGroups[section.id];
             const viewers = onlineUsers.filter(u => u.section === section.key && u.uid !== user?.uid);
-
+            
             if (section.isParent) return (
               <div key={section.id}>
                 <div
-                  onClick={() => {
-                    handleSectionClick(section.key);
-                    if (isCollapsed) toggleGroup(section.id);
-                  }}
+                  onClick={() => { handleSectionClick(section.key); if (isCollapsed) toggleGroup(section.id); }}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '7px 10px', borderRadius: 7, cursor: 'pointer', marginBottom: 1,
-                    color: isActive ? T.text : T.textMuted,
-                    background: isActive ? T.accentDim : 'transparent',
+                    color: isActive ? T.text : T.textMuted, background: isActive ? T.accentDim : 'transparent',
                     userSelect: 'none', transition: 'all 0.15s ease',
                   }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.surface3; }}
@@ -384,7 +476,8 @@ export default function IMWorkspace() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, overflow: 'hidden' }}>
                     {isActive && <div style={{ width: 3, height: 14, borderRadius: 2, background: T.accent, flexShrink: 0, boxShadow: `0 0 8px ${T.accentGlow}` }} />}
                     <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.accent : 'inherit' }}>
-                      {section.navLabel}
+                      <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
+                      {cleanTitle(section.navLabel)}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -394,13 +487,7 @@ export default function IMWorkspace() {
                       </div>
                     ))}
                     {section.hasChildren && (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleGroup(section.id);
-                        }}
-                        style={{ color: T.textSub, transition: 'transform 0.22s ease', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', padding: '4px' }}
-                      >
+                      <div onClick={(e) => { e.stopPropagation(); toggleGroup(section.id); }} style={{ color: T.textSub, transition: 'transform 0.22s ease', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', padding: '4px' }}>
                         <ChevronDown size={13} />
                       </div>
                     )}
@@ -408,7 +495,6 @@ export default function IMWorkspace() {
                 </div>
               </div>
             );
-
             return (
               <div
                 key={section.id}
@@ -417,8 +503,7 @@ export default function IMWorkspace() {
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '6px 10px 6px 22px', borderRadius: 7, cursor: 'pointer',
                   marginBottom: 1, userSelect: 'none', position: 'relative',
-                  transition: 'all 0.15s ease',
-                  background: isActive ? T.accentDim : 'transparent',
+                  transition: 'all 0.15s ease', background: isActive ? T.accentDim : 'transparent',
                   color: isActive ? T.accent : T.textMuted,
                 }}
                 onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; } }}
@@ -429,7 +514,8 @@ export default function IMWorkspace() {
                   : <div style={{ position: 'absolute', left: 13, width: 4, height: 4, borderRadius: '50%', background: T.textSub }} />
                 }
                 <span style={{ fontSize: 11.5, fontWeight: isActive ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
-                  {section.navLabel}
+                  <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
+                  {cleanTitle(section.navLabel)}
                 </span>
                 {viewers.length > 0 && (
                   <div style={{ display: 'flex', flexShrink: 0 }}>
@@ -444,7 +530,6 @@ export default function IMWorkspace() {
             );
           })}
         </nav>
-
         {onlineUsers.length > 0 && (
           <div style={{ padding: '12px 16px', borderTop: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <div style={{ display: 'flex' }}>
@@ -463,13 +548,9 @@ export default function IMWorkspace() {
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-
         <header style={{
-          flexShrink: 0,
-          background: T.header,
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          position: 'sticky', top: 0, zIndex: 10,
+          flexShrink: 0, background: T.header, backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10,
         }}>
           <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -482,7 +563,6 @@ export default function IMWorkspace() {
               >
                 <Menu size={17} />
               </button>
-
               <button
                 onClick={exitToHub}
                 style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '6px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, transition: 'color 0.15s, background 0.15s' }}
@@ -491,9 +571,7 @@ export default function IMWorkspace() {
               >
                 <ArrowLeft size={13} /> Hub
               </button>
-
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 4px' }} />
-
               <div style={{
                 fontSize: 13, fontWeight: 700, color: T.text,
                 opacity: sectionTransition ? 0 : 1,
@@ -501,27 +579,40 @@ export default function IMWorkspace() {
                 transition: 'opacity 0.15s ease, transform 0.15s ease',
                 maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {activeSectionSchema?.heading || activeSectionSchema?.navLabel || 'Investment Memo'}
+                {activeSectionSchema ? `${sectionNumberMap[activeSectionSchema.id]}. ${cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}` : 'Investment Memo'}
               </div>
             </div>
-
-<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-  {LockIndicator()}
-  {SaveChip()}
-
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {LockIndicator()}
+              {SaveChip()}
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 2px' }} />
+              
+              <button
+                onClick={() => setShowTailorModal(true)}
+                title="Tailor Template"
+                style={{
+                  background: showTailorModal ? T.accentDim : 'none', border: 'none',
+                  color: showTailorModal ? T.accent : T.textMuted,
+                  cursor: 'pointer', padding: 6, borderRadius: 6,
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = showTailorModal ? T.accentDim : 'transparent';
+                  e.currentTarget.style.color = showTailorModal ? T.accent : T.textMuted;
+                }}
+              >
+                <Scissors size={15} />
+              </button>
 
-              {/* <-- ADDED: Kanban Task Board Button --> */}
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
                 title="Operations Board"
                 style={{
-                  background: isTaskBoardOpen ? T.amberDim : 'none',
-                  border: 'none',
+                  background: isTaskBoardOpen ? T.amberDim : 'none', border: 'none',
                   color: isTaskBoardOpen ? T.amber : T.textMuted,
                   cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                  transition: 'color 0.15s, background 0.15s',
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
                 onMouseLeave={e => {
@@ -531,17 +622,14 @@ export default function IMWorkspace() {
               >
                 <Kanban size={15} />
               </button>
-
               <button
                 onClick={() => setCommentsSidebarOpen(p => !p)}
                 title="Comments"
                 style={{
-                  background: commentsSidebarOpen ? T.amberDim : 'none',
-                  border: 'none',
+                  background: commentsSidebarOpen ? T.amberDim : 'none', border: 'none',
                   color: commentsSidebarOpen ? T.amber : T.textMuted,
                   cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                  transition: 'color 0.15s, background 0.15s',
+                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
                 onMouseLeave={e => {
@@ -551,7 +639,6 @@ export default function IMWorkspace() {
               >
                 <MessageSquare size={15} />
               </button>
-
               <button
                 onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')}
                 title="Toggle theme"
@@ -561,7 +648,6 @@ export default function IMWorkspace() {
               >
                 {isDark ? <Sun size={15} /> : <Moon size={15} />}
               </button>
-
               <button
                 onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
                 title="IM Settings"
@@ -573,15 +659,11 @@ export default function IMWorkspace() {
               </button>
             </div>
           </div>
-
           <div style={{ height: 2, background: T.border, position: 'relative' }}>
             <div style={{
-              position: 'absolute', top: 0, left: 0, height: 2,
-              width: `${scrollProgress}%`,
-              background: `linear-gradient(90deg, ${T.accent}, #f97316)`,
-              borderRadius: '0 2px 2px 0',
-              transition: 'width 0.1s linear',
-              boxShadow: `0 0 8px ${T.accentGlow}`,
+              position: 'absolute', top: 0, left: 0, height: 2, width: `${scrollProgress}%`,
+              background: `linear-gradient(90deg, ${T.accent}, #f97316)`, borderRadius: '0 2px 2px 0',
+              transition: 'width 0.1s linear', boxShadow: `0 0 8px ${T.accentGlow}`,
               opacity: scrollProgress > 2 ? 1 : 0,
             }} />
           </div>
@@ -589,27 +671,24 @@ export default function IMWorkspace() {
 
         <main
           ref={mainRef}
-          style={{
-            flex: 1, overflowY: 'auto', padding: '40px 48px',
-            scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent`,
-          }}
+          style={{ flex: 1, overflowY: 'auto', padding: '40px 48px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}
         >
-          {schema.length === 0 ? (
+          {visibleSchema.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16 }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: T.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Settings size={28} style={{ color: T.accent, opacity: 0.6 }} />
               </div>
-              <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>No schema configured</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: T.text }}>No visible schema</div>
               <div style={{ fontSize: 13, color: T.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>
-                Build the IM template in Settings before filling in content.
+                You may have excluded all sections, or the template is empty.
               </div>
               <button
-                onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
+                onClick={() => setShowTailorModal(true)}
                 style={{ marginTop: 4, padding: '10px 22px', borderRadius: 8, background: T.accent, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, boxShadow: `0 4px 14px ${T.accentGlow}`, transition: 'transform 0.15s, box-shadow 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 6px 20px ${T.accentGlow}`; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 4px 14px ${T.accentGlow}`; }}
               >
-                Open Settings
+                Tailor Template (Restore)
               </button>
             </div>
           ) : !activeSectionSchema ? (
@@ -619,7 +698,8 @@ export default function IMWorkspace() {
           ) : showSubsectionPrompt ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '52vh', gap: 10, textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>
-                {activeSectionSchema.heading || activeSectionSchema.navLabel}
+                <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
+                {cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
               </div>
               <div style={{ maxWidth: 420, fontSize: 13, color: T.textMuted, lineHeight: 1.6 }}>
                 This section has only subsections. Choose a subsection from the left sidebar to continue.
@@ -628,19 +708,18 @@ export default function IMWorkspace() {
           ) : (
             <div style={{
               maxWidth: 820, margin: '0 auto',
-              opacity: sectionTransition ? 0 : 1,
-              transform: sectionTransition ? 'translateY(10px)' : 'translateY(0)',
+              opacity: sectionTransition ? 0 : 1, transform: sectionTransition ? 'translateY(10px)' : 'translateY(0)',
               transition: 'opacity 0.2s ease, transform 0.2s ease',
             }}>
               <div style={{ marginBottom: 32 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
                   <div style={{ width: 4, height: 32, borderRadius: 3, flexShrink: 0, background: `linear-gradient(180deg, ${T.accent}, rgba(239,68,68,0.3))` }} />
                   <h2 style={{ fontSize: 24, fontWeight: 800, color: T.text, margin: 0, letterSpacing: -0.3, lineHeight: 1.2 }}>
-                    {activeSectionSchema.heading || activeSectionSchema.navLabel}
+                    <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
+                    {cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
                   </h2>
                 </div>
-
-                {/* <-- UPDATED: Dynamic Task Assignment Pill Below Title --> */}
+                
                 {(() => {
                   const sectionTask = tasks.find(t => t.linkedSections?.includes(activeSectionSchema.key));
                   if (!sectionTask) return null;
@@ -670,7 +749,7 @@ export default function IMWorkspace() {
                 )}
                 <div style={{ marginTop: 16, height: 1, background: `linear-gradient(90deg, ${T.border} 0%, transparent 80%)` }} />
               </div>
-
+              
               {(activeSectionSchema.blocks || [])
                 .slice()
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -684,8 +763,7 @@ export default function IMWorkspace() {
                     <div
                       key={block.id}
                       style={{
-                        opacity: isVisible ? 1 : 0,
-                        transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
+                        opacity: isVisible ? 1 : 0, transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
                         transition: 'opacity 0.25s ease, transform 0.25s ease',
                       }}
                     >
@@ -706,23 +784,95 @@ export default function IMWorkspace() {
         </main>
       </div>
 
-      <CommentsSidebar
-        imId={imId}
-        isDark={isDark}
-        isOpen={commentsSidebarOpen}
-        onClose={() => setCommentsSidebarOpen(false)}
-      />
-
-      {/* <-- ADDED: Task Board Modal Component --> */}
-      {isTaskBoardOpen && (
-        <IMTaskBoard
-          imId={imId}
-          projectId={projectId}
-          isDark={isDark}
-          onClose={() => setIsTaskBoardOpen(false)}
-        />
+      {/* ── TAILOR TEMPLATE MODAL ── */}
+      {showTailorModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
+            <div style={{ padding: '20px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2, borderRadius: '14px 14px 0 0' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
+                  <Scissors size={18} color={T.accent} /> Tailor Template Structure
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Exclude or restore sections specifically for this IM.</p>
+              </div>
+              <button onClick={() => setShowTailorModal(false)} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+              {(() => {
+                // Render from the MASTER schema to show everything
+                const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+                if (parents.length === 0) return <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist in master schema.</div>;
+                
+                return parents.map(p => {
+                  const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
+                  const isParentExcluded = excludedSections.includes(p.id);
+                  
+                  return (
+                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden', opacity: isParentExcluded ? 0.5 : 1 }}>
+                      <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text, textDecoration: isParentExcluded ? 'line-through' : 'none' }}>
+                          {cleanTitle(p.heading || p.navLabel || 'Untitled Section')}
+                        </div>
+                        {isParentExcluded ? (
+                           <button onClick={() => toggleSectionExclusion(p.id, false)} style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                             <RotateCcw size={12} /> Restore
+                           </button>
+                        ) : (
+                           <button onClick={() => toggleSectionExclusion(p.id, true)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                             <Trash2 size={12} /> Exclude
+                           </button>
+                        )}
+                      </div>
+                      
+                      {children.length > 0 && (
+                        <div style={{ padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
+                          {children.map(c => {
+                            const isChildExcluded = excludedSections.includes(c.id);
+                            return (
+                              <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isChildExcluded ? 0.5 : 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.textMuted, textDecoration: isChildExcluded ? 'line-through' : 'none' }}>
+                                  {cleanTitle(c.heading || c.navLabel || 'Untitled Subsection')}
+                                </div>
+                                {isChildExcluded ? (
+                                  <button onClick={() => toggleSectionExclusion(c.id, false)} style={{ background: 'transparent', border: `1px solid ${T.green}`, color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <RotateCcw size={12} /> Restore
+                                  </button>
+                                ) : (
+                                  <button onClick={() => toggleSectionExclusion(c.id, true)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
+                                    <X size={12} /> Exclude
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            
+            <div style={{ padding: '16px 24px', borderTop: `1px solid ${T.border}`, background: T.surface2, borderRadius: '0 0 14px 14px', display: 'flex', justifyContent: 'flex-end' }}>
+               <button onClick={() => setShowTailorModal(false)} style={{ padding: '8px 24px', background: T.accent, color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 800, cursor: 'pointer' }}>
+                 Done Tailoring
+               </button>
+            </div>
+          </div>
+        </div>
       )}
-
+      
+      <CommentsSidebar imId={imId} isDark={isDark} isOpen={commentsSidebarOpen} onClose={() => setCommentsSidebarOpen(false)} />
+      
+      {isTaskBoardOpen && (
+        <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
+      )}
+      
       <style>{`
         @keyframes imSpin    { from { transform: rotate(0deg); }   to   { transform: rotate(360deg); } }
         @keyframes imPulse   { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.2); } }
