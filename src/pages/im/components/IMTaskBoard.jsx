@@ -240,6 +240,23 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     return { level: 'safe', label: `Due in ${daysLeft}d`, accent: '#10b981', bg: 'rgba(16,185,129,0.14)', border: 'rgba(16,185,129,0.45)' };
   }, [T.border, T.textMuted]);
 
+  // Extract only users that actually have tasks on this board
+  const activeAssignees = useMemo(() => {
+    const uniqueMap = new Map();
+    tasks.forEach(t => {
+      if (t.assignee?.uid) uniqueMap.set(t.assignee.uid, t.assignee);
+    });
+    return Array.from(uniqueMap.values());
+  }, [tasks]);
+
+  const activeReviewers = useMemo(() => {
+    const uniqueMap = new Map();
+    tasks.forEach(t => {
+      if (t.reviewer?.uid) uniqueMap.set(t.reviewer.uid, t.reviewer);
+    });
+    return Array.from(uniqueMap.values());
+  }, [tasks]);
+
   const filteredTasks = useMemo(() => {
     return tasks.filter(t => {
       if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -521,7 +538,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           <UserCheck size={16} color={T.textMuted} />
           <select className="glass-select" value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)} style={{ background: 'transparent', border: 'none', color: filterAssignee ? T.text : T.textMuted, fontSize: '0.85rem', outline: 'none', cursor: 'pointer', height: '100%', maxWidth: '140px' }}>
             <option value="">All Assignees</option>
-            {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email.split('@')[0]}</option>)}
+            {activeAssignees.map(u => <option key={u.uid} value={u.uid}>{u.email.split('@')[0]}</option>)}
           </select>
         </div>
 
@@ -529,7 +546,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
           <Eye size={16} color={T.textMuted} />
           <select className="glass-select" value={filterReviewer} onChange={e => setFilterReviewer(e.target.value)} style={{ background: 'transparent', border: 'none', color: filterReviewer ? T.text : T.textMuted, fontSize: '0.85rem', outline: 'none', cursor: 'pointer', height: '100%', maxWidth: '140px' }}>
             <option value="">All Reviewers</option>
-            {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email.split('@')[0]}</option>)}
+            {activeReviewers.map(u => <option key={u.uid} value={u.uid}>{u.email.split('@')[0]}</option>)}
           </select>
         </div>
 
