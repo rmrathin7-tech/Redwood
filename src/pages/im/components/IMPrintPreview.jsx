@@ -169,6 +169,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
                       } 
                       else if (cell.cellType === 'smart-select') {
                         if (rawVal && typeof rawVal === 'object') {
+                          // Handle Fill-in-the-blanks inside select
                           displayValue = rawVal.selected ? `${rawVal.selected} ${rawVal.inputs?.length ? `- ${rawVal.inputs.join(' ')}` : ''}` : '-';
                           if (rawVal.richtext) displayValue = <div dangerouslySetInnerHTML={{ __html: rawVal.richtext }} />;
                         } else {
@@ -308,7 +309,12 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
               {instances.map((instanceData, i) => (
                 <div key={instanceData._setId || i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc', pageBreakInside: 'avoid' }}>
-                  <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>Set #{i + 1}</div>
+                  
+                  {/* --- FIX IS HERE: USE CUSTOM NAME IF IT EXISTS --- */}
+                  <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>
+                    {instanceData.name ? instanceData.name : `Set #${i + 1}`}
+                  </div>
+                  
                   {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData, dataKey))}
                 </div>
               ))}
