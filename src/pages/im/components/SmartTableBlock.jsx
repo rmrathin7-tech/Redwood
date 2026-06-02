@@ -426,7 +426,24 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   useEffect(() => {
     if (isFocusedRef.current) return;
     const parsed = parseValue(value, block);
-    const currentSchemaRows = parsed.runtimeSchemaRows || block.rows || [];
+    
+    // --- CRITICAL FIX: SYNC STALE FORMULAS ---
+    let currentSchemaRows = parsed.runtimeSchemaRows || block.rows || [];
+    if (parsed.runtimeSchemaRows && block.rows && block.rows.length > 0) {
+       currentSchemaRows = currentSchemaRows.map((runtimeRow, rIdx) => {
+          const masterRow = block.rows[rIdx] || block.rows[block.rows.length - 1];
+          if (!masterRow) return runtimeRow;
+          
+          const updatedCells = (runtimeRow.cells || []).map(runtimeCell => {
+             const masterCell = (masterRow.cells || []).find(c => c.id === runtimeCell.id);
+             if (masterCell) return { ...runtimeCell, ...masterCell };
+             return runtimeCell; 
+          });
+          return { ...runtimeRow, cells: updatedCells };
+       });
+    }
+    // ----------------------------------------
+
     let newRecords = parsed.rows;
     if (currentSchemaRows.length > 0 && newRecords.length < currentSchemaRows.length) {
       newRecords = [...newRecords];
@@ -743,45 +760,50 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const updateSideHeading = (idx, key, val) => setSideHeadings(prev => prev.map((h, i) => i === idx ? { ...h, [key]: val } : h));
   const deleteSideHeading = (idx) => setSideHeadings(prev => prev.filter((_, i) => i !== idx));
 
-// ── FORMULA ENGINE ────────────────────────────────────────────────────────
+  // ── FORMULA ENGINE ────────────────────────────────────────────────────────
   const evaluateFormula = useCallback(function innerEval(formula, rIdx, customRecordsContext) {
     if (!formula) return '';
     const activeRecords = customRecordsContext || records;
     let s = formula;
-    const baseSchemaCells = runtimeSchemaRows[0]?.cells || [];
     
+    // Safely retrieve and parse cell values based on the SPECIFIC ROW INDEX
+    const getCellValue = (colIdx, rowIdx) => {
+      // Look up the cell schema for THIS row, or fallback to the last schema row
+      const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1] || { cells: [] };
+      const targetCell = schemaRow.cells[colIdx];
+      
+      if (!targetCell) {
+         // Fallback for dynamic schema-less tables (using col_0, col_1, etc.)
+         const fallbackId = `col_${colIdx}`;
+         const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
+         return parseFloat(String(fallbackVal || '').replace(/[^0-9.-]/g, '')) || 0;
+      }
+      
+      let val = targetCell.cellType === 'computed'
+          ? innerEval(targetCell.formula, rowIdx, activeRecords)
+          : activeRecords[rowIdx]?.[targetCell.id];
+      
+      return parseFloat(String(val || '').replace(/[^0-9.-]/g, '')) || 0;
+    };
+
     s = s.replace(/SUM\(C(\d+)\)/gi, (_, c) => {
       const colIdx = parseInt(c, 10) - 1; 
-      const targetCell = baseSchemaCells[colIdx];
-      if (!targetCell) return 0;
-      return activeRecords.reduce((sum, rec, recIdx) => {
-        // Dynamically calculate if it's a computed cell
-        let val = targetCell.cellType === 'computed' 
-          ? innerEval(targetCell.formula, recIdx, activeRecords) 
-          : rec[targetCell.id];
-        return sum + (parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0);
+      return activeRecords.reduce((sum, rec, idx) => {
+         // Skip protected rows (like totals row if it got injected)
+         if (rec && (rec._isTotal || rec._protected)) return sum;
+         return sum + getCellValue(colIdx, idx);
       }, 0);
     });
     
     s = s.replace(/R(\d+)C(\d+)/gi, (_, r, c) => {
       const rowI = parseInt(r, 10) - 1;
       const colI = parseInt(c, 10) - 1;
-      const targetCell = runtimeSchemaRows[rowI]?.cells?.[colI];
-      if (!targetCell) return 0;
-      let val = targetCell.cellType === 'computed'
-          ? innerEval(targetCell.formula, rowI, activeRecords)
-          : activeRecords[rowI]?.[targetCell.id];
-      return parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0;
+      return getCellValue(colI, rowI);
     });
     
     s = s.replace(/C(\d+)/gi, (_, c) => {
       const colIdx = parseInt(c, 10) - 1;
-      const targetCell = baseSchemaCells[colIdx];
-      if (!targetCell) return 0;
-      let val = targetCell.cellType === 'computed'
-          ? innerEval(targetCell.formula, rIdx, activeRecords)
-          : activeRecords[rIdx]?.[targetCell.id];
-      return parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0;
+      return getCellValue(colIdx, rIdx);
     });
     
     try {
@@ -791,6 +813,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
       return Number.isFinite(result) ? result.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
     } catch { return ''; }
   }, [records, runtimeSchemaRows]);
+
   // ── COPY TABLE ────────────────────────────────────────────────────────────
   const copyTableAsText = () => {
     const hRow = block.showSno ? ['#', ...headers] : headers;
@@ -1124,7 +1147,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     }
   }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput]);
 
-const colTotals = useMemo(() => {
+  const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
     
