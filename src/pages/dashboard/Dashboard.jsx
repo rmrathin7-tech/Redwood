@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Search, LayoutDashboard, Users, Sun, Moon, LogOut,
   Plus, FolderOpen, Archive, Trash2, RefreshCw, AlertTriangle,
-  Copy, ExternalLink, BarChart2
+  Copy, ExternalLink, BarChart2, Activity, X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase.js';
 import {
   collection, query, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, serverTimestamp, setDoc
+  deleteDoc, doc, serverTimestamp, setDoc, orderBy
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
@@ -257,8 +257,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const canvasRef = useRef(null);
   
-  // <-- 2. ADD STATE FOR GLOBAL BOARD -->
+  // <-- 2. ADD STATE FOR GLOBAL BOARD & AUDIT LOGS -->
   const [isGlobalBoardOpen, setIsGlobalBoardOpen] = useState(false);
+  const [isAuditPanelOpen, setIsAuditPanelOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
 
   // Canvas tracking
   const mouseRef = useRef({ x: -9999, y: -9999 });
@@ -331,6 +333,28 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
+    const q = query(collection(db, 'workspace-audit-logs'), orderBy('timestamp', 'desc'));
+    return onSnapshot(q, snap => {
+      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  }, [user]);
+
+  const logAction = async (action, entityName) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(db, 'workspace-audit-logs'), {
+        action, 
+        entityType: 'PROJECT', 
+        entityName,
+        userEmail: user.email, 
+        userId: user.uid, 
+        timestamp: serverTimestamp()
+      });
+    } catch (e) { console.error('Audit log failed', e); }
+  };
+
+  useEffect(() => {
+    if (!user) return;
     return onSnapshot(query(collection(db, 'projects')), snap => {
       const loaded = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
@@ -348,30 +372,36 @@ export default function Dashboard() {
   const createProject = useCallback(async () => {
     if (!newProjectName.trim() || !user || creating) return;
     setCreating(true);
+    const projName = newProjectName.trim();
     try {
-      await addDoc(collection(db, 'projects'), { name: newProjectName.trim(), createdAt: serverTimestamp(), archived: false, createdBy: user.email });
+      await addDoc(collection(db, 'projects'), { name: projName, createdAt: serverTimestamp(), archived: false, createdBy: user.email });
+      await logAction('CREATED', projName);
       setNewProjectName('');
-      showToast(`"${newProjectName.trim()}" created`);
+      showToast(`"${projName}" created`);
     } catch { showToast('Failed to create memo', 'error'); }
     finally { setCreating(false); }
   }, [newProjectName, user, creating, showToast]);
 
   const archiveProject = useCallback(async (id, name) => {
     await updateDoc(doc(db, 'projects', id), { archived: true });
+    await logAction('ARCHIVED', name);
     showToast(`"${name}" archived`);
-  }, [showToast]);
+  }, [showToast, user]);
 
   const restoreProject = useCallback(async (id, name) => {
     await updateDoc(doc(db, 'projects', id), { archived: false });
+    await logAction('RESTORED', name);
     showToast(`"${name}" restored`);
-  }, [showToast]);
+  }, [showToast, user]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
+    const targetName = deleteTarget.name;
     await deleteDoc(doc(db, 'projects', deleteTarget.id));
-    showToast(`"${deleteTarget.name}" deleted`, 'error');
+    await logAction('PURGED', targetName);
+    showToast(`"${targetName}" deleted`, 'error');
     setDeleteTarget(null);
-  }, [deleteTarget, showToast]);
+  }, [deleteTarget, showToast, user]);
 
   const handleLogout = useCallback(async () => { await signOut(auth); navigate('/login'); }, [navigate]);
 
@@ -652,6 +682,7 @@ export default function Dashboard() {
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
         
@@ -739,6 +770,14 @@ export default function Dashboard() {
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', fontFamily: 'inherit' }}
           >
             <LayoutDashboard size={15} /> Board
+          </button>
+          
+          <button 
+            className="glass-btn" 
+            onClick={() => setIsAuditPanelOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', fontFamily: 'inherit' }}
+          >
+            <Activity size={15} /> Logs
           </button>
 
           <button className="glass-btn" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', fontFamily: 'inherit' }}
@@ -913,6 +952,42 @@ export default function Dashboard() {
           isDark={isDark} 
           onClose={() => setIsGlobalBoardOpen(false)} 
         />
+      )}
+
+      {/* <-- 5. RENDER AUDIT LOG PANEL --> */}
+      {isAuditPanelOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fadeIn 0.2s ease' }} onClick={() => setIsAuditPanelOpen(false)}>
+          <div style={{ width: '400px', height: '100%', background: isDark ? '#0f172a' : '#ffffff', borderLeft: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, display: 'flex', flexDirection: 'column', animation: 'slideLeft 0.3s cubic-bezier(0.23,1,0.32,1)', boxShadow: '-10px 0 40px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '24px', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}><Activity size={18} color={isDark ? '#00f0ff' : '#0ea5e9'} /> Audit Logbook</h3>
+              <button onClick={() => setIsAuditPanelOpen(false)} style={{ background: 'none', border: 'none', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+              {auditLogs.length > 0 ? auditLogs.map(log => (
+                <div key={log.id} style={{ padding: '16px', marginBottom: '12px', borderRadius: '10px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: log.action === 'CREATED' ? '#22c55e' : log.action === 'ARCHIVED' ? '#f59e0b' : log.action === 'PURGED' || log.action === 'DELETED' ? '#ef4444' : '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {log.action} {log.entityType}
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: isDark ? '#64748b' : '#94a3b8', fontWeight: 600 }}>
+                      {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.95rem', color: isDark ? '#e2e8f0' : '#1e293b', fontWeight: 600, marginBottom: '6px', lineHeight: 1.4 }}>
+                    {log.projectName ? <span style={{ color: isDark ? '#94a3b8' : '#64748b', fontWeight: 400 }}>{log.projectName} / </span> : ''}
+                    {log.entityName}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ width: '20px', height: '20px', borderRadius: '5px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: isDark ? '#fff' : '#000', fontWeight: 800 }}>
+                      {log.userEmail.charAt(0).toUpperCase()}
+                    </div>  
+                    {log.userEmail}
+                  </div>
+                </div>
+              )) : <div style={{ textAlign: 'center', padding: '40px 20px', color: isDark ? '#64748b' : '#94a3b8', fontStyle: 'italic', fontSize: '0.9rem' }}>No activity recorded yet.</div>}
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
