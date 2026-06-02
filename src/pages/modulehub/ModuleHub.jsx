@@ -216,6 +216,28 @@ export default function ModuleHub() {
     return () => unsubs.forEach(u => u());
   }, [projectId]);
 
+  // ── AUDIT LOGGER ──
+  const logAction = async (action, entityType, entityName) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(db, 'workspace-audit-logs'), {
+        action, 
+        entityType: entityType.toUpperCase(), 
+        entityName,
+        userEmail: user.email, 
+        userId: user.uid, 
+        projectId, 
+        projectName,
+        timestamp: serverTimestamp()
+      });
+    } catch (e) { console.error('Audit log failed', e); }
+  };
+
+  const getItemTitle = (id, type) => {
+    const list = type === 'im' ? imList : type === 'fsa' ? fsaList : type === 'fc' ? fcList : type === 'bsa' ? bsaList : protocols;
+    return list.find(i => i.id === id)?.title || 'Unknown Document';
+  };
+
   // ── CREATION HANDLERS ──
   const handleCreateSimple = async () => {
     if (!modalInput.trim() || !user || !activeModal) return;
@@ -231,6 +253,7 @@ export default function ModuleHub() {
       } else if (activeModal === 'protocol') {
         await addDoc(collection(db, 'projects', projectId, 'protocols'), { title, checked: false, createdAt: serverTimestamp() });
       }
+      await logAction('CREATED', activeModal, title);
       setActiveModal(null); setModalInput('');
     } catch (err) { console.error(err); }
   };
@@ -242,6 +265,7 @@ export default function ModuleHub() {
         title: modalInput.trim(), domain: fsaData.domain, entityType: fsaData.entityType,
         data: {}, years: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdBy: user.uid
       });
+      await logAction('CREATED', 'FSA', modalInput.trim());
       setActiveModal(null); setModalInput('');
     } catch (err) { console.error(err); }
   };
@@ -263,12 +287,41 @@ export default function ModuleHub() {
     if (!deleteTarget) return;
     const { id, type } = deleteTarget;
     try {
+      const payload = { archived: true, archivedAt: serverTimestamp(), archivedBy: user?.uid };
+      if (type === 'im') await updateDoc(doc(db, 'investment-memos', id), payload);
+      if (type === 'fc') await updateDoc(doc(db, 'first-connect-reports', id), payload);
+      if (type === 'fsa') await updateDoc(doc(db, 'projects', projectId, 'fsa', id), payload);
+      if (type === 'bsa') await updateDoc(doc(db, 'projects', projectId, 'bsa', id), payload);
+      if (type === 'protocol') await deleteDoc(doc(db, 'projects', projectId, 'protocols', id)); // Protocols remain hard delete
+      
+      await logAction(type === 'protocol' ? 'DELETED' : 'ARCHIVED', type, getItemTitle(id, type));
+      
+      setDeleteTarget(null); setActiveModal(null);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleRestore = async (id, type) => {
+    try {
+      const payload = { archived: false };
+      if (type === 'im') await updateDoc(doc(db, 'investment-memos', id), payload);
+      if (type === 'fc') await updateDoc(doc(db, 'first-connect-reports', id), payload);
+      if (type === 'fsa') await updateDoc(doc(db, 'projects', projectId, 'fsa', id), payload);
+      if (type === 'bsa') await updateDoc(doc(db, 'projects', projectId, 'bsa', id), payload);
+      
+      await logAction('RESTORED', type, getItemTitle(id, type));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleHardDelete = async (id, type) => {
+    if (!window.confirm('Are you absolutely sure? This cannot be undone.')) return;
+    try {
+      const title = getItemTitle(id, type);
       if (type === 'im') await deleteDoc(doc(db, 'investment-memos', id));
       if (type === 'fc') await deleteDoc(doc(db, 'first-connect-reports', id));
       if (type === 'fsa') await deleteDoc(doc(db, 'projects', projectId, 'fsa', id));
       if (type === 'bsa') await deleteDoc(doc(db, 'projects', projectId, 'bsa', id));
-      if (type === 'protocol') await deleteDoc(doc(db, 'projects', projectId, 'protocols', id));
-      setDeleteTarget(null); setActiveModal(null);
+      
+      await logAction('PURGED', type, title);
     } catch (err) { console.error(err); }
   };
 
@@ -471,6 +524,16 @@ export default function ModuleHub() {
   // ── HELPERS ──
   const formatTime = (ts) => ts?.toDate ? ts.toDate().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Just now';
   
+  const archivedItems = useMemo(() => {
+    const items = [
+      ...imList.filter(i => i.archived).map(i => ({...i, type: 'im', typeName: 'IM'})),
+      ...fsaList.filter(i => i.archived).map(i => ({...i, type: 'fsa', typeName: 'FSA'})),
+      ...fcList.filter(i => i.archived).map(i => ({...i, type: 'fc', typeName: 'FC'})),
+      ...bsaList.filter(i => i.archived).map(i => ({...i, type: 'bsa', typeName: 'BSA'})),
+    ];
+    return items.sort((a, b) => (b.archivedAt?.toMillis?.() || 0) - (a.archivedAt?.toMillis?.() || 0));
+  }, [imList, fsaList, fcList, bsaList]);
+
   const cardBase = {
     background: isDark ? 'rgba(10,14,24,0.6)' : 'rgba(255,255,255,0.7)',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
@@ -479,7 +542,7 @@ export default function ModuleHub() {
   };
 
   const renderGrid = (title, icon, list, type) => {
-    const filtered = list.filter(item => item.title?.toLowerCase().includes(searchQuery.toLowerCase()));
+    const filtered = list.filter(item => !item.archived && item.title?.toLowerCase().includes(searchQuery.toLowerCase()));
     return (
       <div style={{ marginBottom: '40px' }}>
         <h3 style={{ fontSize: '1rem', fontWeight: '700', color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -595,8 +658,8 @@ export default function ModuleHub() {
         </div>
       </GlassModal>
 
-      <GlassModal isOpen={activeModal === 'delete'} title="Confirm Deletion" onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} confirmText="Delete Forever" isDestructive isDark={isDark}>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: isDark ? '#cbd5e1' : '#475569', lineHeight: 1.5 }}>Are you sure you want to permanently purge this record? This action cannot be undone and will remove all associated blocks and data.</p>
+      <GlassModal isOpen={activeModal === 'delete'} title="Confirm Archive" onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} confirmText="Archive Dossier" isDestructive isDark={isDark}>
+        <p style={{ margin: 0, fontSize: '0.9rem', color: isDark ? '#cbd5e1' : '#475569', lineHeight: 1.5 }}>Are you sure you want to archive this record? It will be safely removed from your active workspace view.</p>
       </GlassModal>
 
       {/* ── TOPBAR ── */}
@@ -720,6 +783,39 @@ export default function ModuleHub() {
           {renderGrid('First Connect', <CheckCircle2 size={24} color="#f59e0b" strokeWidth={1.5} />, fcList, 'fc')}
           {renderGrid('Bank Statements', <Building2 size={24} color="#a855f7" strokeWidth={1.5} />, bsaList, 'bsa')}
         </div>
+
+        {/* ── ARCHIVED DOSSIERS ── */}
+        {archivedItems.length > 0 && (
+          <div style={{ marginTop: '60px', paddingTop: '40px', borderTop: `1px dashed ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}` }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: '700', color: isDark ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Trash2 size={20} /> Deep Archive
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: '20px' }}>
+              {archivedItems.map((item) => (
+                <TiltCard key={`${item.type}-${item.id}`} style={{...cardBase, opacity: 0.7, filter: 'grayscale(0.5)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                      <div style={{ padding: '8px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', borderRadius: '8px', color: isDark ? '#94a3b8' : '#64748b', fontWeight: '800', fontSize: '0.7rem' }}>
+                        {item.typeName}
+                      </div>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'line-through' }}>{item.title || 'Untitled'}</h4>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <button onClick={(e) => { e.stopPropagation(); handleRestore(item.id, item.type); }} style={{ flex: 1, padding: '6px', background: isDark ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.15)', border: `1px solid ${isDark ? 'rgba(34,197,94,0.3)' : 'rgba(34,197,94,0.4)'}`, color: '#22c55e', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }} className="glass-btn">
+                      <RefreshCw size={12} /> Restore
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleHardDelete(item.id, item.type); }} style={{ flex: 1, padding: '6px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }} className="action-hover">
+                      <Trash2 size={12} /> Purge
+                    </button>
+                  </div>
+                </TiltCard>
+              ))}
+            </div>
+          </div>
+        )}
 
       </main> {/* <--- MOVE THIS UP HERE */}
 
