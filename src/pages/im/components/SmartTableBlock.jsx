@@ -303,6 +303,7 @@ const RepeatTableInstance = ({
                   {hasSchema
                     ? schemaRow?.cells?.map((cell, cIdx) => (
                         <td key={cell.id || cIdx} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < numCols - 1 ? `1px solid ${t.border}` : 'none', verticalAlign: cell.cellType === 'fixed' || cell.cellType === 'computed' ? 'middle' : 'top', background: cell.cellType === 'fixed' ? t.fixedBg : cell.cellType === 'computed' ? t.computedBg : 'transparent' }}>
+                          {/* CRITICAL FIX: Safe ?? coalescing for Legacy Rescue Data */}
                           {renderCellContent(cell, row[cell.id] ?? row[`col_${cIdx}`] ?? '', (newVal, mixedIdx) => updateRepeatedCell(rIdx, cell.id, mixedIdx, newVal), rIdx, false, tableData.id, rows)}
                         </td>
                       ))
@@ -434,7 +435,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
           const masterRow = block.rows[rIdx] || block.rows[block.rows.length - 1];
           if (!masterRow) return runtimeRow;
           
-          // Maps over masterRow so newly added columns are pulled in!
           const updatedCells = (masterRow.cells || []).map(masterCell => {
              const runtimeCell = (runtimeRow.cells || []).find(c => c.id === masterCell.id);
              if (runtimeCell) return { ...runtimeCell, ...masterCell };
@@ -447,7 +447,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     let newRecords = parsed.rows;
 
     // --- NEW FIX: LEGACY DATA RESCUE MIGRATION ---
-    // If the old project saved data as "col_0" but the new table expects "cell_123", we port it!
     if (currentSchemaRows.length > 0) {
        newRecords = newRecords.map((row, rIdx) => {
           const targetSchema = currentSchemaRows[rIdx] || currentSchemaRows[currentSchemaRows.length - 1];
@@ -455,7 +454,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
           
           const rescuedRow = { ...row };
           targetSchema.cells?.forEach((cell, cIdx) => {
-             // If schema ID is missing, but legacy col_X exists, pull it over
+             // Safe undefined check to ensure we don't accidentally overwrite 0s
              if (rescuedRow[cell.id] === undefined && rescuedRow[`col_${cIdx}`] !== undefined) {
                 rescuedRow[cell.id] = rescuedRow[`col_${cIdx}`];
              }
@@ -472,7 +471,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     
     const mapStableKeys = (arr) => (arr || []).map(r => ({ ...r, _rowId: r._rowId || genRowId() }));
     
-    // Remove volatile IDs from comparison to prevent infinite re-renders
     const stableCmp = (arr) => (arr || []).map(r => { const c = {...r}; delete c._rowId; delete c._isTotal; delete c._protected; return c; });
     
     setRecords(prev => {
@@ -789,23 +787,18 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     const activeRecords = customRecordsContext || records;
     let s = String(formula).toUpperCase(); // Force uppercase for safety
     
-    // Safely retrieve and parse cell values based on the SPECIFIC ROW INDEX
     const getCellValue = (colIdx, rowIdx) => {
-      // Look up the cell schema for THIS row, or fallback to the last schema row
       const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1] || { cells: [] };
       const targetCell = schemaRow.cells[colIdx];
       
       if (!targetCell) {
-         // Fallback for dynamic schema-less tables
          const fallbackId = `col_${colIdx}`;
          const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
          return parseFloat(String(fallbackVal || '').replace(/[^0-9.-]/g, '')) || 0;
       }
       
       if (targetCell.cellType === 'computed') {
-         // --- CRITICAL FIX: CIRCULAR REFERENCE BREAKER ---
          const cellKey = `${rowIdx}_${colIdx}`;
-         
          if (visited.has(cellKey)) {
              console.warn(`Circular reference caught at Row ${rowIdx + 1}, Col ${colIdx + 1}`);
              return 0; 
@@ -816,7 +809,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
          
          const rawVal = innerEval(targetCell.formula, rowIdx, activeRecords, nextVisited);
          return parseFloat(String(rawVal || '').replace(/[^0-9.-]/g, '')) || 0;
-         // ------------------------------------------------
       }
       
       return parseFloat(String(activeRecords[rowIdx]?.[targetCell.id] || '').replace(/[^0-9.-]/g, '')) || 0;
@@ -825,7 +817,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     s = s.replace(/SUM\(C(\d+)\)/g, (_, c) => {
       const colIdx = parseInt(c, 10) - 1; 
       return activeRecords.reduce((sum, rec, idx) => {
-         // Skip protected rows (like totals row if it got injected)
          if (rec && (rec._isTotal || rec._protected)) return sum;
          return sum + getCellValue(colIdx, idx);
       }, 0);
@@ -861,7 +852,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
           if (cell.cellType === 'fixed') return cell.text || '';
           if (cell.cellType === 'computed') return evaluateFormula(cell.formula, rIdx) || '';
           
-          // Try fetching by cell.id, fall back to col_X for legacy data support in clipboard copy
+          // CRITICAL FIX: Safe ?? coalescing for Legacy Rescue Data
           const v = rec[cell.id] ?? rec[`col_${cIdx}`] ?? '';
           
           let textVal = '';
@@ -1190,14 +1181,14 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
     
     return allCells.map((cell, cIdx) => {
+      
       const total = records.reduce((sum, rec, rIdx) => {
         let cellVal;
-        
-        // If it's a computed column, we must evaluate it on the fly
         if (cell.cellType === 'computed') {
           cellVal = evaluateFormula(cell.formula, rIdx, records);
         } else {
-          cellVal = rec[cell.id] || rec[`col_${cIdx}`];
+          // CRITICAL FIX: Safe ?? coalescing prevents the "Zero" fallback bug
+          cellVal = rec[cell.id] ?? rec[`col_${cIdx}`];
         }
         
         const v = parseFloat(String(cellVal || '').replace(/[^0-9.-]/g, ''));
@@ -1326,7 +1317,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
                         const isFixed    = cell.cellType === 'fixed';
                         const isComputed = cell.cellType === 'computed';
                         
-                        // --- VISUAL FAILSAFE IMPLEMENTED HERE ---
+                        // CRITICAL FIX: Safe ?? coalescing for Legacy Rescue Data
                         return (
                           <td key={cell.id || cIdx} colSpan={cs} rowSpan={rs} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx + cs < numCols ? `1px solid ${t.border}` : 'none', verticalAlign: isFixed || isComputed ? 'middle' : 'top', background: isFixed ? t.fixedBg : isComputed ? t.computedBg : 'transparent' }}>
                             {renderCellContent(cell, rec[cell.id] ?? rec[`col_${cIdx}`] ?? '', (newVal, mixedIdx) => updateCell(rIdx, cell.id, mixedIdx, newVal), rIdx, isProtectedRow)}
