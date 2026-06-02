@@ -776,66 +776,61 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const updateSideHeading = (idx, key, val) => setSideHeadings(prev => prev.map((h, i) => i === idx ? { ...h, [key]: val } : h));
   const deleteSideHeading = (idx) => setSideHeadings(prev => prev.filter((_, i) => i !== idx));
 
-  // ── FORMULA ENGINE ────────────────────────────────────────────────────────
-  const evaluateFormula = useCallback(function innerEval(formula, rIdx, customRecordsContext, visited = new Set()) {
-    if (!formula) return '';
-    const activeRecords = customRecordsContext || records;
-    let s = String(formula).toUpperCase(); // Force uppercase for safety
-    
-    const getCellValue = (colIdx, rowIdx) => {
-      const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1] || { cells: [] };
-      const targetCell = schemaRow.cells[colIdx];
-      
-      if (!targetCell) {
-         const fallbackId = `col_${colIdx}`;
-         const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
-         return parseFloat(String(fallbackVal || '').replace(/[^0-9.-]/g, '')) || 0;
-      }
-      
-      if (targetCell.cellType === 'computed') {
-         const cellKey = `${rowIdx}_${colIdx}`;
-         if (visited.has(cellKey)) {
-             return 0; 
-         }
-         
-         const nextVisited = new Set(visited);
-         nextVisited.add(cellKey);
-         
-         const rawVal = innerEval(targetCell.formula, rowIdx, activeRecords, nextVisited);
-         return parseFloat(String(rawVal || '').replace(/[^0-9.-]/g, '')) || 0;
-      }
-      
-      return parseFloat(String(activeRecords[rowIdx]?.[targetCell.id] || '').replace(/[^0-9.-]/g, '')) || 0;
-    };
+const evaluateFormula = useCallback(function innerEval(formula, rIdx, customRecordsContext, visited = new Set()) {
+  if (!formula) return "";
+  const activeRecords = customRecordsContext || records;
+  let s = String(formula).toUpperCase();
 
-    s = s.replace(/SUM\(C(\d+)\)/g, (_, c) => {
-      const colIdx = parseInt(c, 10) - 1; 
-      return activeRecords.reduce((sum, rec, idx) => {
-         if (rec && (rec._isTotal || rec._protected)) return sum;
-         return sum + getCellValue(colIdx, idx);
-      }, 0);
-    });
-    
-    s = s.replace(/R(\d+)C(\d+)/g, (_, r, c) => {
-      const rowI = parseInt(r, 10) - 1;
-      const colI = parseInt(c, 10) - 1;
-      return getCellValue(colI, rowI);
-    });
-    
-    s = s.replace(/C(\d+)/g, (_, c) => {
-      const colIdx = parseInt(c, 10) - 1;
-      return getCellValue(colIdx, rIdx);
-    });
-    
-    try {
-      const clean = s.replace(/\s/g, '');
-      if (!/^[0-9+\-*/().]+$/.test(clean)) return s;
-      const result = new Function(`'use strict'; return (${clean})`)();
-      return Number.isFinite(result) ? result.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
-    } catch { return ''; }
-  }, [records, runtimeSchemaRows]);
+  const getCellValue = (colIdx, rowIdx) => {
+    const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
+    const targetCell = schemaRow?.cells?.[colIdx];
+    if (!targetCell) {
+      const fallbackId = `col${colIdx}`;
+      const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
+      return parseFloat(String(fallbackVal || 0).replace(/[^0-9.-]/g, "")) || 0;
+    }
 
-  // ── COPY TABLE ────────────────────────────────────────────────────────────
+    if (targetCell.cellType === "computed") {
+      const cellKey = `${rowIdx}-${colIdx}`;
+      if (visited.has(cellKey)) return 0;
+      const nextVisited = new Set(visited);
+      nextVisited.add(cellKey);
+      const rawVal = innerEval(targetCell.formula, rowIdx, activeRecords, nextVisited);
+      return parseFloat(String(rawVal).replace(/[^0-9.-]/g, "")) || 0;
+    }
+
+    return parseFloat(String(activeRecords[rowIdx]?.[targetCell.id] || 0).replace(/[^0-9.-]/g, "")) || 0;
+  };
+
+  s = s.replace(/SUM\(\s*C(\d+)\s*\)/g, (_, c) => {
+    const colIdx = parseInt(c, 10) - 1;
+    return activeRecords.reduce((sum, rec, idx) => {
+      if (rec?.isTotal || rec?.protected) return sum;
+      return sum + getCellValue(colIdx, idx);
+    }, 0);
+  });
+
+  s = s.replace(/R(\d+)C(\d+)/g, (_, r, c) => {
+    const rowI = parseInt(r, 10) - 1;
+    const colI = parseInt(c, 10) - 1;
+    return getCellValue(colI, rowI);
+  });
+
+  s = s.replace(/C(\d+)/g, (_, c) => {
+    const colIdx = parseInt(c, 10) - 1;
+    return getCellValue(colIdx, rIdx);
+  });
+
+  try {
+    const clean = s.replace(/[^0-9+\-*/().]/g, "");
+    if (!/^[0-9+\-*/().]+$/.test(clean)) return s;
+    const result = new Function(`"use strict"; return (${clean});`)();
+    return Number.isFinite(result) ? result.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "";
+  } catch {
+    return "";
+  }
+}, [records, runtimeSchemaRows]);
+  
   const copyTableAsText = () => {
     const hRow = block.showSno ? ['#', ...headers] : headers;
     const rows = records.map((rec, rIdx) => {
