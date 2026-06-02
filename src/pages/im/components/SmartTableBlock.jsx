@@ -776,60 +776,61 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const updateSideHeading = (idx, key, val) => setSideHeadings(prev => prev.map((h, i) => i === idx ? { ...h, [key]: val } : h));
   const deleteSideHeading = (idx) => setSideHeadings(prev => prev.filter((_, i) => i !== idx));
 
-const evaluateFormula = useCallback(function innerEval(formula, rIdx, customRecordsContext, visited = new Set()) {
-  if (!formula) return "";
-  const activeRecords = customRecordsContext || records;
-  let s = String(formula).toUpperCase();
+  const evaluateFormula = useCallback(function innerEval(formula, rIdx, customRecordsContext, visited = new Set()) {
+    if (!formula) return "";
+    const activeRecords = customRecordsContext || records;
+    let s = String(formula).toUpperCase();
 
-  const getCellValue = (colIdx, rowIdx) => {
-    const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
-    const targetCell = schemaRow?.cells?.[colIdx];
-    if (!targetCell) {
-      const fallbackId = `col${colIdx}`;
-      const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
-      return parseFloat(String(fallbackVal || 0).replace(/[^0-9.-]/g, "")) || 0;
+    const getCellValue = (colIdx, rowIdx) => {
+      const schemaRow = runtimeSchemaRows[rowIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
+      const targetCell = schemaRow?.cells?.[colIdx];
+      if (!targetCell) {
+        const fallbackId = `col${colIdx}`;
+        const fallbackVal = activeRecords[rowIdx]?.[fallbackId];
+        return parseFloat(String(fallbackVal || 0).replace(/[^0-9.-]/g, "")) || 0;
+      }
+
+      if (targetCell.cellType === "computed") {
+        const cellKey = `${rowIdx}-${colIdx}`;
+        if (visited.has(cellKey)) return 0;
+        const nextVisited = new Set(visited);
+        nextVisited.add(cellKey);
+        const rawVal = innerEval(targetCell.formula, rowIdx, activeRecords, nextVisited);
+        return parseFloat(String(rawVal).replace(/[^0-9.-]/g, "")) || 0;
+      }
+
+      return parseFloat(String(activeRecords[rowIdx]?.[targetCell.id] || 0).replace(/[^0-9.-]/g, "")) || 0;
+    };
+
+    s = s.replace(/SUM\(\s*C(\d+)\s*\)/g, (_, c) => {
+      const colIdx = parseInt(c, 10) - 1;
+      return activeRecords.reduce((sum, rec, idx) => {
+        // Anti-Double-Count: Skip dynamic totals, protected rows, AND the row currently evaluating the SUM
+        if (rec?._isTotal || rec?._protected || idx === rIdx) return sum; 
+        return sum + getCellValue(colIdx, idx);
+      }, 0);
+    });
+
+    s = s.replace(/R(\d+)C(\d+)/g, (_, r, c) => {
+      const rowI = parseInt(r, 10) - 1;
+      const colI = parseInt(c, 10) - 1;
+      return getCellValue(colI, rowI);
+    });
+
+    s = s.replace(/C(\d+)/g, (_, c) => {
+      const colIdx = parseInt(c, 10) - 1;
+      return getCellValue(colIdx, rIdx);
+    });
+
+    try {
+      const clean = s.replace(/[^0-9+\-*/().]/g, "");
+      if (!/^[0-9+\-*/().]+$/.test(clean)) return s;
+      const result = new Function(`"use strict"; return (${clean});`)();
+      return Number.isFinite(result) ? result.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "";
+    } catch {
+      return "";
     }
-
-    if (targetCell.cellType === "computed") {
-      const cellKey = `${rowIdx}-${colIdx}`;
-      if (visited.has(cellKey)) return 0;
-      const nextVisited = new Set(visited);
-      nextVisited.add(cellKey);
-      const rawVal = innerEval(targetCell.formula, rowIdx, activeRecords, nextVisited);
-      return parseFloat(String(rawVal).replace(/[^0-9.-]/g, "")) || 0;
-    }
-
-    return parseFloat(String(activeRecords[rowIdx]?.[targetCell.id] || 0).replace(/[^0-9.-]/g, "")) || 0;
-  };
-
-  s = s.replace(/SUM\(\s*C(\d+)\s*\)/g, (_, c) => {
-    const colIdx = parseInt(c, 10) - 1;
-    return activeRecords.reduce((sum, rec, idx) => {
-      if (rec?.isTotal || rec?.protected) return sum;
-      return sum + getCellValue(colIdx, idx);
-    }, 0);
-  });
-
-  s = s.replace(/R(\d+)C(\d+)/g, (_, r, c) => {
-    const rowI = parseInt(r, 10) - 1;
-    const colI = parseInt(c, 10) - 1;
-    return getCellValue(colI, rowI);
-  });
-
-  s = s.replace(/C(\d+)/g, (_, c) => {
-    const colIdx = parseInt(c, 10) - 1;
-    return getCellValue(colIdx, rIdx);
-  });
-
-  try {
-    const clean = s.replace(/[^0-9+\-*/().]/g, "");
-    if (!/^[0-9+\-*/().]+$/.test(clean)) return s;
-    const result = new Function(`"use strict"; return (${clean});`)();
-    return Number.isFinite(result) ? result.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "";
-  } catch {
-    return "";
-  }
-}, [records, runtimeSchemaRows]);
+  }, [records, runtimeSchemaRows]);
   
   const copyTableAsText = () => {
     const hRow = block.showSno ? ['#', ...headers] : headers;
@@ -1174,7 +1175,8 @@ const evaluateFormula = useCallback(function innerEval(formula, rIdx, customReco
       // If the formula specifically uses an aggregate function like SUM(), it tells the bottom row
       // to just run the formula ONCE for the final output, completely preventing any double counting.
       if (cell.cellType === 'computed' && /SUM\(/i.test(cell?.formula || '')) {
-          const totalVal = evaluateFormula(cell.formula, 0, records);
+          // Pass -1 as rIdx so it doesn't accidentally skip the first row (idx 0)
+          const totalVal = evaluateFormula(cell.formula, -1, records);
           const v = parseFloat(String(totalVal || '').replace(/[^0-9.-]/g, ''));
           return (Number.isFinite(v) && v !== 0) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
       }
