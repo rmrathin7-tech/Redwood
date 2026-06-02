@@ -26,6 +26,85 @@ function relativeTime(ts) {
 
 export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }) {
   const [comments, setComments] = useState([]);
+  const [drafts, setDrafts] = useState({}); // commentId -> text
+  const [selectionPopup, setSelectionPopup] = useState(null);
+
+// ── INTELLIGENT TEXT SELECTION LISTENER ───────────────────────────────────
+  useEffect(() => {
+    const handleMouseUp = (e) => {
+      setTimeout(() => {
+        if (e.target.closest('#comments-sidebar') || e.target.closest('#selection-comment-popup')) return;
+
+        let text = '';
+        let node = null;
+        let x = 0;
+        let y = 0;
+
+        const activeEl = document.activeElement;
+        const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+        // Browser bypass for standard Inputs & Textareas (Smart Tables, Fill-in-the-blanks, etc.)
+        if (isInput) {
+          const start = activeEl.selectionStart;
+          const end = activeEl.selectionEnd;
+          if (start !== undefined && end !== undefined && start !== end) {
+            text = activeEl.value.substring(start, end).trim();
+            node = activeEl;
+            const rect = activeEl.getBoundingClientRect();
+            x = e.clientX; // Position near the mouse cursor for inputs
+            y = rect.top - 10;
+          }
+        } else {
+          // Standard DOM text selection (Rich Text, normal divs, etc)
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed) {
+            text = selection.toString().trim();
+            if (text.length > 0) {
+              const range = selection.getRangeAt(0);
+              const rect = range.getBoundingClientRect();
+              node = selection.anchorNode;
+              if (node && node.nodeType === 3) node = node.parentNode;
+              x = rect.left + (rect.width / 2);
+              y = rect.top - 10;
+            }
+          }
+        }
+
+        if (text.length > 0 && node) {
+          let blockLabel = 'Document Level';
+          let blockPath = 'global';
+
+          let curr = node;
+          while (curr && curr !== document.body) {
+            if (curr.hasAttribute && curr.hasAttribute('data-block-label')) {
+              blockLabel = curr.getAttribute('data-block-label');
+              blockPath = curr.getAttribute('data-block-path');
+              break;
+            }
+            curr = curr.parentNode;
+          }
+
+          setSelectionPopup({ text, label: blockLabel, path: blockPath, x, y });
+        } else {
+          setSelectionPopup(null);
+        }
+      }, 50);
+    };
+
+    const handleMouseDown = (e) => {
+      if (e.target && !e.target.closest('#selection-comment-popup') && !e.target.closest('#comments-sidebar')) {
+        setSelectionPopup(null);
+      }
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousedown', handleMouseDown);
+    };
+  }, []);
+  // ── FETCH COMMENTS ────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState(null);
   const [showResolved, setShowResolved] = useState(false);
   const [replyText, setReplyText] = useState({});
@@ -61,16 +140,17 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
     });
   }, [imId]);
 
-  // ── EVENTS FROM RichTextBlock ─────────────────────────────────────────────
+  // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
   useEffect(() => {
     const onCreate = async (e) => {
-      const { commentId, blockId, quote } = e.detail;
+      const { commentId, dataPath, quote, contextLabel } = e.detail;
       if (!imId || !user) return;
       await addDoc(collection(db, 'im-comments'), {
         id: commentId,
         imId,
-        blockId,
-        quote: quote.slice(0, 200),
+        dataPath: dataPath || 'global',
+        contextLabel: contextLabel || 'General',
+        quote: quote ? quote.slice(0, 200) : 'General Comment',
         status: 'open',
         createdBy: { uid: user.uid, email: user.email },
         createdAt: serverTimestamp(),
@@ -186,16 +266,66 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
   const openComments     = comments.filter(c => c.status === 'open');
   const resolvedComments = comments.filter(c => c.status === 'resolved');
 
-  if (!isOpen) return null;
+  // Keep the component alive if the popup is active, even if sidebar is closed
+  if (!isOpen && !selectionPopup) return null;
 
   return (
-    <div style={{
-      width: 320, minWidth: 320, background: T.bg,
-      borderLeft: `1px solid ${T.border}`,
-      display: 'flex', flexDirection: 'column',
-      height: '100%', overflow: 'hidden', flexShrink: 0,
-    }}>
-      {/* ── HEADER ── */}
+    <>
+      {/* ── INTELLIGENT SELECTION POPUP ────────────────────────────────────────── */}
+      {selectionPopup && (
+        <div
+          id="selection-comment-popup"
+          style={{
+            position: 'fixed',
+            left: selectionPopup.x,
+            top: selectionPopup.y,
+            transform: 'translate(-50%, -100%)',
+            background: isDark ? '#1e293b' : '#ffffff',
+            border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+            borderRadius: '8px',
+            padding: '6px 12px',
+            boxShadow: isDark ? '0 10px 25px rgba(0,0,0,0.5)' : '0 10px 25px rgba(0,0,0,0.1)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            transition: 'transform 0.15s ease',
+            animation: 'slideUp 0.2s ease-out'
+          }}
+          onClick={() => {
+            const commentId = `cmt_${Date.now()}`;
+            window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
+            window.dispatchEvent(new CustomEvent('im-create-comment', {
+              detail: {
+                commentId,
+                dataPath: selectionPopup.path,
+                quote: selectionPopup.text,
+                contextLabel: selectionPopup.label
+              }
+            }));
+            setSelectionPopup(null);
+            window.getSelection().removeAllRanges();
+          }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translate(-50%, -100%) scale(1.05)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translate(-50%, -100%) scale(1)'}
+        >
+          <MessageSquare size={14} color="#0ea5e9" />
+          <span style={{ fontSize: '12px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+            Comment on "{selectionPopup.label}"
+          </span>
+        </div>
+      )}
+
+      {/* ── SIDEBAR ── */}
+      {isOpen && (
+        <div style={{
+          width: 320, minWidth: 320, background: T.bg,
+          borderLeft: `1px solid ${T.border}`,
+          display: 'flex', flexDirection: 'column',
+          height: '100%', overflow: 'hidden', flexShrink: 0,
+        }}>
+          {/* ── HEADER ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '14px 16px', borderBottom: `1px solid ${T.border}`, flexShrink: 0,
@@ -304,8 +434,10 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
             ))}
           </>
         )}
+        </div>
       </div>
-    </div>
+      )}
+    </>
   );
 }
 
@@ -361,7 +493,7 @@ const CommentCard = React.forwardRef(function CommentCard({
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 4 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {comment.createdBy?.email?.split('@')[0] || 'Unknown'}
             </span>
@@ -370,6 +502,12 @@ const CommentCard = React.forwardRef(function CommentCard({
               <span style={{ fontSize: 10, color: T.textMuted }}>{relativeTime(comment.createdAt)}</span>
             </div>
           </div>
+
+          {comment.contextLabel && comment.contextLabel !== 'General' && (
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#0ea5e9', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              📍 {comment.contextLabel}
+            </div>
+          )}
 
           {comment.quote && (
             <div style={{
