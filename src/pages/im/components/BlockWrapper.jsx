@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, MessageSquare } from 'lucide-react';
 
 export default function BlockWrapper({ block, lockedBy, children, isDark = true }) {
   const [isFocused, setIsFocused]   = useState(false);
@@ -68,12 +68,15 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     );
   }
 
-  return (
+return (
     <div
+      className={`block-wrapper ${isFocused ? 'focused' : ''} ${saveFlash ? 'save-flash' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onFocusCapture={() => setIsFocused(true)}
       onBlurCapture={() => setIsFocused(false)}
+      data-block-label={block?.label || block?.type || 'General Context'}
+      data-block-path={block?.dataPath || block?.id || 'global'}
       style={{
         position:     'relative',
         marginBottom: '20px',
@@ -109,7 +112,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
           padding:         '14px 18px 0 18px',
           display:         'flex',
           justifyContent:  'space-between',
-          alignItems:      'flex-start',
+          alignItems:      'center',
           marginBottom:    '10px',
         }}>
           {/* Label with required dot */}
@@ -134,8 +137,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
             </label>
           </div>
 
-        {/* Description removed from here to prevent duplication with input placeholders */}
-        </div>
+          </div>
       )}
 
       {/* ── CONTENT ───────────────────────────────────────────────────────── */}
