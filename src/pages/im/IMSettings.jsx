@@ -134,13 +134,11 @@ export default function IMSettings() {
     loadSchema();
   }, []);
 
-  // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
   const cleanTitle = (text) => {
     if (!text) return '';
     return text.replace(/^([0-9]+\.)+\s*/, '');
   };
 
-  // ── DYNAMIC NUMBERING ENGINE ──
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
@@ -216,13 +214,11 @@ export default function IMSettings() {
     }
   };
 
-  // ── NEW: SECTION REORDERING LOGIC ──
   const moveSection = (sectionId, direction) => {
     setSections(prevSections => {
       const targetSection = prevSections.find(s => s.id === sectionId);
       if (!targetSection) return prevSections;
 
-      // Get siblings (sections sharing the same parentId)
       const siblings = prevSections
         .filter(s => s.parentId === targetSection.parentId)
         .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -230,19 +226,16 @@ export default function IMSettings() {
       const idx = siblings.findIndex(s => s.id === sectionId);
       if (idx === -1) return prevSections;
 
-      // Prevent moving out of bounds
       if (direction === 'up' && idx === 0) return prevSections;
       if (direction === 'down' && idx === siblings.length - 1) return prevSections;
 
       const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
       
-      // We create a new array to force re-render, and swap their orders
       const newSections = [...prevSections];
       
       const targetDbIdx = newSections.findIndex(s => s.id === siblings[idx].id);
       const swapDbIdx = newSections.findIndex(s => s.id === siblings[swapIdx].id);
 
-      // Swap the physical order values so the sorting logic picks it up
       const tempOrder = newSections[targetDbIdx].order;
       newSections[targetDbIdx].order = newSections[swapDbIdx].order;
       newSections[swapDbIdx].order = tempOrder;
@@ -341,7 +334,6 @@ export default function IMSettings() {
     let movedBlock = null;
     
     setSections(prev => {
-      // 1. Find and extract the block from current section
       const newSections = prev.map(sec => {
         if (sec.id === activeSectionId) {
           movedBlock = sec.blocks.find(b => b.id === blockId);
@@ -350,7 +342,6 @@ export default function IMSettings() {
         return sec;
       });
       
-      // 2. Add block to target section
       if (movedBlock) {
         return newSections.map(sec => {
           if (sec.id === targetSectionId) {
@@ -363,7 +354,6 @@ export default function IMSettings() {
       return prev;
     });
     
-    // 3. Switch active section so user follows the block
     setActiveSectionId(targetSectionId);
   };
 
@@ -761,9 +751,11 @@ export default function IMSettings() {
           <label style={lbl}>Chart Type</label>
           <select style={{ ...inp, background: T.selectBg }} value={baseConfig.chartType || 'bar'} onChange={e => onChangeConfig({ chartType: e.target.value })}>
             <option value="bar">Bar Chart</option>
+            <option value="horizontal-bar">Horizontal Bar</option>
             <option value="line">Line Chart</option>
             <option value="area">Area Chart</option>
             <option value="pie">Pie Chart</option>
+            <option value="nested-circle">Nested Circles (Euler)</option>
           </select>
         </div>
 
@@ -772,18 +764,19 @@ export default function IMSettings() {
           <input style={inp} type="text" value={baseConfig.title || ''} onChange={e => onChangeConfig({ title: e.target.value })} placeholder="e.g. Revenue by Quarter" />
         </div>
         
-        <div>
-          <label style={lbl}>X-Axis Label</label>
-          <input style={inp} type="text" value={baseConfig.xAxisLabel || ''} onChange={e => onChangeConfig({ xAxisLabel: e.target.value })} placeholder="e.g. Quarter or Category" />
-        </div>
-
-        <div>
-          <label style={lbl}>Base Row Count</label>
-          <input
-            style={inp} type="number" min={1} max={50}
-            value={baseConfig.baseRowCount ?? 1}
-            onChange={e => onChangeConfig({ baseRowCount: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
-          />
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ flex: 1 }}>
+            <label style={lbl}>X-Axis Label</label>
+            <input style={inp} type="text" value={baseConfig.xAxisLabel || ''} onChange={e => onChangeConfig({ xAxisLabel: e.target.value })} placeholder="e.g. Quarter" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={lbl}>Base Row Count</label>
+            <input
+              style={inp} type="number" min={1} max={50}
+              value={baseConfig.baseRowCount ?? 1}
+              onChange={e => onChangeConfig({ baseRowCount: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
+            />
+          </div>
         </div>
 
         {baseConfig.chartType === 'pie' && (
@@ -1455,295 +1448,6 @@ export default function IMSettings() {
           </div>
         </aside>
       </div>
-
-      {showTableModal && activeBlock && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
-          <div style={{ background: T.bg, border: `1px solid ${T.primaryBorder}`, borderRadius: '14px', width: '100%', maxWidth: '1000px', height: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
-            <div style={{ padding: '18px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
-                  <Grid3X3 size={16} color={T.primary} /> Matrix Blueprint Editor
-                  {matrixPath !== 'root' && <span style={{ color: '#10b981', fontSize: '0.75rem' }}>[{matrixPath}]</span>}
-                </h2>
-                <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: T.mutedText }}>Configure cell types, formulas, and inputs. Click a cell to select it.</p>
-              </div>
-              <button onClick={() => setShowTableModal(false)} style={{ background: 'none', border: 'none', color: T.mutedText, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
-                <X size={18} />
-              </button>
-            </div>
-            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-              <div style={{ flex: 1, borderRight: `1px solid ${T.border}`, padding: '20px', overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                  <tbody>
-                    {(() => {
-                      const numRows  = activeContextData?.rows?.length || 0;
-                      const numCols  = activeContextData?.cols || 2;
-                      const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
-                      const cellBorder = isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)';
-                      return (activeContextData?.rows || []).map((row, rIdx) => (
-                        <tr key={row.id}>
-                          {row.cells.map((cell, cIdx) => {
-                            if (occupied[rIdx]?.[cIdx]) return null;
-                            const cs = Math.min(Math.max(1, cell.colspan || 1), numCols - cIdx);
-                            const rs = Math.min(Math.max(1, cell.rowspan || 1), numRows - rIdx);
-                            for (let r = rIdx; r < rIdx + rs; r++)
-                              for (let c = cIdx; c < cIdx + cs; c++)
-                                if (r < numRows && c < numCols && occupied[r]) occupied[r][c] = true;
-                            const isActive = activeCellRow === rIdx && activeCellCol === cIdx;
-                            return (
-                              <td key={cell.id} colSpan={cs} rowSpan={rs} style={{ border: cellBorder, padding: '3px', background: isDark ? '#070a10' : '#f8fafc' }}>
-                                <div onClick={() => { setActiveCellRow(rIdx); setActiveCellCol(cIdx); }}
-                                  style={{ padding: '10px', minHeight: '52px', borderRadius: '5px', cursor: 'pointer', background: isActive ? T.primaryLight : T.surface2, border: `1px solid ${isActive ? T.primary : 'transparent'}`, display: 'flex', flexDirection: 'column', gap: '3px', transition: 'all 0.15s', height: '100%' }}>
-                                  <span style={{ fontSize: '0.6rem', color: T.primary, fontWeight: 800, textTransform: 'uppercase' }}>{cell.cellType}</span>
-                                  <span style={{ fontSize: '0.75rem', color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {cell.cellType === 'fixed' ? `"${cell.text || ''}"` :
-                                     cell.cellType === 'computed' ? `ƒ: ${cell.formula || ''}` :
-                                     cell.cellType === 'mixed' ? 'Mixed Template' :
-                                     cell.cellType === 'smart-select' ? 'Smart Dropdown' :
-                                     cell.inputType === 'quill' ? 'Rich Text' :
-                                     cell.inputType || 'text'}
-                                  </span>
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-
-              <div style={{ width: '340px', padding: '20px', overflowY: 'auto', background: T.panelBg }}>
-                {activeCellData ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 800, color: T.primary, letterSpacing: '1px', textTransform: 'uppercase' }}>
-                      Cell R{activeCellRow + 1} C{activeCellCol + 1}
-                    </div>
-                    <div>
-                      <label style={lbl}>Cell Type</label>
-                      <select style={{ ...inp, background: T.selectBg }} value={activeCellData.cellType || 'input'} onChange={e => {
-                        const val = e.target.value;
-                        if (val === 'smart-select' && (!activeCellData.conditions || activeCellData.conditions.length === 0)) {
-                          updateTableCell({ cellType: val, conditions: [{ label: 'Option 1', template: '' }] });
-                        } else if (val === 'mixed' && !activeCellData.template) {
-                          updateTableCell({ cellType: val, template: '' });
-                        } else {
-                          updateTableCell('cellType', val);
-                        }
-                      }}>
-                        <option value="input">Standard Input</option>
-                        <option value="fixed">Fixed Text (Label)</option>
-                        <option value="computed">Computed Formula</option>
-                        <option value="mixed">Mixed (Fill-in-the-blank)</option>
-                        <option value="smart-select">Smart Select (Conditional)</option>
-                      </select>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <label style={lbl}>Placeholder</label>
-                      <input
-                        style={inp}
-                        type="text"
-                        value={activeCellData.placeholder || ''}
-                        onChange={e => updateTableCell('placeholder', e.target.value)}
-                        placeholder="e.g. Enter value…"
-                      />
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={!!activeCellData.showPlaceholderAsGuide} onChange={e => updateTableCell('showPlaceholderAsGuide', e.target.checked)} />
-                        Show placeholder as a guide in workspace
-                      </label>
-                    </div>
-
-                    {activeCellData.cellType === 'fixed' && (
-                      <div>
-                        <label style={lbl}>Fixed Text</label>
-                        <input style={inp} type="text" value={activeCellData.text || ''} onChange={e => updateTableCell('text', e.target.value)} />
-                      </div>
-                    )}
-
-                    {activeCellData.cellType === 'input' && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div>
-                          <label style={lbl}>Input Type</label>
-                          <select style={{ ...inp, background: T.selectBg }} value={activeCellData.inputType || 'text'} onChange={e => updateTableCell('inputType', e.target.value)}>
-                            <option value="text">Short Text</option>
-                            <option value="number">Number</option>
-                            <option value="currency">Currency (₹)</option>
-                            <option value="percentage">Percentage (%)</option>
-                            <option value="date">Date</option>
-                            <option value="textarea">Textarea (Multi-line)</option>
-                            <option value="select">Dropdown Select</option>
-                            <option value="quill">Rich Text Editor</option>
-                          </select>
-                        </div>
-
-                        {activeCellData.inputType === 'select' && (
-                          <div>
-                            <label style={lbl}>Select Options</label>
-                            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-                              <input
-                                style={{ ...inp, flex: 1 }}
-                                type="text"
-                                id="newCellSelectOption"
-                                placeholder="Type an option…"
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    const val = e.target.value.trim();
-                                    if (!val) return;
-                                    updateTableCell('selectOptions', [...(activeCellData.selectOptions || []), val]);
-                                    e.target.value = '';
-                                  }
-                                }}
-                              />
-                              <button
-                                onClick={() => {
-                                  const input = document.getElementById('newCellSelectOption');
-                                  const val = input.value.trim();
-                                  if (!val) return;
-                                  updateTableCell('selectOptions', [...(activeCellData.selectOptions || []), val]);
-                                  input.value = '';
-                                }}
-                                style={{ background: T.primaryLight, border: `1px solid ${T.primaryBorder}`, color: T.primary, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                + Add
-                              </button>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {(activeCellData.selectOptions || []).map((opt, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '5px', padding: '6px 10px' }}>
-                                  <span style={{ fontSize: '0.82rem', color: T.text }}>{opt}</span>
-                                  <button onClick={() => updateTableCell('selectOptions', (activeCellData.selectOptions || []).filter((_, idx) => idx !== i))}
-                                    style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem', lineHeight: 1 }}>×</button>
-                                </div>
-                              ))}
-                            </div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: T.text, cursor: 'pointer', marginTop: '10px' }}>
-                              <input type="checkbox" checked={!!activeCellData.allowCustom} onChange={e => updateTableCell('allowCustom', e.target.checked)} />
-                              Allow users to add custom options
-                            </label>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {activeCellData.cellType === 'computed' && (
-                      <div>
-                        <label style={lbl}>Formula</label>
-                        <input style={{ ...inp, fontFamily: 'monospace', borderColor: T.primaryBorder, color: T.primary }}
-                          type="text" value={activeCellData.formula || ''}
-                          onChange={e => updateTableCell('formula', e.target.value)}
-                          placeholder="SUM(C1) or R0C1 + R0C2" />
-                        <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '4px' }}>Use SUM(C[index]) or R[row]C[col] refs.</div>
-                      </div>
-                    )}
-
-                    {activeCellData.cellType === 'mixed' && (
-                      <div>
-                        <label style={lbl}>Template Blueprint</label>
-                        <textarea style={{ ...inp, resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }}
-                          rows={3} value={activeCellData.template || ''}
-                          onChange={e => updateTableCell('template', e.target.value)}
-                          placeholder="Total [number] due by [date]" />
-                      </div>
-                    )}
-
-{activeCellData.cellType === 'smart-select' && (
-                      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
-                        <label style={{ ...lbl, color: '#f472b6' }}>Smart Conditions (IF → THEN)</label>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
-                          {(activeCellData.conditions || []).map((cond, i) => (
-                            <div key={i} style={{ padding: '8px', background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '6px' }}>
-                              
-                              {/* IF Row */}
-                              <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>IF</span>
-                                <input style={{ ...inp, flex: 1 }} type="text" value={cond.label || ''} onChange={e => {
-                                  const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], label: e.target.value }; updateTableCell('conditions', c);
-                                }} placeholder="Dropdown option" />
-                                <button onClick={() => updateTableCell('conditions', activeCellData.conditions.filter((_, idx) => idx !== i))}
-                                  style={{ background: 'none', border: 'none', color: T.danger, cursor: 'pointer', fontWeight: 'bold' }}>×</button>
-                              </div>
-                              
-                              {/* THEN Row */}
-                              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, borderTop: `1px dashed ${T.border}`, paddingTop: '8px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: T.mutedText }}>THEN</span>
-                                  
-                                  {/* Segmented Mode Toggle */}
-                                  <div style={{ display: 'flex', gap: '2px', background: T.bg, padding: '2px', borderRadius: '6px', border: `1px solid ${T.border}` }}>
-                                    <button
-                                      onClick={() => {
-                                        const c = [...(activeCellData.conditions || [])];
-                                        c[i] = { ...c[i], thenMode: 'template' };
-                                        updateTableCell('conditions', c);
-                                      }}
-                                      style={{ background: cond.thenMode !== 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode !== 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-                                    >
-                                      Fill-in-the-Blanks
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const c = [...(activeCellData.conditions || [])];
-                                        c[i] = { ...c[i], thenMode: 'richtext' };
-                                        updateTableCell('conditions', c);
-                                      }}
-                                      style={{ background: cond.thenMode === 'richtext' ? T.primaryLight : 'transparent', color: cond.thenMode === 'richtext' ? T.primary : T.mutedText, border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-                                    >
-                                      Rich Text Editor
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {/* Dynamic Content based on Toggle */}
-                                {cond.thenMode === 'richtext' ? (
-                                  <div style={{ background: T.bg, border: `1px dashed ${T.border}`, padding: '12px', borderRadius: '6px', fontSize: '0.75rem', color: T.mutedText, textAlign: 'center' }}>
-                                    <Layers size={14} style={{ marginBottom: '4px', opacity: 0.7 }} />
-                                    <br />
-                                    A multi-line Rich Text Editor will be displayed for this option.
-                                  </div>
-                                ) : (
-                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <textarea style={{ ...inp, flex: 1, resize: 'vertical' }} rows={2} value={cond.template || ''} onChange={e => {
-                                      const c = [...(activeCellData.conditions || [])]; c[i] = { ...c[i], template: e.target.value }; updateTableCell('conditions', c);
-                                    }} placeholder="Total [number] employees..." />
-                                    <div style={{ fontSize: '0.62rem', color: T.mutedText, marginTop: '6px' }}>
-                                      Tags: [text] [number] [date] [select]
-                                    </div>
-                                  </div>
-                                )}
-
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <button onClick={() => updateTableCell('conditions', [...(activeCellData.conditions || []), { label: 'New Option', template: '', thenMode: 'template' }])}
-                          style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>
-                          + Add Condition
-                        </button>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '10px', borderTop: `1px solid ${T.border}`, paddingTop: '14px' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={lbl}>Col Span</label>
-                        <input type="number" min="1" style={inp} value={activeCellData.colspan || 1} onChange={e => updateTableCell('colspan', parseInt(e.target.value))} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={lbl}>Row Span</label>
-                        <input type="number" min="1" style={inp} value={activeCellData.rowspan || 1} onChange={e => updateTableCell('rowspan', parseInt(e.target.value))} />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ color: T.mutedText, fontSize: '0.82rem', textAlign: 'center', marginTop: '40px' }}>
-                    Select a cell from the grid to configure it.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
