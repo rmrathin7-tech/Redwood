@@ -20,7 +20,7 @@ const BlockWrapper = ({ children, isDark }) => (
 );
 
 export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
-  const [activeTab, setActiveTab] = useState('data');
+  const [activeTab, setActiveTab] = useState('chart'); // Default to chart view
   const [isFocused, setIsFocused] = useState(false);
 
   // ── THEME TOKENS ─────────────────────────────────────────────────────────
@@ -42,7 +42,28 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
   const seriesNames  = block.series     || ['Actual', 'Projected'];
   const seriesColors = block.colors     || DEFAULT_COLORS;
   const xAxisLabel   = block.xAxisLabel || 'Category';
-  const chartType    = block.chartType  || 'bar';
+  
+  // Chart type reads from the live workspace value first, falls back to block default
+  const chartType = value?.chartType || block.chartType || 'bar';
+
+  // ── FORMATTER ────────────────────────────────────────────────────────────
+  const formatValue = useCallback((val, curr = '', mag = '') => {
+    if (val === null || val === undefined) return '';
+    let formattedNum = val;
+    if (!mag && Number(val) >= 1000) {
+      formattedNum = `${(Number(val) / 1000).toFixed(1)}k`;
+    } else {
+      formattedNum = Number(val).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    }
+    return `${curr}${formattedNum}${mag ? ` ${mag}` : ''}`;
+  }, []);
+
+  const formatAxisValue = useCallback((val) => {
+    if (val >= 1000000000) return `${(val / 1000000000).toFixed(1)}B`;
+    if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+    return val;
+  }, []);
 
   // ── DATA MANAGEMENT ──────────────────────────────────────────────────────
   const rows = value?.rows || [];
@@ -54,20 +75,28 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
       const defaultRows = Array.from({ length: count }, (_, i) => ({
         id: `r${i + 1}`,
         label: hasLabels ? block.rowLabels[i] : `Item ${i + 1}`,
+        currency: '',
+        magnitude: '',
         values: seriesNames.map(() => 0),
       }));
-      if (onChange) onChange(block.dataPath, { rows: defaultRows });
+      if (onChange) onChange(block.dataPath, { rows: defaultRows, chartType: block.chartType || 'bar' });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, block.dataPath]);
 
   const save = useCallback((newRows) => {
-    if (onChange) onChange(block.dataPath, { rows: newRows });
-  }, [onChange, block.dataPath]);
+    if (onChange) onChange(block.dataPath, { ...value, rows: newRows });
+  }, [onChange, block.dataPath, value]);
 
   const updateLabel = (rIdx, newLabel) => {
     const next = [...rows];
     next[rIdx] = { ...next[rIdx], label: newLabel };
+    save(next);
+  };
+
+  const updateFormat = (rIdx, key, val) => {
+    const next = [...rows];
+    next[rIdx] = { ...next[rIdx], [key]: val };
     save(next);
   };
 
@@ -82,7 +111,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
   const addRow = () => {
     const next = [
       ...rows,
-      { id: crypto.randomUUID().slice(0, 6), label: 'New Item', values: seriesNames.map(() => 0) }
+      { id: crypto.randomUUID().slice(0, 6), label: 'New Item', currency: '', magnitude: '', values: seriesNames.map(() => 0) }
     ];
     save(next);
   };
@@ -94,17 +123,19 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
 
   // ── CHART DATA TRANSFORM ─────────────────────────────────────────────────
   const chartData = rows.map(r => {
-    const dataObj = { name: r.label || 'Unnamed' };
+    const dataObj = { 
+      name: r.label || 'Unnamed', 
+      currency: r.currency || '', 
+      magnitude: r.magnitude || '' 
+    };
     seriesNames.forEach((series, i) => {
       dataObj[series] = Number((r.values || [])[i]) || 0;
     });
     return dataObj;
   });
 
-  // ── PIE COLORS HELPER ────────────────────────────────────────────────────
   const getPieColors = () => {
     if (block.pieColors && block.pieColors.length > 0) {
-      // pieColors stored without '#', so prepend it
       return block.pieColors.map(c => c.startsWith('#') ? c : `#${c}`);
     }
     return DEFAULT_COLORS;
@@ -113,6 +144,84 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
   // ── DYNAMIC CHART RENDERER ───────────────────────────────────────────────
   const renderChart = () => {
     if (!chartData || chartData.length === 0) return null;
+
+    // ── NESTED CIRCLE (TAM/SAM/SOM) ──
+    if (chartType === 'nested-circle') {
+      const seriesKey = seriesNames[0]; 
+      
+      const sortedData = [...chartData]
+        .map(d => ({ ...d, value: Number(d[seriesKey]) || 0 }))
+        .sort((a, b) => b.value - a.value);
+
+      if (sortedData.length === 0) return null;
+
+      const maxValue = sortedData[0].value;
+      const size = 350; 
+      const center = size / 2;
+      
+      // Calculate anchoring so circles align at the bottom
+      const maxRadius = center - 20; 
+      const bottomY = center + maxRadius; 
+      
+      // Use pie colors so each category (TAM/SAM/SOM) gets a distinct color
+      const colors = getPieColors();
+
+      return (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '350px' }}>
+          <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="xMidYMid meet">
+            {sortedData.map((data, index) => {
+              // Scale mathematically by area
+              const radius = maxValue > 0 ? maxRadius * Math.sqrt(data.value / maxValue) : 0;
+              const color = colors[index % colors.length];
+              
+              // Shift the center Y coordinate down based on the radius
+              const cy = bottomY - radius;
+
+               return (
+                <g key={data.name}>
+                  <circle
+                    cx={center}
+                    cy={cy}
+                    r={radius}
+                    fill={color}
+                    fillOpacity={0.85}
+                    stroke={t.bg}
+                    strokeWidth="4"
+                    style={{ transition: 'all 0.4s ease' }}
+                  />
+                  {radius > 20 && (
+                    <g>
+                      <text
+                        x={center}
+                        y={cy - radius + 24} // Position nicely at the top arc of THIS circle
+                        textAnchor="middle"
+                        fill="#ffffff"
+                        fontSize="13px"
+                        fontWeight="800"
+                        style={{ pointerEvents: 'none', textShadow: '0px 2px 4px rgba(0,0,0,0.6)' }}
+                      >
+                        {data.name}
+                      </text>
+                      <text
+                        x={center}
+                        y={cy - radius + 40}
+                        textAnchor="middle"
+                        fill="#ffffff"
+                        fontSize="11px"
+                        fontWeight="600"
+                        style={{ pointerEvents: 'none', textShadow: '0px 2px 4px rgba(0,0,0,0.6)' }}
+                      >
+                        {formatValue(data.value, data.currency, data.magnitude)}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      );
+    }
 
     // ── PIE CHART ──
     if (chartType === 'pie') {
@@ -126,6 +235,8 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
               const pieData = rows.map((r, idx) => ({
                 name: r.label || `Item ${idx + 1}`,
                 value: Number((r.values || [])[sIdx]) || 0,
+                currency: r.currency || '',
+                magnitude: r.magnitude || ''
               }));
               return (
                 <div key={sIdx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -135,23 +246,28 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                   }}>
                     {sName}
                   </div>
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
                         data={pieData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={45}
-                        outerRadius={85}
+                        innerRadius={40}
+                        outerRadius={70} // Reduced to leave room for permanent labels
                         paddingAngle={2}
                         dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        labelLine={{ stroke: t.textMuted, strokeWidth: 1 }}
+                        label={({ name, percent, value, payload }) => `${name}: ${formatValue(value, payload.currency, payload.magnitude)}`}
                       >
                         {pieData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={pieColors[index % pieColors.length]} />
                         ))}
                       </Pie>
                       <Tooltip
+                        formatter={(value, name, props) => {
+                          const { currency, magnitude } = props.payload;
+                          return [formatValue(value, currency, magnitude), name];
+                        }}
                         contentStyle={{ backgroundColor: t.bg, borderColor: t.border, borderRadius: '8px', color: t.text, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
                         itemStyle={{ fontSize: '13px', fontWeight: 600 }}
                       />
@@ -167,30 +283,37 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
         );
       }
 
-      // Single series → single pie (original behaviour)
+      // Single series → single pie
       const pieSeriesIdx = block.pieSeriesIndex ?? 0;
       const pieData = rows.map((r, idx) => ({
         name: r.label || `Item ${idx + 1}`,
         value: Number((r.values || [])[pieSeriesIdx]) || 0,
+        currency: r.currency || '',
+        magnitude: r.magnitude || ''
       }));
 
       return (
-        <PieChart margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
+        <PieChart margin={{ top: 20, right: 30, left: 30, bottom: 20 }}>
           <Pie
             data={pieData}
             cx="50%"
             cy="50%"
             innerRadius={60}
-            outerRadius={110}
+            outerRadius={95} // Reduced to leave room for permanent labels
             paddingAngle={2}
             dataKey="value"
-            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+            labelLine={{ stroke: t.textMuted, strokeWidth: 1 }}
+            label={({ name, percent, value, payload }) => `${name}: ${formatValue(value, payload.currency, payload.magnitude)} (${(percent * 100).toFixed(0)}%)`}
           >
             {pieData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={pieColors[index % pieColors.length]} />
             ))}
           </Pie>
           <Tooltip
+            formatter={(value, name, props) => {
+              const { currency, magnitude } = props.payload;
+              return [formatValue(value, currency, magnitude), name];
+            }}
             contentStyle={{ backgroundColor: t.bg, borderColor: t.border, borderRadius: '8px', color: t.text, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
             itemStyle={{ fontSize: '13px', fontWeight: 600 }}
           />
@@ -201,30 +324,42 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
       );
     }
 
-    // ── BAR / LINE / AREA ──
+    // ── BAR / LINE / AREA / HORIZONTAL BAR ──
+    const isHorizontal = chartType === 'horizontal-bar';
+    const ChartComponent = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
+    
     const commonProps = {
       data: chartData,
-      margin: { top: 10, right: 10, left: -20, bottom: 0 },
+      layout: isHorizontal ? 'vertical' : 'horizontal',
+      margin: { top: 10, right: 20, left: isHorizontal ? 30 : -20, bottom: 0 },
     };
-    const ChartComponent = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
 
     return (
       <ChartComponent {...commonProps}>
-        <CartesianGrid strokeDasharray="3 3" stroke={t.gridLine} vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={t.gridLine} horizontal={!isHorizontal} vertical={isHorizontal} />
         <XAxis
-          dataKey="name"
+          type={isHorizontal ? 'number' : 'category'}
+          dataKey={isHorizontal ? undefined : 'name'}
           tick={{ fill: t.textMuted, fontSize: 12 }}
-          axisLine={{ stroke: t.border }}
+          axisLine={isHorizontal ? false : { stroke: t.border }}
           tickLine={false}
-          dy={10}
+          tickFormatter={isHorizontal ? formatAxisValue : undefined}
+          dy={isHorizontal ? 0 : 10}
         />
         <YAxis
+          type={isHorizontal ? 'category' : 'number'}
+          dataKey={isHorizontal ? 'name' : undefined}
           tick={{ fill: t.textMuted, fontSize: 12 }}
-          axisLine={false}
+          axisLine={isHorizontal ? { stroke: t.border } : false}
           tickLine={false}
-          tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}
+          tickFormatter={isHorizontal ? undefined : formatAxisValue}
+          width={isHorizontal ? 100 : 60}
         />
         <Tooltip
+          formatter={(value, name, props) => {
+            const { currency, magnitude } = props.payload;
+            return [formatValue(value, currency, magnitude), name];
+          }}
           cursor={{ fill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
           contentStyle={{ backgroundColor: t.bg, borderColor: t.border, borderRadius: '8px', color: t.text, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
           itemStyle={{ fontSize: '13px', fontWeight: 600 }}
@@ -241,52 +376,86 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
           if (chartType === 'area') {
             return <Area key={series} type="monotone" dataKey={series} stroke={color} fill={color} fillOpacity={0.3} strokeWidth={2} />;
           }
-          return <Bar key={series} dataKey={series} fill={color} radius={[4, 4, 0, 0]} maxBarSize={60} />;
+          // Flip the radius corners depending on orientation
+          const radiusArr = isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
+          return <Bar key={series} dataKey={series} fill={color} radius={radiusArr} maxBarSize={isHorizontal ? 40 : 60} />;
         })}
       </ChartComponent>
     );
   };
 
-  // ── CHART TAB CONTAINER ──────────────────────────────────────────────────
-  // Multi-pie needs its own height and skips the outer ResponsiveContainer
   const isMultiPie = chartType === 'pie' && seriesNames.length > 1;
+  const isCustomSVG = chartType === 'nested-circle';
+
+  // Select Dropdown Styles
+  const selectStyle = {
+    background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', 
+    color: t.text, 
+    border: `1px solid ${t.border}`, 
+    borderRadius: '6px', 
+    padding: '4px 8px', 
+    fontSize: '11px', 
+    fontWeight: 600, 
+    outline: 'none', 
+    cursor: lockedBy ? 'not-allowed' : 'pointer'
+  };
+  const optionStyle = { background: t.bg, color: t.text };
 
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '12px' }}>
         <div>
-      
           {block.title && (
-            <div style={{ fontSize: '16px', fontWeight: 700, color: t.text, marginTop: '4px' }}>{block.title}</div>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: t.text, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {block.title}
+            </div>
           )}
         </div>
 
-        {/* ── TAB SWITCHER ── */}
-        <div style={{ display: 'flex', background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}` }}>
-          <button
-            onClick={() => setActiveTab('data')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '5px',
-              border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
-              background: activeTab === 'data' ? t.tabActiveBg : 'transparent',
-              color: activeTab === 'data' ? t.tabActiveTx : t.textMuted,
-              transition: 'all 0.2s'
-            }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          
+          {/* ── WORKSPACE CHART OVERRIDE ── */}
+          <select 
+            value={chartType} 
+            onChange={(e) => onChange && onChange(block.dataPath, { ...value, chartType: e.target.value })}
+            disabled={!!lockedBy}
+            style={selectStyle}
           >
-            <Table2 size={14} /> Data Table
-          </button>
-          <button
-            onClick={() => setActiveTab('chart')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '5px',
-              border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
-              background: activeTab === 'chart' ? t.tabActiveBg : 'transparent',
-              color: activeTab === 'chart' ? t.tabActiveTx : t.textMuted,
-              transition: 'all 0.2s'
-            }}
-          >
-            <BarChart3 size={14} /> Live Chart
-          </button>
+            <option value="bar" style={optionStyle}>Bar Chart</option>
+            <option value="horizontal-bar" style={optionStyle}>Horizontal Bar</option>
+            <option value="line" style={optionStyle}>Line Chart</option>
+            <option value="area" style={optionStyle}>Area Chart</option>
+            <option value="pie" style={optionStyle}>Pie Chart</option>
+            <option value="nested-circle" style={optionStyle}>Nested Circles</option>
+          </select>
+
+          {/* ── TAB SWITCHER ── */}
+          <div style={{ display: 'flex', background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}` }}>
+            <button
+              onClick={() => setActiveTab('data')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '5px',
+                border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+                background: activeTab === 'data' ? t.tabActiveBg : 'transparent',
+                color: activeTab === 'data' ? t.tabActiveTx : t.textMuted,
+                transition: 'all 0.2s'
+              }}
+            >
+              <Table2 size={14} /> Data Table
+            </button>
+            <button
+              onClick={() => setActiveTab('chart')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '5px',
+                border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+                background: activeTab === 'chart' ? t.tabActiveBg : 'transparent',
+                color: activeTab === 'chart' ? t.tabActiveTx : t.textMuted,
+                transition: 'all 0.2s'
+              }}
+            >
+              <BarChart3 size={14} /> Live Chart
+            </button>
+          </div>
         </div>
       </div>
 
@@ -300,6 +469,9 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                 <tr>
                   <th style={{ padding: '10px 14px', background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: `1px solid ${t.border}`, fontSize: '12px', color: t.textMuted, width: '25%' }}>
                     {xAxisLabel}
+                  </th>
+                  <th style={{ padding: '10px 14px', background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: `1px solid ${t.border}`, fontSize: '12px', color: t.textMuted, width: '20%' }}>
+                    Format
                   </th>
                   {seriesNames.map((series, i) => (
                     <th key={i} style={{ padding: '10px 14px', background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: i < seriesNames.length - 1 ? `1px solid ${t.border}` : 'none', fontSize: '12px', color: t.textMuted }}>
@@ -326,6 +498,33 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                         style={{ width: '100%', border: 'none', background: 'transparent', color: t.text, padding: '10px 14px', outline: 'none', fontSize: '13px', fontWeight: 600 }}
                         placeholder="Row Label"
                       />
+                    </td>
+                    <td style={{ padding: '10px 14px', borderRight: `1px solid ${t.border}` }}>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <select 
+                          value={row.currency || ''} 
+                          onChange={(e) => updateFormat(rIdx, 'currency', e.target.value)}
+                          disabled={!!lockedBy}
+                          style={selectStyle}
+                        >
+                          <option value="" style={optionStyle}>Cur.</option>
+                          <option value="$" style={optionStyle}>$</option>
+                          <option value="₹" style={optionStyle}>₹</option>
+                          <option value="€" style={optionStyle}>€</option>
+                          <option value="£" style={optionStyle}>£</option>
+                        </select>
+                        <select 
+                          value={row.magnitude || ''} 
+                          onChange={(e) => updateFormat(rIdx, 'magnitude', e.target.value)}
+                          disabled={!!lockedBy}
+                          style={selectStyle}
+                        >
+                          <option value="" style={optionStyle}>Mag.</option>
+                          <option value="k" style={optionStyle}>k</option>
+                          <option value="Millions" style={optionStyle}>M</option>
+                          <option value="Billions" style={optionStyle}>B</option>
+                        </select>
+                      </div>
                     </td>
                     {seriesNames.map((_, sIdx) => (
                       <td key={sIdx} style={{ padding: '0', borderRight: sIdx < seriesNames.length - 1 ? `1px solid ${t.border}` : 'none' }}>
@@ -372,7 +571,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
         {/* ── CHART TAB ── */}
         {activeTab === 'chart' && (
           <div style={{ padding: '24px', width: '100%', height: isMultiPie ? 'auto' : '350px' }}>
-            {isMultiPie
+            {(isMultiPie || isCustomSVG)
               ? renderChart()
               : (
                 <ResponsiveContainer width="100%" height="100%">
