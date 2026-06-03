@@ -16,6 +16,7 @@ import BlockRegistry from './components/BlockRegistry.jsx';
 import CommentsSidebar from './components/CommentsSidebar.jsx';
 import IMTaskBoard from './components/IMTaskBoard.jsx';
 import IMPrintPreview from './components/IMPrintPreview.jsx';
+import CommentSVGOverlay from './components/CommentSVGOverlay.jsx'; // <-- NEW IMPORT
 
 // ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -413,6 +414,29 @@ export default function IMWorkspace() {
     return () => window.removeEventListener('im-open-comments-sidebar', handler);
   }, []);
 
+  // ── INTELLIGENT COMMENT JUMPING ──
+  useEffect(() => {
+    const handler = (e) => {
+      const { sectionId, dataPath } = e.detail;
+      
+      // If the comment belongs to a different section, switch to it first
+      if (sectionId && sectionId !== 'global' && sectionId !== activeSection) {
+        handleSectionClick(sectionId);
+        
+        // Wait 800ms for the section transition and block stagger to finish rendering
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('im-focus-block', { detail: { dataPath } }));
+        }, 800);
+      } else {
+        // We are already in the right section, fire the scroll immediately
+        window.dispatchEvent(new CustomEvent('im-focus-block', { detail: { dataPath } }));
+      }
+    };
+    
+    window.addEventListener('im-jump-to-comment', handler);
+    return () => window.removeEventListener('im-jump-to-comment', handler);
+  }, [activeSection, handleSectionClick]);
+
   const exitToHub = async () => {
     if (user) await updateDoc(doc(db, 'workspace-users', user.uid), {
       currentBlockId: null, currentPage: 'module-hub',
@@ -588,25 +612,29 @@ export default function IMWorkspace() {
         <header style={{
           flexShrink: 0, background: T.header, backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10,
+          /* Expose theme to CSS */
+          '--t-muted': T.textMuted,
+          '--t-text': T.text,
+          '--t-surface3': T.surface3,
+          '--t-surface': T.surface,
+          '--t-border': T.border,
+          '--t-shadowLg': T.shadowLg,
         }}>
           <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button
                 onClick={() => setIsSidebarOpen(p => !p)}
-                title={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-                style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: 6, borderRadius: 6, display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+                data-tip={isSidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}
+                className="im-top-btn"
               >
-                <Menu size={17} />
+                <Menu size={18} />
               </button>
               <button
                 onClick={exitToHub}
-                style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '6px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, transition: 'color 0.15s, background 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+                data-tip="Return to Hub"
+                className="im-top-btn"
               >
-                <ArrowLeft size={13} /> Hub
+                <ArrowLeft size={15} /> Hub
               </button>
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 4px' }} />
               <div style={{
@@ -626,86 +654,53 @@ export default function IMWorkspace() {
               
               <button
                 onClick={() => setShowTailorModal(true)}
-                title="Tailor Template"
-                style={{
-                  background: showTailorModal ? T.accentDim : 'none', border: 'none',
-                  color: showTailorModal ? T.accent : T.textMuted,
-                  cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = showTailorModal ? T.accentDim : 'transparent';
-                  e.currentTarget.style.color = showTailorModal ? T.accent : T.textMuted;
-                }}
+                data-tip="Tailor Template"
+                className={`im-top-btn ${showTailorModal ? 'active' : ''}`}
+                style={{ '--active-bg': T.accentDim, '--active-color': T.accent }}
               >
-                <Scissors size={15} />
+                <Scissors size={18} />
               </button>
 
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
-                title="Operations Board"
-                style={{
-                  background: isTaskBoardOpen ? T.amberDim : 'none', border: 'none',
-                  color: isTaskBoardOpen ? T.amber : T.textMuted,
-                  cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = isTaskBoardOpen ? T.amberDim : 'transparent';
-                  e.currentTarget.style.color = isTaskBoardOpen ? T.amber : T.textMuted;
-                }}
+                data-tip="Operations Board"
+                className={`im-top-btn ${isTaskBoardOpen ? 'active' : ''}`}
+                style={{ '--active-bg': T.amberDim, '--active-color': T.amber }}
               >
-                <Kanban size={15} />
+                <Kanban size={18} />
               </button>
+
               <button
                 onClick={() => setIsPreviewOpen(true)}
-                title="Print Preview"
-                style={{
-                  background: 'none', border: 'none', color: T.textMuted,
-                  cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+                data-tip="Print Preview"
+                className="im-top-btn"
               >
-                <Printer size={15} />
+                <Printer size={18} />
               </button>
+
               <button
                 onClick={() => setCommentsSidebarOpen(p => !p)}
-                title="Comments"
-                style={{
-                  background: commentsSidebarOpen ? T.amberDim : 'none', border: 'none',
-                  color: commentsSidebarOpen ? T.amber : T.textMuted,
-                  cursor: 'pointer', padding: 6, borderRadius: 6,
-                  display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = commentsSidebarOpen ? T.amberDim : 'transparent';
-                  e.currentTarget.style.color = commentsSidebarOpen ? T.amber : T.textMuted;
-                }}
+                data-tip="Comments"
+                className={`im-top-btn ${commentsSidebarOpen ? 'active' : ''}`}
+                style={{ '--active-bg': T.amberDim, '--active-color': T.amber }}
               >
-                <MessageSquare size={15} />
+                <MessageSquare size={18} />
               </button>
+
               <button
                 onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')}
-                title="Toggle theme"
-                style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: 6, borderRadius: 6, display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+                data-tip={isDark ? "Light Mode" : "Dark Mode"}
+                className="im-top-btn"
               >
-                {isDark ? <Sun size={15} /> : <Moon size={15} />}
+                {isDark ? <Sun size={18} /> : <Moon size={18} />}
               </button>
+
               <button
                 onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
-                title="IM Settings"
-                style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', padding: 6, borderRadius: 6, display: 'flex', alignItems: 'center', transition: 'color 0.15s, background 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.surface3; e.currentTarget.style.color = T.text; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}
+                data-tip="IM Settings"
+                className="im-top-btn"
               >
-                <Settings size={15} />
+                <Settings size={18} />
               </button>
             </div>
           </div>
@@ -1089,8 +1084,16 @@ export default function IMWorkspace() {
         </div>
       )}
       
-      <CommentsSidebar imId={imId} isDark={isDark} isOpen={commentsSidebarOpen} onClose={() => setCommentsSidebarOpen(false)} />
+<CommentsSidebar 
+        imId={imId} 
+        isDark={isDark} 
+        isOpen={commentsSidebarOpen} 
+        onClose={() => setCommentsSidebarOpen(false)} 
+        activeSection={activeSection} 
+      />
       
+      <CommentSVGOverlay /> {/* <-- MOUNT THE SVG OVERLAY HERE */}
+
       {isTaskBoardOpen && (
         <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
       )}
@@ -1117,6 +1120,62 @@ export default function IMWorkspace() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+        .im-top-btn {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          height: 36px;
+          min-width: 36px;
+          padding: 0 8px;
+          border-radius: 8px;
+          background: transparent;
+          color: var(--t-muted);
+          border: 1px solid transparent;
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 600;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .im-top-btn:hover {
+          background: var(--t-surface3);
+          color: var(--t-text);
+          border-color: var(--t-border);
+        }
+        .im-top-btn.active {
+          background: var(--active-bg);
+          color: var(--active-color);
+          border-color: var(--active-border, transparent);
+        }
+        /* Custom Tooltip Logic */
+        .im-top-btn[data-tip]::after {
+          content: attr(data-tip);
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%) translateY(-4px);
+          background: var(--t-surface);
+          color: var(--t-text);
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 11.5px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+          white-space: nowrap;
+          opacity: 0;
+          pointer-events: none;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: var(--t-shadowLg);
+          border: 1px solid var(--t-border);
+          z-index: 100;
+        }
+        .im-top-btn[data-tip]:hover::after {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
       `}</style>
     </div>
   );
