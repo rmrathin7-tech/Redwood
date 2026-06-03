@@ -546,6 +546,14 @@ export default function RichTextBlock({
 
   const [isFocused,  setIsFocused]  = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  
+  useEffect(() => {
+    // Detect if this component is mounted inside the hidden print container
+    if (document.getElementById('print-mount-point')?.contains(editorRef.current)) {
+      setIsPrinting(true);
+    }
+  }, []);
   const placeholderText = block.placeholder || block.desc || '';
   const usePlaceholderGuide = !!block.showPlaceholderAsGuide && !!placeholderText;
   const [hiddenGuides, setHiddenGuides] = useState({});
@@ -720,10 +728,35 @@ export default function RichTextBlock({
         </div>
       )}
 
-      <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', background: t.bg }}>
+      <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', background: t.bg, position: 'relative' }}>
 
-        {/* Inline toolbar */}
-        <div ref={toolbarRef} style={{ background: t.toolbarBg, borderBottom: `1px solid ${t.toolbarBorder}`, padding: '8px 12px' }}>
+        {!isPrinting && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 10,
+            background: isDark ? 'rgba(13,17,23,0.85)' : 'rgba(255,255,255,0.85)',
+            backdropFilter: 'blur(2px)', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            opacity: 1, transition: 'opacity 0.2s',
+          }}>
+            <button
+              onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
+                borderRadius: 8, background: t.accent, color: '#fff', border: 'none',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                boxShadow: `0 4px 14px rgba(239,68,68,0.3)`
+              }}
+            >
+              <Maximize2 size={16} /> Expand to Edit
+            </button>
+            <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
+              Read-only preview
+            </div>
+          </div>
+        )}
+
+        {/* Inline toolbar - Hidden in this mode, but required by Quill instance */}
+        <div ref={toolbarRef} style={{ display: 'none' }}>
           <span className="ql-formats">
             <select className="ql-font" defaultValue="">
               <option value="">Default</option>
@@ -754,8 +787,8 @@ export default function RichTextBlock({
           </span>
         </div>
 
-        {/* Action bar */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '7px 12px', background: t.subBarBg, borderBottom: `1px solid ${t.toolbarBorder}` }}>
+        {/* Action bar - Hidden because of Expand-to-Edit flow */}
+        <div style={{ display: 'none', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '7px 12px', background: t.subBarBg, borderBottom: `1px solid ${t.toolbarBorder}` }}>
           <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.insertTable(3,3); }} style={inlineBtn(t)}>
             <Table2 size={13} /> Insert Table
           </button>
@@ -797,7 +830,13 @@ export default function RichTextBlock({
   <style>{`
         .ql-toolbar.ql-snow { border: none !important; }
         .ql-container.ql-snow { border: none !important; }
-        .im-quill-canvas .ql-editor { min-height: ${block.minHeight || '160px'}; color: ${t.text} !important; }
+        .im-quill-canvas .ql-editor { 
+          min-height: ${block.minHeight || '160px'}; 
+          max-height: ${isPrinting ? 'none' : '300px'}; /* Prevent massive previews */
+          overflow: hidden; /* Hide overflow in preview */
+          color: ${t.text} !important; 
+          padding: ${isPrinting ? '0' : '16px 20px'};
+        }
 .im-quill-canvas .ql-editor.ql-blank::before { 
   color: ${t.textMuted} !important; 
   font-style: italic; 
