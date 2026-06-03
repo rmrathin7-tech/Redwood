@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
-  CheckCircle2, ShieldAlert, Loader2, ChevronDown, Lock, PanelLeftClose,
-  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer
+  CheckCircle2, ShieldAlert, Loader2, ChevronDown, ChevronRight, Lock, PanelLeftClose,
+  MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer,
+  Pencil, Check, Blocks
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
@@ -33,7 +34,10 @@ export default function IMWorkspace() {
   const [user, setUser] = useState(null);
   const [schema, setSchema] = useState([]); // Master Schema (Read-Only here)
   const [excludedSections, setExcludedSections] = useState([]); // Local IM Exclusions
+  const [customNames, setCustomNames] = useState({}); // Local IM Renames
   const [imData, setImData] = useState({});
+  const [expandedTailorSections, setExpandedTailorSections] = useState({});
+  const [editingTailorName, setEditingTailorName] = useState({ id: null, text: '' });
   const [activeLocks, setActiveLocks] = useState({});
   const [activeSection, setActiveSection] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -128,6 +132,7 @@ export default function IMWorkspace() {
         const data = snap.data();
         setImData(prev => ({ ...prev, ...(data.data || {}) }));
         setExcludedSections(data.excludedSections || []);
+        setCustomNames(data.customNames || {});
       }
     });
   }, [imId]);
@@ -215,23 +220,54 @@ export default function IMWorkspace() {
   const getSectionName = useCallback((key) => {
     const sec = flatSections.find(s => s.key === key);
     if (!sec) return key;
-    return `${sectionNumberMap[sec.id]}. ${cleanTitle(sec.navLabel || sec.heading)}`;
-  }, [flatSections, sectionNumberMap]);
+    const displayName = customNames[sec.id] || cleanTitle(sec.navLabel || sec.heading);
+    return `${sectionNumberMap[sec.id]}. ${displayName}`;
+  }, [flatSections, sectionNumberMap, customNames]);
 
-  // ── HANDLE LOCAL EXCLUDE / RESTORE (TAILOR TEMPLATE) ──
-  const toggleSectionExclusion = async (sectionId, isExcluding) => {
+//   HANDLE LOCAL EXCLUDE / RESTORE & RENAME (TAILOR TEMPLATE)    
+  const handleLocalRename = async (id, newName) => {
+    const updatedNames = { ...customNames, [id]: newName };
+    setCustomNames(updatedNames); // Optimistic UI update
+    try {
+      await updateDoc(doc(db, 'investment-memos', imId), {
+        customNames: updatedNames,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to rename locally", err);
+    }
+  };
+
+  const toggleSectionExclusion = async (id, isExcluding) => {
     let newExclusions = new Set(excludedSections);
     
     if (isExcluding) {
-      if (!window.confirm('Exclude this section from this IM?')) return;
-      newExclusions.add(sectionId);
-      // Auto-exclude children if a parent is excluded
-      schema.filter(s => s.parentId === sectionId).forEach(c => newExclusions.add(c.id));
+      newExclusions.add(id);
+      
+      // Auto-exclude children AND blocks if a section is excluded
+      schema.filter(s => s.parentId === id).forEach(c => {
+        newExclusions.add(c.id);
+        (c.blocks || []).forEach(b => newExclusions.add(b.id));
+      });
+      
+      // Exclude blocks of the parent itself
+      const sec = schema.find(s => s.id === id);
+      if (sec && sec.blocks) sec.blocks.forEach(b => newExclusions.add(b.id));
+
     } else {
-      newExclusions.delete(sectionId);
+      newExclusions.delete(id);
+      
       // Auto-restore parent if a child is restored
-      const sec = schema.find(s => s.id === sectionId);
-      if (sec?.parentId) newExclusions.delete(sec.parentId);
+      const sec = schema.find(s => s.id === id);
+      if (sec && sec.parentId) newExclusions.delete(sec.parentId);
+      
+      // If restoring a block, find its section and restore it too
+      schema.forEach(s => {
+        if (s.blocks && s.blocks.some(b => b.id === id)) {
+          newExclusions.delete(s.id);
+          if (s.parentId) newExclusions.delete(s.parentId);
+        }
+      });
     }
     
     const exclusionsArr = Array.from(newExclusions);
@@ -239,8 +275,8 @@ export default function IMWorkspace() {
 
     // If the active section is suddenly excluded, transition away
     if (isExcluding) {
-      const targetSec = schema.find(s => s.id === sectionId);
-      const isCurrentlyActive = activeSection === targetSec?.key || schema.filter(s => s.parentId === sectionId).some(c => c.key === activeSection);
+      const targetSec = schema.find(s => s.id === id);
+      const isCurrentlyActive = activeSection === targetSec?.key || schema.filter(s => s.parentId === id).some(c => c.key === activeSection);
       
       if (isCurrentlyActive) {
         const remaining = schema.filter(s => !newExclusions.has(s.id));
@@ -255,7 +291,6 @@ export default function IMWorkspace() {
     }
 
     try {
-      // Save exclusions LOCALLY to the investment-memos document ONLY.
       await updateDoc(doc(db, 'investment-memos', imId), { 
         excludedSections: exclusionsArr,
         updatedAt: serverTimestamp() 
@@ -349,6 +384,7 @@ export default function IMWorkspace() {
   useEffect(() => {
     if (!activeSectionSchema) return;
     const blocks = (activeSectionSchema.blocks || [])
+      .filter(b => !excludedSections.includes(b.id))
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     setVisibleBlocks(new Set());
@@ -358,7 +394,7 @@ export default function IMWorkspace() {
       }, i * STAGGER_MS + 50)
     );
     return () => timers.forEach(clearTimeout);
-  }, [activeSection, activeSectionSchema]);
+  }, [activeSection, activeSectionSchema, excludedSections]);
 
   useEffect(() => {
     const el = mainRef.current;
@@ -479,7 +515,7 @@ export default function IMWorkspace() {
                     {isActive && <div style={{ width: 3, height: 14, borderRadius: 2, background: T.accent, flexShrink: 0, boxShadow: `0 0 8px ${T.accentGlow}` }} />}
                     <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? T.accent : 'inherit' }}>
                       <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
-                      {cleanTitle(section.navLabel)}
+                      {customNames[section.id] || cleanTitle(section.navLabel)}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -515,10 +551,10 @@ export default function IMWorkspace() {
                   ? <div style={{ position: 'absolute', left: 10, width: 2, height: 14, borderRadius: 2, background: T.accent, boxShadow: `0 0 6px ${T.accentGlow}` }} />
                   : <div style={{ position: 'absolute', left: 13, width: 4, height: 4, borderRadius: '50%', background: T.textSub }} />
                 }
-                <span style={{ fontSize: 11.5, fontWeight: isActive ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
-                  <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
-                  {cleanTitle(section.navLabel)}
-                </span>
+              <span style={{ fontSize: 11.5, fontWeight: isActive ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
+                    <span style={{ color: isActive ? T.accent : T.textMuted, marginRight: '6px' }}>{sectionNumberMap[section.id]}.</span>
+                    {customNames[section.id] || cleanTitle(section.navLabel)}
+                  </span>
                 {viewers.length > 0 && (
                   <div style={{ display: 'flex', flexShrink: 0 }}>
                     {viewers.slice(0, 2).map((v, i) => (
@@ -731,7 +767,7 @@ export default function IMWorkspace() {
                   <div style={{ width: 4, height: 32, borderRadius: 3, flexShrink: 0, background: `linear-gradient(180deg, ${T.accent}, rgba(239,68,68,0.3))` }} />
                   <h2 style={{ fontSize: 24, fontWeight: 800, color: T.text, margin: 0, letterSpacing: -0.3, lineHeight: 1.2 }}>
                     <span style={{ color: T.accent, marginRight: '10px' }}>{sectionNumberMap[activeSectionSchema.id]}.</span>
-                    {cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
+                    {customNames[activeSectionSchema.id] || cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}
                   </h2>
                 </div>
                 
@@ -766,6 +802,7 @@ export default function IMWorkspace() {
               </div>
               
               {(activeSectionSchema.blocks || [])
+                .filter(block => !excludedSections.includes(block.id))
                 .slice()
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map(block => {
@@ -783,7 +820,7 @@ export default function IMWorkspace() {
                       }}
                     >
                       <BlockRegistry
-                        block={block}
+                        block={{ ...block, label: customNames[block.id] || block.label }}
                         value={getValue(block.dataPath)}
                         onChange={(path, value) => handleDataChange(path, value, block.id)}
                         lockedBy={activeLocks[block.id] || null}
@@ -802,69 +839,214 @@ export default function IMWorkspace() {
       {/* ── TAILOR TEMPLATE MODAL ── */}
       {showTailorModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px' }}>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '14px', width: '100%', maxWidth: '640px', maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}>
+            
+            {/* Header */}
             <div style={{ padding: '20px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2, borderRadius: '14px 14px 0 0' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '1.1rem', color: T.text, display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800 }}>
                   <Scissors size={18} color={T.accent} /> Tailor Template Structure
                 </h2>
-                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Exclude or restore sections specifically for this IM.</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: T.textMuted }}>Rename, exclude, or restore sections & blocks — for this IM only.</p>
               </div>
               <button onClick={() => setShowTailorModal(false)} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer', padding: '6px', borderRadius: '50%' }}>
                 <X size={18} />
               </button>
             </div>
             
+            {/* Body */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
               {(() => {
-                // Render from the MASTER schema to show everything
-                const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
-                if (parents.length === 0) return <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections exist in master schema.</div>;
-                
-                return parents.map(p => {
-                  const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
-                  const isParentExcluded = excludedSections.includes(p.id);
+                const parents = schema.filter(s => !s.parentId).sort((a,b) => (a.order||0)-(b.order||0));
+                if (parents.length === 0) return (
+                  <div style={{ color: T.textMuted, textAlign: 'center', fontSize: '0.85rem' }}>No sections in master schema.</div>
+                );
+
+                // ─── Inline rename input row ───
+                const RenameRow = ({ sec, isChild }) => {
+                  const isEditing = editingTailorName.id === sec.id;
+                  const isExcluded = excludedSections.includes(sec.id);
+                  const displayName = customNames[sec.id] || cleanTitle(sec.heading || sec.navLabel || (isChild ? 'Untitled Subsection' : 'Untitled Section'));
                   
                   return (
-                    <div key={p.id} style={{ marginBottom: '16px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden', opacity: isParentExcluded ? 0.5 : 1 }}>
-                      <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: T.surface2 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: T.text, textDecoration: isParentExcluded ? 'line-through' : 'none' }}>
-                          {cleanTitle(p.heading || p.navLabel || 'Untitled Section')}
-                        </div>
-                        {isParentExcluded ? (
-                           <button onClick={() => toggleSectionExclusion(p.id, false)} style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                             <RotateCcw size={12} /> Restore
-                           </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                      {isEditing ? (
+                        <>
+                          <input
+                            autoFocus
+                            value={editingTailorName.text}
+                            onChange={e => setEditingTailorName(p => ({ ...p, text: e.target.value }))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { const t = editingTailorName.text.trim(); if (t) handleLocalRename(sec.id, t); setEditingTailorName({ id: null, text: '' }); }
+                              if (e.key === 'Escape') setEditingTailorName({ id: null, text: '' });
+                            }}
+                            style={{ flex: 1, background: T.bg, border: `1px solid ${T.accent}`, color: T.text, padding: '4px 8px', borderRadius: '5px', fontSize: isChild ? '0.8rem' : '0.9rem', fontWeight: isChild ? 600 : 700, outline: 'none', minWidth: 0 }}
+                          />
+                          <button onClick={() => { const t = editingTailorName.text.trim(); if (t) handleLocalRename(sec.id, t); setEditingTailorName({ id: null, text: '' }); }}
+                            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: T.green, padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }} title="Confirm">
+                            <Check size={13} />
+                          </button>
+                          <button onClick={() => setEditingTailorName({ id: null, text: '' })}
+                            style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.textMuted, padding: '4px 8px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }} title="Cancel">
+                            <X size={13} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontWeight: isChild ? 600 : 700, fontSize: isChild ? '0.8rem' : '0.9rem', color: isChild ? T.textMuted : T.text, textDecoration: isExcluded ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {displayName}
+                          </span>
+                          {customNames[sec.id] && (
+                            <span style={{ fontSize: '0.62rem', color: T.accent, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '4px', padding: '1px 5px', flexShrink: 0, fontWeight: 700 }}>renamed</span>
+                          )}
+                          {!isExcluded && (
+                            <button onClick={() => setEditingTailorName({ id: sec.id, text: displayName })} title="Rename for this IM"
+                              style={{ background: 'transparent', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: 0.6, transition: 'opacity 0.15s' }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                };
+
+                // ─── Individual block row (inside expanded section) ───
+                const BlockRow = ({ block }) => {
+                  const isExcluded = excludedSections.includes(block.id);
+                  const isEditingBlock = editingTailorName.id === block.id;
+                  const blockName = customNames[block.id] || block.label || 'Untitled Block';
+                  
+                  return (
+                    <div style={{ padding: '7px 16px 7px 52px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isExcluded ? 0.45 : 1, borderTop: `1px solid ${T.border}`, background: isExcluded ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                        <Blocks size={11} style={{ color: T.textMuted, flexShrink: 0 }} />
+                        {isEditingBlock ? (
+                          <>
+                            <input autoFocus value={editingTailorName.text}
+                              onChange={e => setEditingTailorName(p => ({ ...p, text: e.target.value }))}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { const t = editingTailorName.text.trim(); if (t) handleLocalRename(block.id, t); setEditingTailorName({ id: null, text: '' }); }
+                                if (e.key === 'Escape') setEditingTailorName({ id: null, text: '' });
+                              }}
+                              style={{ flex: 1, background: T.bg, border: `1px solid ${T.accent}`, color: T.text, padding: '3px 7px', borderRadius: '4px', fontSize: '0.76rem', fontWeight: 600, outline: 'none', minWidth: 0 }}
+                            />
+                            <button onClick={() => { const t = editingTailorName.text.trim(); if (t) handleLocalRename(block.id, t); setEditingTailorName({ id: null, text: '' }); }}
+                              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: T.green, padding: '3px 7px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                              <Check size={12} />
+                            </button>
+                            <button onClick={() => setEditingTailorName({ id: null, text: '' })}
+                              style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.textMuted, padding: '3px 7px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                              <X size={12} />
+                            </button>
+                          </>
                         ) : (
-                           <button onClick={() => toggleSectionExclusion(p.id, true)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                             <Trash2 size={12} /> Exclude
-                           </button>
+                          <>
+                            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: T.textMuted, textDecoration: isExcluded ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {blockName}
+                            </span>
+                            {customNames[block.id] && (
+                              <span style={{ fontSize: '0.58rem', color: T.accent, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '3px', padding: '1px 4px', flexShrink: 0, fontWeight: 700 }}>renamed</span>
+                            )}
+                            <span style={{ fontSize: '0.62rem', color: T.textMuted, background: T.surface2, border: `1px solid ${T.border}`, borderRadius: '3px', padding: '1px 5px', flexShrink: 0, fontFamily: 'monospace' }}>
+                              {block.type}
+                            </span>
+                            {!isExcluded && (
+                              <button onClick={() => setEditingTailorName({ id: block.id, text: blockName })} title="Rename block for this IM"
+                                style={{ background: 'transparent', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '2px 3px', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: 0.55, transition: 'opacity 0.15s' }}
+                                onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.55'}>
+                                <Pencil size={10} />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
+                      <div style={{ flexShrink: 0, marginLeft: '8px' }}>
+                        {isExcluded ? (
+                          <button onClick={() => toggleSectionExclusion(block.id, false)}
+                            style={{ background: 'transparent', border: `1px solid ${T.green}`, color: T.green, padding: '3px 8px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <RotateCcw size={11} /> Restore
+                          </button>
+                        ) : (
+                          <button onClick={() => toggleSectionExclusion(block.id, true)}
+                            style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '3px 8px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+                            onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                            onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
+                            <X size={11} /> Exclude
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                };
+
+                // ─── Section / Subsection row ───
+                const SectionRow = ({ sec, isChild, parentExcluded }) => {
+                  const isExcluded = excludedSections.includes(sec.id) || parentExcluded;
+                  const isExpanded = !!expandedTailorSections[sec.id];
+                  const hasBlocks = sec.blocks && sec.blocks.length > 0;
+                  
+                  return (
+                    <div style={{ borderTop: isChild ? `1px solid ${T.border}` : 'none' }}>
+                      <div style={{ padding: isChild ? '8px 16px 8px 28px' : '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isChild ? 'transparent' : T.surface2, opacity: isExcluded ? 0.5 : 1 }}>
+                        
+                        {/* Left: expand chevron + rename */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                          {hasBlocks ? (
+                            <button
+                              onClick={() => setExpandedTailorSections(p => ({ ...p, [sec.id]: !p[sec.id] }))}
+                              title={isExpanded ? 'Collapse blocks' : 'Expand blocks'}
+                              style={{ background: isExpanded ? 'rgba(239,68,68,0.12)' : T.surface3, border: `1px solid ${isExpanded ? 'rgba(239,68,68,0.25)' : T.border}`, color: isExpanded ? T.accent : T.textMuted, cursor: 'pointer', padding: '3px 5px', borderRadius: '5px', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+                              {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                            </button>
+                          ) : (
+                            <span style={{ width: '25px', flexShrink: 0 }} />
+                          )}
+                          <RenameRow sec={sec} isChild={isChild} />
+                        </div>
+                        
+                        {/* Right: exclude / restore */}
+                        <div style={{ flexShrink: 0, marginLeft: '10px' }}>
+                          {isExcluded && !parentExcluded ? (
+                            <button onClick={() => toggleSectionExclusion(sec.id, false)}
+                              style={{ background: isChild ? 'transparent' : 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <RotateCcw size={12} /> Restore
+                            </button>
+                          ) : !parentExcluded ? (
+                            <button onClick={() => toggleSectionExclusion(sec.id, true)}
+                              style={{ background: isChild ? 'transparent' : 'rgba(239,68,68,0.1)', border: isChild ? `1px dashed ${T.border}` : '1px solid rgba(239,68,68,0.2)', color: isChild ? T.textMuted : T.accent, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+                              onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = isChild ? T.textMuted : T.accent; e.currentTarget.style.borderColor = isChild ? T.border : 'rgba(239,68,68,0.2)'; }}>
+                              <X size={12} /> Exclude
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                       
+                      {/* Expanded block list */}
+                      {isExpanded && hasBlocks && !isExcluded && (
+                        <div style={{ background: 'rgba(0,0,0,0.12)' }}>
+                          {sec.blocks.slice().sort((a,b) => (a.order||0)-(b.order||0)).map(block => (
+                            <BlockRow key={block.id} block={block} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
+
+                return parents.map(p => {
+                  const children = schema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0)-(b.order||0));
+                  const isParentExcluded = excludedSections.includes(p.id);
+                  return (
+                    <div key={p.id} style={{ marginBottom: '14px', background: T.bg, border: `1px solid ${T.border}`, borderRadius: '8px', overflow: 'hidden', opacity: isParentExcluded ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+                      <SectionRow sec={p} isChild={false} parentExcluded={false} />
                       {children.length > 0 && (
-                        <div style={{ padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
-                          {children.map(c => {
-                            const isChildExcluded = excludedSections.includes(c.id);
-                            return (
-                              <div key={c.id} style={{ padding: '8px 16px 8px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isChildExcluded ? 0.5 : 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: T.textMuted, textDecoration: isChildExcluded ? 'line-through' : 'none' }}>
-                                  {cleanTitle(c.heading || c.navLabel || 'Untitled Subsection')}
-                                </div>
-                                {isChildExcluded ? (
-                                  <button onClick={() => toggleSectionExclusion(c.id, false)} style={{ background: 'transparent', border: `1px solid ${T.green}`, color: T.green, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <RotateCcw size={12} /> Restore
-                                  </button>
-                                ) : (
-                                  <button onClick={() => toggleSectionExclusion(c.id, true)} style={{ background: 'transparent', border: `1px dashed ${T.border}`, color: T.textMuted, padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
-                                    onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
-                                    onMouseLeave={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.borderColor = T.border; }}>
-                                    <X size={12} /> Exclude
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
+                        <div>
+                          {children.map(c => (
+                            <SectionRow key={c.id} sec={c} isChild={true} parentExcluded={isParentExcluded} />
+                          ))}
                         </div>
                       )}
                     </div>
@@ -873,10 +1055,11 @@ export default function IMWorkspace() {
               })()}
             </div>
             
+            {/* Footer */}
             <div style={{ padding: '16px 24px', borderTop: `1px solid ${T.border}`, background: T.surface2, borderRadius: '0 0 14px 14px', display: 'flex', justifyContent: 'flex-end' }}>
-               <button onClick={() => setShowTailorModal(false)} style={{ padding: '8px 24px', background: T.accent, color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 800, cursor: 'pointer' }}>
-                 Done Tailoring
-               </button>
+              <button onClick={() => setShowTailorModal(false)} style={{ padding: '8px 24px', background: T.accent, color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 800, cursor: 'pointer' }}>
+                Done Tailoring
+              </button>
             </div>
           </div>
         </div>
