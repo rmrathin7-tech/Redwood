@@ -8,7 +8,7 @@ import {
 import {
   MessageSquare, CheckCheck, Trash2,
   ChevronDown, ChevronUp, Reply,
-  X, AlertCircle, Clock, CheckCircle2,
+  X, AlertCircle, Clock, CheckCircle2, User
 } from 'lucide-react';
 
 const COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -110,6 +110,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
   const [showResolved, setShowResolved] = useState(false);
   const [replyText, setReplyText] = useState({});
   const [newCommentText, setNewCommentText] = useState({});
+  const [workspaceUsers, setWorkspaceUsers] = useState([]); // <-- NEW
+  const [assigneeFilter, setAssigneeFilter] = useState('all'); // <-- NEW
   const user = auth.currentUser;
   const activeRef = useRef(null);
 
@@ -140,6 +142,19 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
       setComments(data);
     });
   }, [imId]);
+
+  // ── FETCH WORKSPACE USERS FOR ASSIGNMENT ──────────────────────────────────
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'workspace-users'));
+        setWorkspaceUsers(snap.docs.map(d => ({ uid: d.id, email: d.data().email })));
+      } catch (err) {
+        console.error("Failed to fetch users", err);
+      }
+    };
+    fetchUsers();
+  }, []);
 
   // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
   useEffect(() => {
@@ -268,6 +283,12 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     }));
   }, [findDoc]);
 
+  const handleAssign = useCallback(async (commentId, uid, email) => {
+    const d = await findDoc(commentId);
+    if (!d) return;
+    await updateDoc(d.ref, { assignee: uid ? { uid, email } : null });
+  }, [findDoc]);
+
   const handleDelete = useCallback(async (commentId) => {
     if (!window.confirm('Delete this comment thread?')) return;
     const d = await findDoc(commentId);
@@ -286,10 +307,12 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     await updateDoc(d.ref, { replies: newReplies });
   }, [findDoc]);
 
-  // Filter by Tab state
+  // Filter by Tab state and Assignee
   const visibleComments = comments.filter(c => {
-    if (activeTab === 'all') return true;
-    return c.sectionId === activeSection;
+    if (activeTab !== 'all' && c.sectionId !== activeSection) return false;
+    if (assigneeFilter === 'me' && c.assignee?.uid !== user?.uid) return false;
+    if (assigneeFilter !== 'all' && assigneeFilter !== 'me' && c.assignee?.uid !== assigneeFilter) return false;
+    return true;
   });
 
   const openComments     = visibleComments.filter(c => c.status === 'open');
@@ -377,24 +400,42 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
           </button>
         </div>
         
-        {/* ── TABS ── */}
-        <div style={{ display: 'flex', padding: '0 16px', gap: '16px' }}>
-          <button 
-            onClick={() => setActiveTab('current')}
+        {/* ── TABS & FILTERS ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            <button 
+              onClick={() => setActiveTab('current')}
+              style={{ 
+                background: 'none', border: 'none', borderBottom: activeTab === 'current' ? `2px solid ${T.amber}` : '2px solid transparent',
+                color: activeTab === 'current' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
+              }}>
+              Current Section
+            </button>
+            <button 
+              onClick={() => setActiveTab('all')}
+              style={{ 
+                background: 'none', border: 'none', borderBottom: activeTab === 'all' ? `2px solid ${T.amber}` : '2px solid transparent',
+                color: activeTab === 'all' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
+              }}>
+              All Sections
+            </button>
+          </div>
+
+          {/* ASSIGNEE FILTER */}
+          <select 
+            value={assigneeFilter} 
+            onChange={(e) => setAssigneeFilter(e.target.value)}
             style={{ 
-              background: 'none', border: 'none', borderBottom: activeTab === 'current' ? `2px solid ${T.amber}` : '2px solid transparent',
-              color: activeTab === 'current' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
-            }}>
-            Current Section
-          </button>
-          <button 
-            onClick={() => setActiveTab('all')}
-            style={{ 
-              background: 'none', border: 'none', borderBottom: activeTab === 'all' ? `2px solid ${T.amber}` : '2px solid transparent',
-              color: activeTab === 'all' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
-            }}>
-            All Sections
-          </button>
+              background: T.surface2, color: T.textMuted, border: `1px solid ${T.border}`, 
+              borderRadius: 4, padding: '4px 6px', fontSize: '0.7rem', outline: 'none', cursor: 'pointer', fontWeight: 600
+            }}
+          >
+            <option value="all">All Owners</option>
+            <option value="me">Assigned to Me</option>
+            {workspaceUsers.filter(u => u.uid !== user?.uid).map(u => (
+              <option key={u.uid} value={u.uid}>{u.email?.split('@')[0]}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -439,6 +480,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
             onResolve={() => handleResolve(comment.id)}
             onDelete={() => handleDelete(comment.id)}
             onDeleteReply={rid => handleDeleteReply(comment.id, rid)}
+            onAssign={(uid, email) => handleAssign(comment.id, uid, email)}
+            workspaceUsers={workspaceUsers}
             ref={activeId === comment.id ? activeRef : null}
           />
         ))}
@@ -501,11 +544,11 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
 
 // ── COMMENT CARD ──────────────────────────────────────────────────────────────
 const CommentCard = React.forwardRef(function CommentCard({
-  comment, isActive, isResolved, T, user,
+  comment, isActive, isResolved, T, user, workspaceUsers = [],
   replyText, newCommentText,
   onActivate, onReply, onReplyChange,
   onFirstComment, onFirstCommentChange,
-  onResolve, onReopen, onDelete, onDeleteReply,
+  onResolve, onReopen, onDelete, onDeleteReply, onAssign,
 }, ref) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const replyInputRef   = useRef(null);
@@ -565,6 +608,16 @@ const CommentCard = React.forwardRef(function CommentCard({
           {comment.contextLabel && comment.contextLabel !== 'General' && (
             <div style={{ fontSize: 9, fontWeight: 800, color: '#0ea5e9', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               📍 {comment.contextLabel}
+            </div>
+          )}
+
+          {comment.assignee && (
+            <div style={{ 
+              display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4,
+              background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)',
+              fontSize: 9, fontWeight: 700, borderRadius: 12, padding: '2px 6px'
+            }}>
+              <User size={9} /> {comment.assignee.uid === user?.uid ? 'Assigned to Me' : `Assigned to: ${comment.assignee.email?.split('@')[0]}`}
             </div>
           )}
 
@@ -693,9 +746,9 @@ const CommentCard = React.forwardRef(function CommentCard({
             )
           )}
 
-          {/* Resolve / Reopen / Delete */}
+          {/* Resolve / Reopen / Delete / Assign */}
           <div style={{
-            display: 'flex', gap: 6, marginTop: 8,
+            display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center',
             borderTop: `1px solid ${T.border}`, paddingTop: 8,
           }}>
             {!isResolved
@@ -703,6 +756,32 @@ const CommentCard = React.forwardRef(function CommentCard({
               : <Btn icon={<AlertCircle size={11} />} secondary T={T} onClick={onReopen}>Re-open</Btn>
             }
             <Btn icon={<Trash2 size={11} />} danger onClick={onDelete}>Delete</Btn>
+
+            <div style={{ flex: 1 }} />
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <User size={12} style={{ color: T.textMuted }} />
+              <select
+                value={comment.assignee?.uid || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) { onAssign(null, null); return; }
+                  const selected = workspaceUsers.find(u => u.uid === val);
+                  if (selected) onAssign(selected.uid, selected.email);
+                }}
+                style={{
+                  background: T.inputBg, color: T.text, border: `1px solid ${T.inputBorder}`,
+                  borderRadius: 4, padding: '4px 6px', fontSize: '0.7rem', outline: 'none', cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                <option value="">Unassigned</option>
+                <option value={user?.uid}>Assign to Me</option>
+                {workspaceUsers.filter(u => u.uid !== user?.uid).map(u => (
+                  <option key={u.uid} value={u.uid}>{u.email?.split('@')[0]}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       )}
