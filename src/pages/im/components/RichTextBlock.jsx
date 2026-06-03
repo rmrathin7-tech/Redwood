@@ -336,7 +336,11 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
   }, []);
 
   return ReactDOM.createPortal(
-    <div className="im-fs-shell">
+    <div 
+      className="im-fs-shell"
+      data-block-label={block?.label || 'Rich Text Block'}
+      data-block-path={block?.dataPath || block?.id || 'global'}
+    >
 
       {/* ── TOP BAR ── */}
       <div className="im-fs-topbar">
