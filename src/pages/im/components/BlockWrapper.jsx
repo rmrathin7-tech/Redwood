@@ -4,9 +4,12 @@ import { Lock, MessageSquare } from 'lucide-react';
 export default function BlockWrapper({ block, lockedBy, children, isDark = true }) {
   const [isFocused, setIsFocused]   = useState(false);
   const [saveFlash, setSaveFlash]   = useState(false);
+  const [commentFlash, setCommentFlash] = useState(false); // <-- NEW STATE
   const [isHovered, setIsHovered]   = useState(false);
   const prevChildren                = useRef(null);
   const flashTimer                  = useRef(null);
+  const commentTimer                = useRef(null); // <-- NEW REF
+  const wrapperRef                  = useRef(null); // <-- NEW REF for scrolling
   const isLocked                    = Boolean(lockedBy);
 
   const isInstruction = block?.type === 'instruction' || block?.type === 'fixed-text' || block?.type === 'h3' || block?.type === 'h4';
@@ -43,19 +46,63 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     return () => window.removeEventListener('im-block-saved', handler);
   }, [block?.id]);
 
+  // ── COMMENT FOCUS — trigger when a sidebar comment is clicked ──────────────
+  useEffect(() => {
+    const handler = (e) => {
+      const targetPath = e.detail?.dataPath;
+      const myPath = block?.dataPath || block?.id;
+      
+      if (targetPath && myPath && targetPath === myPath) {
+        // 1. Scroll into view
+        if (wrapperRef.current) {
+          wrapperRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        // 2. Flash highlight
+        clearTimeout(commentTimer.current);
+        setCommentFlash(true);
+        commentTimer.current = setTimeout(() => setCommentFlash(false), 2000);
+      }
+    };
+    window.addEventListener('im-focus-block', handler);
+    return () => window.removeEventListener('im-focus-block', handler);
+  }, [block?.dataPath, block?.id]);
+
+  // ── COMMENT FOCUS — trigger when a sidebar comment is clicked ──────────────
+  useEffect(() => {
+    const handler = (e) => {
+      const targetPath = e.detail?.dataPath;
+      const myPath = block?.dataPath || block?.id;
+      
+      if (targetPath && myPath && targetPath === myPath) {
+        // 1. Scroll into view
+        if (wrapperRef.current) {
+          wrapperRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        // 2. Flash highlight
+        clearTimeout(commentTimer.current);
+        setCommentFlash(true);
+        commentTimer.current = setTimeout(() => setCommentFlash(false), 2000);
+      }
+    };
+    window.addEventListener('im-focus-block', handler);
+    return () => window.removeEventListener('im-focus-block', handler);
+  }, [block?.dataPath, block?.id]);
+
   // ── DYNAMIC BORDER & SHADOW ────────────────────────────────────────────────
   const getBorder = () => {
-    if (isLocked)    return `1px solid ${T.borderLock}`;
-    if (saveFlash)   return `1px solid ${T.borderSave}`;
-    if (isFocused)   return `1px solid ${T.borderFocus}`;
+    if (isLocked)      return `1px solid ${T.borderLock}`;
+    if (commentFlash)  return `1px solid rgba(245,158,11,0.8)`; // Amber highlight
+    if (saveFlash)     return `1px solid ${T.borderSave}`;
+    if (isFocused)     return `1px solid ${T.borderFocus}`;
     return `1px solid ${T.border}`;
   };
 
   const getBoxShadow = () => {
-    if (isLocked)    return `${T.shadowHover}, 0 0 0 3px ${T.glowLock}`;
-    if (saveFlash)   return `${T.shadow}, 0 0 0 3px ${T.glowSave}`;
-    if (isFocused)   return `${T.shadow}, 0 0 0 3px ${T.glow}`;
-    if (isHovered)   return T.shadowHover;
+    if (isLocked)      return `${T.shadowHover}, 0 0 0 3px ${T.glowLock}`;
+    if (commentFlash)  return `${T.shadowHover}, 0 0 0 4px rgba(245,158,11,0.15)`; // Amber glow
+    if (saveFlash)     return `${T.shadow}, 0 0 0 3px ${T.glowSave}`;
+    if (isFocused)     return `${T.shadow}, 0 0 0 3px ${T.glow}`;
+    if (isHovered)     return T.shadowHover;
     return T.shadow;
   };
 
@@ -70,6 +117,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
 
 return (
     <div
+      ref={wrapperRef} // <-- ATTACH REF HERE
       className={`block-wrapper ${isFocused ? 'focused' : ''} ${saveFlash ? 'save-flash' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
