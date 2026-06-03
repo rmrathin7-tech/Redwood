@@ -24,8 +24,9 @@ function relativeTime(ts) {
   return `${Math.floor(diff / 86400000)}d ago`;
 }
 
-export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }) {
+export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, activeSection }) {
   const [comments, setComments] = useState([]);
+  const [activeTab, setActiveTab] = useState('current'); // 'current' or 'all'
   const [drafts, setDrafts] = useState({}); // commentId -> text
   const [selectionPopup, setSelectionPopup] = useState(null);
 
@@ -140,14 +141,36 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
     });
   }, [imId]);
 
+  // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
+  useEffect(() => {
+    // If sidebar is closed, kill the line
+    if (!isOpen) {
+      window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
+      return;
+    }
+    
+    const comment = comments.find(c => c.id === activeId);
+    if (activeId && comment) {
+      window.dispatchEvent(new CustomEvent('im-active-comment-changed', { 
+        detail: { commentId: activeId, dataPath: comment.dataPath } 
+      }));
+    } else {
+      window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
+    }
+
+    // Cleanup when unmounting
+    return () => window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
+  }, [activeId, comments, isOpen]);
+
   // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
   useEffect(() => {
     const onCreate = async (e) => {
-      const { commentId, dataPath, quote, contextLabel } = e.detail;
+      const { commentId, dataPath, quote, contextLabel, sectionId } = e.detail;
       if (!imId || !user) return;
       await addDoc(collection(db, 'im-comments'), {
         id: commentId,
         imId,
+        sectionId: sectionId || 'global', // <-- ADDED: Save section relation
         dataPath: dataPath || 'global',
         contextLabel: contextLabel || 'General',
         quote: quote ? quote.slice(0, 200) : 'General Comment',
@@ -263,8 +286,14 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
     await updateDoc(d.ref, { replies: newReplies });
   }, [findDoc]);
 
-  const openComments     = comments.filter(c => c.status === 'open');
-  const resolvedComments = comments.filter(c => c.status === 'resolved');
+  // Filter by Tab state
+  const visibleComments = comments.filter(c => {
+    if (activeTab === 'all') return true;
+    return c.sectionId === activeSection;
+  });
+
+  const openComments     = visibleComments.filter(c => c.status === 'open');
+  const resolvedComments = visibleComments.filter(c => c.status === 'resolved');
 
   // Keep the component alive if the popup is active, even if sidebar is closed
   if (!isOpen && !selectionPopup) return null;
@@ -285,7 +314,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
             borderRadius: '8px',
             padding: '6px 12px',
             boxShadow: isDark ? '0 10px 25px rgba(0,0,0,0.5)' : '0 10px 25px rgba(0,0,0,0.1)',
-            zIndex: 99999,
+            zIndex: 2147483647, /* MAX Z-INDEX */
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -301,7 +330,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
                 commentId,
                 dataPath: selectionPopup.path,
                 quote: selectionPopup.text,
-                contextLabel: selectionPopup.label
+                contextLabel: selectionPopup.label,
+                sectionId: activeSection // <-- ADDED: Save the current section to the comment
               }
             }));
             setSelectionPopup(null);
@@ -327,29 +357,45 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
         }}>
           {/* ── HEADER ── */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px', borderBottom: `1px solid ${T.border}`, flexShrink: 0,
+        display: 'flex', flexDirection: 'column',
+        borderBottom: `1px solid ${T.border}`, flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MessageSquare size={16} style={{ color: T.amber }} />
-          <span style={{ fontSize: 13, fontWeight: 800, color: T.text, letterSpacing: 0.3 }}>
-            Comments
-          </span>
-          {openComments.length > 0 && (
-            <span style={{
-              background: T.amberBg, color: T.amber,
-              fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1px 7px',
-            }}>
-              {openComments.length} open
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MessageSquare size={16} style={{ color: T.amber }} />
+            <span style={{ fontSize: 13, fontWeight: 800, color: T.text, letterSpacing: 0.3 }}>
+              Comments
             </span>
-          )}
+            {openComments.length > 0 && (
+              <span style={{ background: T.amberBg, color: T.amber, fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1px 7px' }}>
+                {openComments.length}
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, padding: 4, borderRadius: 5, display: 'flex' }}>
+            <X size={15} />
+          </button>
         </div>
-        <button onClick={onClose} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: T.textMuted, padding: 4, borderRadius: 5, display: 'flex',
-        }}>
-          <X size={15} />
-        </button>
+        
+        {/* ── TABS ── */}
+        <div style={{ display: 'flex', padding: '0 16px', gap: '16px' }}>
+          <button 
+            onClick={() => setActiveTab('current')}
+            style={{ 
+              background: 'none', border: 'none', borderBottom: activeTab === 'current' ? `2px solid ${T.amber}` : '2px solid transparent',
+              color: activeTab === 'current' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
+            }}>
+            Current Section
+          </button>
+          <button 
+            onClick={() => setActiveTab('all')}
+            style={{ 
+              background: 'none', border: 'none', borderBottom: activeTab === 'all' ? `2px solid ${T.amber}` : '2px solid transparent',
+              color: activeTab === 'all' ? T.text : T.textMuted, fontWeight: 700, fontSize: '0.75rem', padding: '8px 4px', cursor: 'pointer', transition: 'all 0.2s' 
+            }}>
+            All Sections
+          </button>
+        </div>
       </div>
 
       {/* ── BODY ── */}
@@ -379,7 +425,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
             user={user}
             replyText={replyText[comment.id] || ''}
             newCommentText={newCommentText[comment.id] || ''}
-            onActivate={() => setActiveId(p => p === comment.id ? null : comment.id)}
+            onActivate={() => {
+                  setActiveId(p => p === comment.id ? null : comment.id);
+                  // Trigger the smart jump sequence
+                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
+                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId } 
+                  }));
+                }}
             onReply={() => handleReply(comment.id)}
             onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}
             onFirstComment={() => handleFirstComment(comment.id)}
@@ -421,7 +473,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose }
                 user={user}
                 replyText={replyText[comment.id] || ''}
                 newCommentText={newCommentText[comment.id] || ''}
-                onActivate={() => setActiveId(p => p === comment.id ? null : comment.id)}
+                onActivate={() => {
+                  setActiveId(p => p === comment.id ? null : comment.id);
+                  // Trigger the smart jump sequence
+                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
+                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId } 
+                  }));
+                }}
                 onReply={() => handleReply(comment.id)}
                 onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}
                 onFirstComment={() => handleFirstComment(comment.id)}
@@ -465,6 +523,7 @@ const CommentCard = React.forwardRef(function CommentCard({
 
   return (
     <div
+      id={`comment-card-${comment.id}`}  // <-- ADDED SO SVG CAN FIND IT
       ref={ref}
       onClick={onActivate}
       style={{
