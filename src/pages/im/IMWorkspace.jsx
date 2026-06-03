@@ -384,7 +384,6 @@ export default function IMWorkspace() {
   useEffect(() => {
     if (!activeSectionSchema) return;
     const blocks = (activeSectionSchema.blocks || [])
-      .filter(b => !excludedSections.includes(b.id))
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     setVisibleBlocks(new Set());
@@ -394,7 +393,7 @@ export default function IMWorkspace() {
       }, i * STAGGER_MS + 50)
     );
     return () => timers.forEach(clearTimeout);
-  }, [activeSection, activeSectionSchema, excludedSections]);
+  }, [activeSection, activeSectionSchema]);
 
   useEffect(() => {
     const el = mainRef.current;
@@ -827,6 +826,8 @@ export default function IMWorkspace() {
                         onFocus={handleBlockFocus}
                         onBlur={handleBlockBlur}
                         isDark={isDark}
+                        excludedSections={excludedSections}
+                        customNames={customNames}
                       />
                     </div>
                   );
@@ -913,7 +914,7 @@ export default function IMWorkspace() {
                 };
 
                 // ─── Individual block row (inside expanded section) ───
-                const BlockRow = ({ block }) => {
+                const BlockRow = ({ block, depth = 0 }) => {
                   const isExcluded = excludedSections.includes(block.id);
                   const isEditingBlock = editingTailorName.id === block.id;
                   const blockName = customNames[block.id] || block.label || 'Untitled Block';
@@ -981,6 +982,29 @@ export default function IMWorkspace() {
                   );
                 };
 
+                // ─── Recursive Block Tree ───
+                const RecursiveBlockTree = ({ block, depth = 0 }) => {
+                  return (
+                    <div key={block.id}>
+                      <BlockRow block={block} depth={depth} />
+                      {block.branches && block.branches.map(branch => {
+                        const branchBlocks = branch.blocks || [];
+                        if (branchBlocks.length === 0) return null;
+                        return (
+                          <div key={branch.id}>
+                            <div style={{ padding: `4px 16px 4px ${52 + (depth * 20)}px`, fontSize: '0.68rem', fontWeight: 700, color: T.textSub, background: 'rgba(0,0,0,0.2)', borderTop: `1px solid ${T.border}` }}>
+                              ↳ Branch: {branch.label || 'Option'}
+                            </div>
+                            {branchBlocks.map(subBlock => (
+                              <RecursiveBlockTree key={subBlock.id} block={subBlock} depth={depth + 1} />
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                };
+
                 // ─── Section / Subsection row ───
                 const SectionRow = ({ sec, isChild, parentExcluded }) => {
                   const isExcluded = excludedSections.includes(sec.id) || parentExcluded;
@@ -1028,7 +1052,7 @@ export default function IMWorkspace() {
                       {isExpanded && hasBlocks && !isExcluded && (
                         <div style={{ background: 'rgba(0,0,0,0.12)' }}>
                           {sec.blocks.slice().sort((a,b) => (a.order||0)-(b.order||0)).map(block => (
-                            <BlockRow key={block.id} block={block} />
+                            <RecursiveBlockTree key={block.id} block={block} />
                           ))}
                         </div>
                       )}
@@ -1078,6 +1102,7 @@ export default function IMWorkspace() {
             schema={schema} 
             imData={imData} 
             excludedSections={excludedSections} 
+            customNames={customNames} // <-- ADD THIS LINE
             projectName={projectName} 
             onClose={() => setIsPreviewOpen(false)} 
           />
