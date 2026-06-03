@@ -145,7 +145,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
   const renderChart = () => {
     if (!chartData || chartData.length === 0) return null;
 
-    // ── NESTED CIRCLE (TAM/SAM/SOM) ──
+// ── NESTED CIRCLE (TAM/SAM/SOM) ──
     if (chartType === 'nested-circle') {
       const seriesKey = seriesNames[0]; 
       
@@ -155,26 +155,24 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
 
       if (sortedData.length === 0) return null;
 
-      const maxValue = sortedData[0].value;
       const size = 350; 
       const center = size / 2;
       
-      // Calculate anchoring so circles align at the bottom
       const maxRadius = center - 20; 
       const bottomY = center + maxRadius; 
-      
-      // Use pie colors so each category (TAM/SAM/SOM) gets a distinct color
       const colors = getPieColors();
+
+      // Infographic spacing: forces even gaps and ensures the smallest circle is at least 35% of the total size
+      const minScale = 0.35;
+      const scaleStep = (1 - minScale) / Math.max(1, sortedData.length - 1);
 
       return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '350px' }}>
           <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="xMidYMid meet">
             {sortedData.map((data, index) => {
-              // Scale mathematically by area
-              const radius = maxValue > 0 ? maxRadius * Math.sqrt(data.value / maxValue) : 0;
+              // Bypass pure mathematical area scaling for standard presentation spacing
+              const radius = maxRadius * (1 - (index * scaleStep));
               const color = colors[index % colors.length];
-              
-              // Shift the center Y coordinate down based on the radius
               const cy = bottomY - radius;
 
                return (
@@ -193,7 +191,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                     <g>
                       <text
                         x={center}
-                        y={cy - radius + 24} // Position nicely at the top arc of THIS circle
+                        y={cy - radius + 24}
                         textAnchor="middle"
                         fill="#ffffff"
                         fontSize="13px"
@@ -222,7 +220,6 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
         </div>
       );
     }
-
     // ── PIE CHART ──
     if (chartType === 'pie') {
       const pieColors = getPieColors();
