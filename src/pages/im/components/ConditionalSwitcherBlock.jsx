@@ -4,7 +4,8 @@ import BlockRegistry from './BlockRegistry';
 import { GitBranch, CheckCircle2 } from 'lucide-react';
 
 export default function ConditionalSwitcherBlock({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
+  excludedSections = [], customNames = {}
 }) {
   // val typically looks like: { activeBranch: 'some-id', [branchId]: { ...data } }
   const val = value || { activeBranch: null };
@@ -101,40 +102,50 @@ export default function ConditionalSwitcherBlock({
       </div>
 
       {/* Nested Content Area */}
-      {activeBranchDef && (
-        <div style={{
-          marginTop: 20,
-          padding: '20px 0 0 20px',
-          borderLeft: `2px solid ${t.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-          animation: 'imFadeIn 0.4s ease-out'
-        }}>
-          {activeBranchDef.blocks && activeBranchDef.blocks.length > 0 ? (
-            activeBranchDef.blocks.map((subBlock) => {
-              // Retrieve nested data for this specific branch
-              // Path structure: dataPath.[branchId].[subBlockPath]
-              const branchData = val[activeBranchDef.id] || {};
-              const subValue = branchData[subBlock.dataPath];
+      {activeBranchDef && (() => {
+        // Filter out blocks the user excluded in the Tailor Template
+        const visibleSubBlocks = (activeBranchDef.blocks || []).filter(
+          subBlock => !excludedSections.includes(subBlock.id)
+        );
 
-              return (
-                <BlockRegistry
-                  key={subBlock.id}
-                  block={subBlock}
-                  value={subValue}
-                  onChange={(childPath, updatedVal) => {
-                    // Forward updates using a precise nested path
-                    onChange(`${block.dataPath}.${activeBranchDef.id}.${childPath}`, updatedVal);
-                  }}
-                  lockedBy={lockedBy}
-                  onFocus={onFocus}
-                  onBlur={onBlur}
-                  isDark={isDark}
-                />
-              );
-            })
-          ) : (
+        return (
+          <div style={{
+            marginTop: 20,
+            padding: '20px 0 0 20px',
+            borderLeft: `2px solid ${t.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 20,
+            animation: 'imFadeIn 0.4s ease-out'
+          }}>
+            {visibleSubBlocks.length > 0 ? (
+              visibleSubBlocks.map((subBlock) => {
+                // Retrieve nested data for this specific branch
+                // Path structure: dataPath.[branchId].[subBlockPath]
+                const branchData = val[activeBranchDef.id] || {};
+                const subValue = branchData[subBlock.dataPath];
+
+                return (
+                  <BlockRegistry
+                    key={subBlock.id}
+                    // Apply custom names at the nested level too!
+                    block={{ ...subBlock, label: customNames[subBlock.id] || subBlock.label }}
+                    value={subValue}
+                    onChange={(childPath, updatedVal) => {
+                      // Forward updates using a precise nested path
+                      onChange(`${block.dataPath}.${activeBranchDef.id}.${childPath}`, updatedVal);
+                    }}
+                    lockedBy={lockedBy}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                    isDark={isDark}
+                    // Forward deeper in case of nested-nested blocks
+                    excludedSections={excludedSections}
+                    customNames={customNames} 
+                  />
+                );
+              })
+            ) : (
             <div style={{ 
               padding: '12px 16px', 
               borderRadius: 8, 
@@ -146,9 +157,10 @@ export default function ConditionalSwitcherBlock({
             }}>
               No specific requirements for this selection.
             </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
     </BlockWrapper>
   );
 }
