@@ -423,20 +423,22 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     onBlur: handleBlur
   }), [handleFocus, handleBlur]);
 
+  // ── FIX: REWRITTEN EFFECT THAT PROPERLY SYNC MASTER SCHEMA WITHOUT DELETING NEW COLUMNS/ROWS
   useEffect(() => {
     if (isFocusedRef.current) return;
     const parsed = parseValue(value, block);
     
     let currentSchemaRows = parsed.runtimeSchemaRows || block.rows || [];
     if (parsed.runtimeSchemaRows && block.rows && block.rows.length > 0) {
-       currentSchemaRows = currentSchemaRows.map((runtimeRow, rIdx) => {
-          const masterRow = block.rows[rIdx] || block.rows[block.rows.length - 1];
-          if (!masterRow) return runtimeRow;
-          
-          const updatedCells = (masterRow.cells || []).map(masterCell => {
-             const runtimeCell = (runtimeRow.cells || []).find(c => c.id === masterCell.id);
-             if (runtimeCell) return { ...runtimeCell, ...masterCell };
-             return masterCell; 
+       currentSchemaRows = currentSchemaRows.map((runtimeRow) => {
+          const updatedCells = (runtimeRow.cells || []).map(runtimeCell => {
+             let masterCell = null;
+             for (const mRow of block.rows) {
+               const found = (mRow.cells || []).find(c => c.id === runtimeCell.id);
+               if (found) { masterCell = found; break; }
+             }
+             if (masterCell) return { ...runtimeCell, ...masterCell };
+             return runtimeCell; 
           });
           return { ...runtimeRow, cells: updatedCells };
        });
@@ -555,71 +557,77 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     save(undefined, undefined, undefined, undefined, val);
   }
 
+  // ── FIX: ADD ROW NOW COPIES A DATA ROW SCHEMA 
   const addRow = () => {
     const curSchema = stateRefs.current.runtimeSchemaRows;
-    const nextRecords = [...stateRefs.current.records, seedEmptyRow(curSchema)];
+    let newSchema = curSchema;
+    if (curSchema.length > 1) {
+      newSchema = [...curSchema];
+      const target = curSchema[0]; 
+      newSchema.push(JSON.parse(JSON.stringify(target)));
+      setRuntimeSchemaRows(newSchema);
+    }
+    const nextRecords = [...stateRefs.current.records, seedEmptyRow(newSchema)];
     setRecords(nextRecords);
-    flushSave(nextRecords);
+    flushSave(nextRecords, null, null, newSchema);
   };
 
   const deleteRow = (rIdx) => {
+    isFocusedRef.current = true;
     const curRecords = stateRefs.current.records;
     const curSchema  = stateRefs.current.runtimeSchemaRows;
-    
     const row = curRecords[rIdx];
     if (row?._isTotal || row?._protected) return;
     if (!block.allowAddRows && rIdx < curSchema.length) return;
-    
     let newSchema = curSchema;
-    if (curSchema.length > 1 && rIdx < curSchema.length) {
+    if (curSchema.length > 1) {
       newSchema = curSchema.filter((_, i) => i !== rIdx);
       setRuntimeSchemaRows(newSchema);
     }
-    
     const nextRecords = curRecords.filter((_, i) => i !== rIdx);
     setRecords(nextRecords);
-    save(nextRecords, null, null, newSchema);
+    flushSave(nextRecords, null, null, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
-  // ── ROW INSERTIONS ────────────────────────────────────────────────────────
+  // ── FIX: ROW INSERTIONS NOW DEEP CLONE A DATA ROW
   const insertRowBefore = useCallback((rIdx) => {
+    isFocusedRef.current = true;
     const curSchema = stateRefs.current.runtimeSchemaRows;
     let newSchema = curSchema;
-    
     if (curSchema.length > 1) {
       newSchema = [...curSchema];
-      const target = curSchema[rIdx] || curSchema[curSchema.length - 1];
-      newSchema.splice(rIdx, 0, target);
+      const target = (rIdx > 0 && curSchema[rIdx - 1]) ? curSchema[rIdx - 1] : curSchema[0];
+      newSchema.splice(rIdx, 0, JSON.parse(JSON.stringify(target)));
       setRuntimeSchemaRows(newSchema);
     }
-    
     const nextRecords = [...stateRefs.current.records];
     nextRecords.splice(rIdx, 0, seedEmptyRow(newSchema));
     setRecords(nextRecords);
-    
     flushSave(nextRecords, null, null, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   }, [flushSave]);
 
   const insertRowAfter = useCallback((rIdx) => {
+    isFocusedRef.current = true;
     const curSchema = stateRefs.current.runtimeSchemaRows;
     let newSchema = curSchema;
-    
     if (curSchema.length > 1) {
       newSchema = [...curSchema];
-      const target = curSchema[rIdx] || curSchema[curSchema.length - 1];
-      newSchema.splice(rIdx + 1, 0, target);
+      const target = curSchema[rIdx] || curSchema[0];
+      newSchema.splice(rIdx + 1, 0, JSON.parse(JSON.stringify(target)));
       setRuntimeSchemaRows(newSchema);
     }
-    
     const nextRecords = [...stateRefs.current.records];
     nextRecords.splice(rIdx + 1, 0, seedEmptyRow(newSchema));
     setRecords(nextRecords);
-    
     flushSave(nextRecords, null, null, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   }, [flushSave]);
 
   // ── COLUMN INSERTIONS & DELETIONS ─────────────────────────────────────────
   const insertColBefore = (cIdx) => {
+    isFocusedRef.current = true;
     const curHeaders = stateRefs.current.headers;
     const curRecords = stateRefs.current.records;
     const curSchema  = stateRefs.current.runtimeSchemaRows;
@@ -654,9 +662,11 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
   const insertColAfter = (cIdx) => {
+    isFocusedRef.current = true;
     const curHeaders = stateRefs.current.headers;
     const curRecords = stateRefs.current.records;
     const curSchema  = stateRefs.current.runtimeSchemaRows;
@@ -692,9 +702,11 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
   const deleteCol = (cIdx) => {
+    isFocusedRef.current = true;
     const curHeaders = stateRefs.current.headers;
     const curRecords = stateRefs.current.records;
     const curSchema  = stateRefs.current.runtimeSchemaRows;
@@ -736,6 +748,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
+    setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
   // ── TABLE REPEAT MUTATIONS ────────────────────────────────────────────────
@@ -805,7 +818,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     s = s.replace(/SUM\(\s*C(\d+)\s*\)/g, (_, c) => {
       const colIdx = parseInt(c, 10) - 1;
       return activeRecords.reduce((sum, rec, idx) => {
-        // Anti-Double-Count: Skip dynamic totals, protected rows, AND the row currently evaluating the SUM
         if (rec?._isTotal || rec?._protected || idx === rIdx) return sum; 
         return sum + getCellValue(colIdx, idx);
       }, 0);
@@ -1171,11 +1183,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     
     return allCells.map((cell, cIdx) => {
       
-      // --- ANTI-DOUBLE-COUNTING FIX ---
-      // If the formula specifically uses an aggregate function like SUM(), it tells the bottom row
-      // to just run the formula ONCE for the final output, completely preventing any double counting.
       if (cell.cellType === 'computed' && /SUM\(/i.test(cell?.formula || '')) {
-          // Pass -1 as rIdx so it doesn't accidentally skip the first row (idx 0)
           const totalVal = evaluateFormula(cell.formula, -1, records);
           const v = parseFloat(String(totalVal || '').replace(/[^0-9.-]/g, ''));
           return (Number.isFinite(v) && v !== 0) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
@@ -1204,7 +1212,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
 
-      {/* NEW: DYNAMIC SMART SUBHEADING */}
       {(block.enableTableSubheading || block.tableSubheadingRichText) && (block.tableSubheadingRichText || '').trim() && (
         <div
           style={{
@@ -1220,7 +1227,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         >
           {(() => {
             const rawText = block.tableSubheadingRichText || '';
-            // Fast fail if there are no brackets to parse
             if (!rawText.includes('[')) {
               return <span dangerouslySetInnerHTML={{ __html: rawText }} style={{ whiteSpace: 'pre-wrap' }} />;
             }
@@ -1237,14 +1243,12 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
                   save(undefined, undefined, undefined, undefined, undefined, newInputs);
                 }, !!lockedBy);
               }
-              // Render safely handling potential HTML wrapped around tags
               return <span key={pi} dangerouslySetInnerHTML={{ __html: part }} style={{ whiteSpace: 'pre-wrap' }} />;
             });
           })()}
         </div>
       )}
 
-      {/* Top action bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
         
         <div style={{ display: 'flex', gap: '6px' }}>
@@ -1256,7 +1260,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         </div>
       </div>
 
-      {/* Main table */}
       <div style={{ overflowX: 'auto', borderRadius: '8px', border: `1px solid ${t.border}` }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: hasCustomWidths ? 'fixed' : 'auto', minWidth: '400px' }}>
           <thead>
