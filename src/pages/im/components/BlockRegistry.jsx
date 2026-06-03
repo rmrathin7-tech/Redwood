@@ -10,7 +10,7 @@ import ChartBlock from './ChartBlock';
 // Layout-only block types (no data, no wrapper needed)
 const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
 
-export default function BlockRegistry({ block, value, onChange, lockedBy, onFocus, onBlur, isDark }) {
+export default function BlockRegistry({ block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections = [], customNames = {} }) {
   if (!block || !block.type) return null;
 
   // ── Layout blocks (headings, dividers) ────────────────────────────────────
@@ -42,7 +42,7 @@ export default function BlockRegistry({ block, value, onChange, lockedBy, onFocu
   }
 
   // ── Data blocks ───────────────────────────────────────────────────────────
-  const commonProps = { block, value, onChange, lockedBy, onFocus, onBlur, isDark };
+  const commonProps = { block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames };
 
   switch (block.type) {
     case 'quill':
