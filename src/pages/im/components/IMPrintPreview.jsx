@@ -50,7 +50,7 @@ const evaluateFormula = (formula, rIdx, activeRecords, runtimeSchemaRows) => {
   } catch { return ''; }
 };
 
-export default function IMPrintPreview({ schema, imData, excludedSections, projectName, onClose }) {
+export default function IMPrintPreview({ schema, imData, excludedSections, customNames = {}, projectName, onClose }) {
   
   // 1. Calculate Visible Schema (Respect Exclusions)
   const visibleSchema = useMemo(() => {
@@ -216,17 +216,18 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
 
   // 5. Ultimate Block Compiler Engine
   const compileBlock = (block, contextData = null, parentDataPath = null) => {
-    if (!block) return null;
+    if (!block || ensureArray(excludedSections).includes(block.id)) return null;
     if (block.type === 'instruction') return null;
 
     const dataKey = block.dataPath || block.id; 
     const val = getValue(dataKey, contextData, parentDataPath);
+    const blockLabel = customNames[block.id] || block.label;
 
     return (
       <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
         
-        {block.label && !['fixed-text', 'instruction'].includes(block.type) && (
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{cleanTitle(block.label)}</h4>
+        {blockLabel && !['fixed-text', 'instruction'].includes(block.type) && (
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{cleanTitle(blockLabel)}</h4>
         )}
         
         {block.type === 'fixed-text' && <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>}
@@ -293,10 +294,14 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
           const branch = ensureArray(block.branches).find(b => b.id === selectedBranchId);
           if (!branch || !branch.blocks) return null;
 
+          const visibleBranchBlocks = ensureArray(branch.blocks).filter(
+            b => !ensureArray(excludedSections).includes(b.id)
+          );
+
           return (
             <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
               <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
-              {ensureArray(branch.blocks).map(b => compileBlock(b, contextData, parentDataPath))}
+              {visibleBranchBlocks.map(b => compileBlock(b, contextData, parentDataPath))}
             </div>
           );
         })()}
@@ -424,12 +429,12 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
               {parentSections.map(pSec => (
                 <div key={pSec.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
-                    <span>{sectionNumberMap[pSec.id]}. {cleanTitle(pSec.heading || pSec.navLabel)}</span>
+                    <span>{sectionNumberMap[pSec.id]}. {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '24px', marginTop: '8px' }}>
                     {visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0)).map(cSec => (
                       <div key={cSec.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-                        <span>{sectionNumberMap[cSec.id]}. {cleanTitle(cSec.heading || cSec.navLabel)}</span>
+                        <span>{sectionNumberMap[cSec.id]}. {cleanTitle(customNames[cSec.id] || cSec.heading || cSec.navLabel)}</span>
                       </div>
                     ))}
                   </div>
@@ -446,20 +451,26 @@ export default function IMPrintPreview({ schema, imData, excludedSections, proje
                   
                   <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', pageBreakAfter: 'avoid' }}>
                     <span style={{ color: '#ef4444', marginRight: '8px' }}>{sectionNumberMap[pSec.id]}.</span>
-                    {cleanTitle(pSec.heading || pSec.navLabel)}
+                    {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}
                   </h2>
 
                   <div style={{ marginBottom: '24px' }}>
-                    {ensureArray(pSec.blocks).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
+                    {ensureArray(pSec.blocks)
+                      .filter(block => !ensureArray(excludedSections).includes(block.id))
+                      .sort((a,b) => (a.order||0)-(b.order||0))
+                      .map(block => compileBlock(block))}
                   </div>
 
                   {children.map(cSec => (
                     <div key={cSec.id} style={{ marginBottom: '24px', paddingLeft: '16px' }}>
                       <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '12px', pageBreakAfter: 'avoid' }}>
-                        {sectionNumberMap[cSec.id]}. {cleanTitle(cSec.heading || cSec.navLabel)}
+                        {sectionNumberMap[cSec.id]}. {cleanTitle(customNames[cSec.id] || cSec.heading || cSec.navLabel)}
                       </h3>
                       <div>
-                        {ensureArray(cSec.blocks).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
+                        {ensureArray(cSec.blocks)
+                          .filter(block => !ensureArray(excludedSections).includes(block.id))
+                          .sort((a,b) => (a.order||0)-(b.order||0))
+                          .map(block => compileBlock(block))}
                       </div>
                     </div>
                   ))}
