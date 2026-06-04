@@ -372,11 +372,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
 
       {/* ── SIDEBAR ── */}
       {isOpen && (
-        <div style={{
+        <div id="comments-sidebar" style={{
           width: 320, minWidth: 320, background: T.bg,
           borderLeft: `1px solid ${T.border}`,
           display: 'flex', flexDirection: 'column',
           height: '100%', overflow: 'hidden', flexShrink: 0,
+          position: 'relative', zIndex: 100000, /* FLOAT OVER THE FULLSCREEN EDITOR */
+          boxShadow: isDark ? '-8px 0 30px rgba(0,0,0,0.5)' : '-8px 0 30px rgba(0,0,0,0.1)', /* Drop shadow for depth */
         }}>
           {/* ── HEADER ── */}
       <div style={{
