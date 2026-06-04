@@ -245,9 +245,15 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
   const [wc, setWc] = useState(0);
   const [saved, setSaved] = useState(true);
 
-  // Escape closes
+  // Escape closes (but not if we are typing in the comments sidebar!)
   useEffect(() => {
-    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    const h = (e) => { 
+      if (e.key === 'Escape') {
+        // If the user's cursor is currently inside the comments sidebar, do NOT close the editor
+        if (document.activeElement?.closest('#comments-sidebar')) return;
+        onClose(); 
+      }
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
