@@ -7,7 +7,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import {
   MessageSquarePlus, Table2, Trash2, Plus,
   ArrowDown, ArrowRight, X, Maximize2, Minimize2,
-  FileText, Hash, AlignLeft, CheckSquare, Save, Info
+  FileText, Hash, AlignLeft, CheckSquare, Save, Info, Eye
 } from 'lucide-react';
 
 const storage = getStorage();
@@ -42,8 +42,9 @@ if (!Quill.imports['formats/comment']) {
     }
   }
   CommentBlot.blotName = 'comment';
-  CommentBlot.tagName = 'span';
-  Quill.register(CommentBlot);
+  // FIX: Must use 'mark' so Quill's parchment engine does not strip the custom attributes
+  CommentBlot.tagName = 'mark';
+  Quill.register(CommentBlot, true);
 }
 
 // ── FONT WHITELIST ─────────────────────────────────────────────────────────────
@@ -59,17 +60,22 @@ if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
   s.id = STYLE_ID;
   s.textContent = `
-    .im-comment-highlight {
+    mark.im-comment-highlight {
       background-color: rgba(245,158,11,0.28) !important;
       border-bottom: 2px solid #f59e0b !important;
       border-radius: 0 !important; padding: 0 !important; margin: 0 !important;
       display: inline !important; line-height: inherit !important;
       cursor: pointer !important; transition: background-color 0.15s;
+      color: inherit !important; /* Prevent default browser mark styling */
     }
-    .im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
-    .im-comment-highlight[data-comment-status="resolved"] {
+    mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    mark.im-comment-highlight[data-comment-status="resolved"] {
       background-color: rgba(148,163,184,0.18) !important;
       border-bottom: 2px solid #94a3b8 !important;
+    }
+    .active-comment-glow {
+      background-color: rgba(245, 158, 11, 0.6) !important;
+      transition: background-color 0.3s ease !important;
     }
     #im-comment-bubble {
       position: absolute; z-index: 9999; display: none; align-items: center;
@@ -127,24 +133,22 @@ if (!document.getElementById(STYLE_ID)) {
     /* Right canvas area */
     .im-fs-canvas-wrap {
       flex: 1; overflow-y: auto;
-      background: #ffffff; /* Solid white background for true edge-to-edge feel */
+      background: #ffffff;
       display: flex; flex-direction: column;
     }
 
-    /* The white document "paper" - NOW TRULY FULL SCREEN */
     .im-fs-paper {
       width: 100%; 
-      max-width: none; /* Removed width limits */
-      margin: 0; /* Removed margins */
+      max-width: none; 
+      margin: 0; 
       background: transparent;
       border-radius: 0;
       box-shadow: none;
       display: flex;
       flex-direction: column;
-      flex: 1; /* Stretches to fill vertical space */
+      flex: 1; 
     }
 
-    /* Quill toolbar inside paper top */
     .im-fs-paper .ql-toolbar.ql-snow {
       border: none !important;
       border-bottom: 1px solid #e5e7eb !important;
@@ -163,7 +167,7 @@ if (!document.getElementById(STYLE_ID)) {
       font-size: 15px;
       line-height: 1.85;
       color: #111827 !important;
-      padding: 40px 8%; /* Adjust padding for ultra-wide screens */
+      padding: 40px 8%; 
       font-family: 'Georgia', serif;
     }
     .im-fs-paper .ql-editor.ql-blank::before {
@@ -172,7 +176,6 @@ if (!document.getElementById(STYLE_ID)) {
       left: 8%;
     }
 
-    /* Table styles inside paper */
     .im-fs-paper .ql-editor table {
       border-collapse: collapse; width: 100%; margin: 20px 0;
     }
@@ -185,7 +188,6 @@ if (!document.getElementById(STYLE_ID)) {
       background: #f3f4f6; font-weight: 700;
     }
 
-    /* Image resize */
     .im-fs-paper .ql-editor img {
       max-width: 100%; cursor: pointer; transition: outline 0.15s;
       border-radius: 4px;
@@ -194,7 +196,6 @@ if (!document.getElementById(STYLE_ID)) {
       outline: 2px solid #ef4444; outline-offset: 2px;
     }
 
-    /* Quill icon colors inside paper (light theme) */
     .im-fs-paper .ql-snow .ql-stroke { stroke: #6b7280 !important; }
     .im-fs-paper .ql-snow .ql-fill   { fill:   #6b7280 !important; }
     .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-stroke,
@@ -208,7 +209,6 @@ if (!document.getElementById(STYLE_ID)) {
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
 
-    /* Table action bar inside paper */
     .im-fs-table-bar {
       display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
       padding: 8px 24px;
@@ -216,13 +216,11 @@ if (!document.getElementById(STYLE_ID)) {
       border-bottom: 1px solid #dbeafe;
     }
 
-    /* Font classes */
     .ql-font-dm-sans  { font-family: "DM Sans", sans-serif; }
     .ql-font-arial    { font-family: "Arial", sans-serif; }
     .ql-font-georgia  { font-family: "Georgia", serif; }
     .ql-font-courier  { font-family: "Courier New", monospace; }
 
-    /* Inline block editor */
     .im-quill-canvas .ql-editor {
       font-size: 14px; line-height: 1.7; padding: 20px 24px;
     }
@@ -238,18 +236,17 @@ if (!document.getElementById(STYLE_ID)) {
 }
 
 // ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
-function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) {
+function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur, readOnly, targetCommentId }) {
   const paperRef   = useRef(null);
   const toolbarRef = useRef(null);
   const quillRef   = useRef(null);
   const [wc, setWc] = useState(0);
   const [saved, setSaved] = useState(true);
 
-  // Escape closes (but not if we are typing in the comments sidebar!)
+  // Escape closes 
   useEffect(() => {
     const h = (e) => { 
       if (e.key === 'Escape') {
-        // If the user's cursor is currently inside the comments sidebar, do NOT close the editor
         if (document.activeElement?.closest('#comments-sidebar')) return;
         onClose(); 
       }
@@ -286,6 +283,7 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
     if (!paperRef.current || !toolbarRef.current || quillRef.current) return;
     quillRef.current = new Quill(paperRef.current, {
       theme: 'snow',
+      readOnly: readOnly, 
       placeholder: block.showPlaceholderAsGuide ? '' : (block.placeholder || block.desc || 'Start writing…'),
       modules: {
         table: true,
@@ -298,8 +296,29 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
         clipboard: { matchVisual: false },
       },
     });
+    
     if (value) quillRef.current.root.innerHTML = value;
-    setTimeout(() => quillRef.current?.focus(), 80);
+    
+    if (!readOnly) {
+      setTimeout(() => quillRef.current?.focus(), 80);
+    }
+
+    // FIX: Execute intelligent jump + SVG re-fire *after* Quill generates the DOM
+    if (targetCommentId) {
+      setTimeout(() => {
+        const exactSpan = paperRef.current.querySelector(`[data-comment-id="${targetCommentId}"]`);
+        if (exactSpan) {
+          exactSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          exactSpan.classList.add('active-comment-glow');
+          setTimeout(() => exactSpan.classList.remove('active-comment-glow'), 1500);
+          
+          // Force the SVG overlay to attach to this new span inside the portal
+          window.dispatchEvent(new CustomEvent('im-active-comment-changed', {
+            detail: { commentId: targetCommentId, dataPath: block.dataPath }
+          }));
+        }
+      }, 150); 
+    }
 
     quillRef.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
@@ -347,13 +366,10 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
       data-block-label={block?.label || 'Rich Text Block'}
       data-block-path={block?.dataPath || block?.id || 'global'}
     >
-
       {/* ── TOP BAR ── */}
       <div className="im-fs-topbar">
-        {/* Red accent stripe */}
-        <div style={{ width: 3, height: 22, borderRadius: 2, background: '#ef4444', flexShrink: 0 }} />
+        <div style={{ width: 3, height: 22, borderRadius: 2, background: readOnly ? '#3b82f6' : '#ef4444', flexShrink: 0 }} />
 
-        {/* Block label */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', letterSpacing: 0.2 }}>
             {block.label || 'Rich Text Editor'}
@@ -365,35 +381,53 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
 
         <div style={{ flex: 1 }} />
 
-        {/* Word count */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'))}
+          title="Open Discussions"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6,
+            background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)',
+            color: '#f59e0b', cursor: 'pointer', fontSize: 11, fontWeight: 700, transition: 'all 0.15s'
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.2)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(245,158,11,0.1)'}
+        >
+          <MessageSquarePlus size={12} /> Comments
+        </button>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
           <AlignLeft size={11} color="#64748b" />
           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{wc} words</span>
         </div>
 
-        {/* Save status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, background: saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${saved ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
-          <Save size={11} color={saved ? '#10b981' : '#f59e0b'} />
-          <span style={{ fontSize: 11, color: saved ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
-            {saved ? 'Saved' : 'Saving…'}
-          </span>
-        </div>
+        {!readOnly ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, background: saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${saved ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
+            <Save size={11} color={saved ? '#10b981' : '#f59e0b'} />
+            <span style={{ fontSize: 11, color: saved ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+              {saved ? 'Saved' : 'Saving…'}
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <Eye size={11} color="#3b82f6" />
+            <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600 }}>Viewing Mode</span>
+          </div>
+        )}
 
-        {/* Done button */}
         <button
           onClick={onClose}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 18px', borderRadius: 7,
-            background: '#ef4444', border: 'none',
+            background: readOnly ? '#3b82f6' : '#ef4444', border: 'none',
             color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-            boxShadow: '0 2px 8px rgba(239,68,68,0.35)',
+            boxShadow: `0 2px 8px ${readOnly ? 'rgba(59,130,246,0.35)' : 'rgba(239,68,68,0.35)'}`,
             transition: 'background 0.15s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = '#dc2626'}
-          onMouseLeave={e => e.currentTarget.style.background = '#ef4444'}
+          onMouseEnter={e => e.currentTarget.style.background = readOnly ? '#2563eb' : '#dc2626'}
+          onMouseLeave={e => e.currentTarget.style.background = readOnly ? '#3b82f6' : '#ef4444'}
         >
-          <Minimize2 size={13} /> Done
+          <Minimize2 size={13} /> {readOnly ? 'Close View' : 'Done'}
         </button>
       </div>
 
@@ -402,11 +436,9 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
 
         {/* LEFT SIDEBAR */}
         <div className="im-fs-sidebar">
-
-          {/* Field info */}
           <div style={{ padding: '0 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <FileText size={13} color="#ef4444" />
+              <FileText size={13} color={readOnly ? '#3b82f6' : '#ef4444'} />
               <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#475569' }}>Field Info</span>
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
@@ -414,7 +446,6 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
             </div>
           </div>
 
-          {/* Outline */}
           <div style={{ padding: '0 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
               <Hash size={13} color="#64748b" />
@@ -440,12 +471,17 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
             }
           </div>
 
-          {/* Tips */}
           <div style={{ marginTop: 'auto', padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.7 }}>
               <div style={{ marginBottom: 4, fontWeight: 700, color: '#475569' }}>Tips</div>
-              <div>• Use ⌘B / Ctrl+B for bold</div>
-              <div>• Use # heading for outline</div>
+              {readOnly ? (
+                <div>• Highlight text to comment</div>
+              ) : (
+                <>
+                  <div>• Use ⌘B / Ctrl+B for bold</div>
+                  <div>• Use # heading for outline</div>
+                </>
+              )}
               <div>• Press Escape to exit</div>
             </div>
           </div>
@@ -454,9 +490,7 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
         {/* RIGHT CANVAS */}
         <div className="im-fs-canvas-wrap">
           <div className="im-fs-paper">
-
-            {/* Sticky Quill toolbar inside paper */}
-            <div ref={toolbarRef} style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '8px 24px' }}>
+            <div ref={toolbarRef} style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '8px 24px', display: readOnly ? 'none' : 'block' }}>
               <span className="ql-formats">
                 <select className="ql-font" defaultValue="">
                   <option value="">Default</option>
@@ -501,8 +535,7 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
               </span>
             </div>
 
-            {/* Table controls */}
-            <div className="im-fs-table-bar">
+            <div className="im-fs-table-bar" style={{ display: readOnly ? 'none' : 'flex' }}>
               <span style={{ fontSize: 10, fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: 1, marginRight: 4 }}>Table</span>
               <button onMouseDown={e => { e.preventDefault(); tbl()?.insertTable(3, 3); }} style={tblBtn()}>
                 <Table2 size={11} /> Insert
@@ -524,7 +557,6 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur }) 
               </button>
             </div>
 
-            {/* The actual Quill editor */}
             <div ref={paperRef} />
           </div>
         </div>
@@ -557,9 +589,9 @@ export default function RichTextBlock({
   const [isFocused,  setIsFocused]  = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [targetCommentId, setTargetCommentId] = useState(null); // FIX: Store comment ID
   
   useEffect(() => {
-    // Detect if this component is mounted inside the hidden print container
     if (document.getElementById('print-mount-point')?.contains(editorRef.current)) {
       setIsPrinting(true);
     }
@@ -581,7 +613,19 @@ export default function RichTextBlock({
     tableBorder:   isDark ? '#64748b'                : '#cbd5e1',
   };
 
-  // ── COMMENT HELPERS ────────────────────────────────────────────────────────
+  // ── FIX: LISTEN FOR COMMENT JUMP EVENT ────────────────────────────────────
+  useEffect(() => {
+    const handleJump = (e) => {
+      const { dataPath, commentId } = e.detail;
+      if (dataPath === block.dataPath) {
+        setTargetCommentId(commentId);
+        setIsExpanded(true);
+      }
+    };
+    window.addEventListener('im-jump-to-comment', handleJump);
+    return () => window.removeEventListener('im-jump-to-comment', handleJump);
+  }, [block.dataPath]);
+
   const showBubble = useCallback((rect, range) => {
     const bubble = document.getElementById('im-comment-bubble');
     if (!bubble) return;
@@ -618,7 +662,6 @@ export default function RichTextBlock({
     createComment(range);
   };
 
-  // ── QUILL INIT ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!editorRef.current || !toolbarRef.current || quillInstance.current) return;
 
@@ -700,7 +743,6 @@ export default function RichTextBlock({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── SYNC VALUE (skip when expanded — modal owns the content) ───────────────
   useEffect(() => {
     if (!quillInstance.current || isFocused || isExpanded) return;
     if (value !== quillInstance.current.root.innerHTML) {
@@ -710,7 +752,6 @@ export default function RichTextBlock({
     }
   }, [value, isFocused, isExpanded]);
 
-  // ── LOCK ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!quillInstance.current) return;
     lockedBy ? quillInstance.current.disable() : quillInstance.current.enable();
@@ -719,7 +760,6 @@ export default function RichTextBlock({
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
      
-
       {usePlaceholderGuide && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
@@ -748,24 +788,44 @@ export default function RichTextBlock({
             alignItems: 'center', justifyContent: 'center',
             opacity: 1, transition: 'opacity 0.2s',
           }}>
-            <button
-              onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
-                borderRadius: 8, background: t.accent, color: '#fff', border: 'none',
-                fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                boxShadow: `0 4px 14px rgba(239,68,68,0.3)`
-              }}
-            >
-              <Maximize2 size={16} /> Expand to Edit
-            </button>
-            <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
-              Read-only preview
-            </div>
+            {lockedBy ? (
+              <>
+                <button
+                  onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
+                    borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none',
+                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                    boxShadow: `0 4px 14px rgba(59,130,246,0.3)`
+                  }}
+                >
+                  <Eye size={16} /> Read Only View
+                </button>
+                <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
+                  Locked by {lockedBy}
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
+                    borderRadius: 8, background: t.accent, color: '#fff', border: 'none',
+                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                    boxShadow: `0 4px 14px rgba(239,68,68,0.3)`
+                  }}
+                >
+                  <Maximize2 size={16} /> Expand to Edit
+                </button>
+                <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
+                  Click to launch Fullscreen Editor
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        {/* Inline toolbar - Hidden in this mode, but required by Quill instance */}
         <div ref={toolbarRef} style={{ display: 'none' }}>
           <span className="ql-formats">
             <select className="ql-font" defaultValue="">
@@ -797,7 +857,6 @@ export default function RichTextBlock({
           </span>
         </div>
 
-        {/* Action bar - Hidden because of Expand-to-Edit flow */}
         <div style={{ display: 'none', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '7px 12px', background: t.subBarBg, borderBottom: `1px solid ${t.toolbarBorder}` }}>
           <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.insertTable(3,3); }} style={inlineBtn(t)}>
             <Table2 size={13} /> Insert Table
@@ -823,7 +882,6 @@ export default function RichTextBlock({
           <button onMouseDown={handleCommentClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
             <MessageSquarePlus size={14} /> Comment
           </button>
-          {/* Expand to fullscreen */}
           <button
             onMouseDown={e => { e.preventDefault(); setIsExpanded(true); }}
             title="Open fullscreen editor"
@@ -833,7 +891,6 @@ export default function RichTextBlock({
           </button>
         </div>
 
-        {/* Inline editor */}
         <div ref={editorRef} className="im-quill-canvas" style={{ color: t.text }} />
       </div>
 
@@ -842,18 +899,18 @@ export default function RichTextBlock({
         .ql-container.ql-snow { border: none !important; }
         .im-quill-canvas .ql-editor { 
           min-height: ${block.minHeight || '160px'}; 
-          max-height: ${isPrinting ? 'none' : '300px'}; /* Prevent massive previews */
-          overflow: hidden; /* Hide overflow in preview */
+          max-height: ${isPrinting ? 'none' : '300px'};
+          overflow: hidden; 
           color: ${t.text} !important; 
           padding: ${isPrinting ? '0' : '16px 20px'};
         }
-.im-quill-canvas .ql-editor.ql-blank::before { 
-  color: ${t.textMuted} !important; 
-  font-style: italic; 
-  /* Safe wrap restored */
-  white-space: pre-wrap; 
-  word-wrap: break-word;
-}      .ql-snow .ql-stroke { stroke: ${t.textMuted} !important; }
+        .im-quill-canvas .ql-editor.ql-blank::before { 
+          color: ${t.textMuted} !important; 
+          font-style: italic; 
+          white-space: pre-wrap; 
+          word-wrap: break-word;
+        }      
+        .ql-snow .ql-stroke { stroke: ${t.textMuted} !important; }
         .ql-snow .ql-fill   { fill:   ${t.textMuted} !important; }
         .ql-snow.ql-toolbar button:hover .ql-stroke,
         .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #ef4444 !important; }
@@ -863,19 +920,22 @@ export default function RichTextBlock({
         .ql-snow .ql-picker-options { background: ${t.toolbarBg} !important; border-color: ${t.border} !important; }
       `}</style>
 
-      {/* FULLSCREEN PORTAL */}
       {isExpanded && (
         <FullscreenEditor
-  block={block}
-  value={value}
-  onChange={onChange}
-          onClose={() => setIsExpanded(false)}
+          block={block}
+          value={value}
+          onChange={onChange}
+          onClose={() => {
+            setIsExpanded(false);
+            setTargetCommentId(null); // Clear ID on close to prevent re-scrolls
+          }}
           onFocus={onFocus}
           onBlur={onBlur}
+          readOnly={!!lockedBy}
+          targetCommentId={targetCommentId} // FIX: Pass ID to the portal
         />
       )}
 
-      {/* Floating comment bubble */}
       <BubblePortal onComment={() => {
         const range = pendingSelection.current;
         hideBubble();

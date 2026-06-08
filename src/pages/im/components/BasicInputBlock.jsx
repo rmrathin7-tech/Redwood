@@ -2,42 +2,204 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Info, UploadCloud, X, CheckCircle2, FileText } from 'lucide-react';
 import BlockWrapper from './BlockWrapper.jsx';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db } from '../../../firebase.js';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const storage = getStorage();
 
-// ── MIXED (FILL IN BLANKS) INLINE INPUT ──────────────────────────────────────
-const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers }) => {
-  const spanRef = useRef(null);
-  useEffect(() => {
-    if (spanRef.current && !spanRef.current.textContent && val) spanRef.current.textContent = val;
-  }, []);
-  useEffect(() => {
-    if (spanRef.current && val !== spanRef.current.textContent) {
-      if (document.activeElement !== spanRef.current) spanRef.current.textContent = val || '';
+// ── GLOBAL HIGHLIGHT STYLES ──────────────────────────────────────────────────
+const STYLE_ID = 'im-basicinput-comments-styles';
+if (!document.getElementById(STYLE_ID)) {
+  const s = document.createElement('style');
+  s.id = STYLE_ID;
+  s.textContent = `
+    .comment-glow {
+      background-color: rgba(245,158,11,0.28) !important;
+      border-bottom: 2px solid #f59e0b !important;
+      cursor: pointer !important;
+      transition: background-color 0.15s;
+      border-radius: 2px;
     }
-  }, [val]);
+    .comment-glow:hover {
+      background-color: rgba(245,158,11,0.45) !important;
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+// ── HIGHLIGHT RENDER ENGINE ──────────────────────────────────────────────────
+const renderHighlightedText = (val, comments, isDark, placeholder) => {
+  if (val === undefined || val === null || val === '') {
+    return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
+  }
+  let text = String(val);
+  if (!comments || comments.length === 0) return <span>{text}</span>;
+
+  let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  comments.forEach(c => {
+    if (c.quote && c.status !== 'resolved') {
+      const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escapedQuote})`, 'gi');
+      html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+    }
+  });
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+};
+
+// ── HYBRID STANDARD INPUT COMPONENT ──────────────────────────────────────────
+const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholder, style, comments, isDark, disabled }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) inputRef.current.focus();
+  }, [isEditing]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  
+  const handleBlurWrapper = (e) => {
+    setIsEditing(false);
+    if (onBlur) onBlur(e);
+  };
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        type={type}
+        value={val}
+        onChange={onChange}
+        onBlur={handleBlurWrapper}
+        onFocus={onFocus}
+        disabled={disabled}
+        placeholder={placeholder}
+        style={style}
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={handleViewClick}
+      style={{
+        ...style,
+        cursor: disabled ? 'not-allowed' : 'text',
+        minHeight: style.padding ? undefined : '42px',
+        display: 'flex',
+        alignItems: 'center',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis'
+      }}
+    >
+      {renderHighlightedText(val, comments, isDark, placeholder)}
+    </div>
+  );
+};
+
+// ── HYBRID TEXTAREA COMPONENT ────────────────────────────────────────────────
+const HybridTextarea = ({ val, onChange, onFocus, onBlur, placeholder, style, comments, isDark, disabled }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
+    }
+  }, [isEditing, val]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  
+  const handleBlurWrapper = (e) => {
+    setIsEditing(false);
+    if (onBlur) onBlur(e);
+  };
+
+  if (isEditing) {
+    return (
+      <textarea
+        ref={inputRef}
+        value={val}
+        onChange={onChange}
+        onBlur={handleBlurWrapper}
+        onFocus={onFocus}
+        disabled={disabled}
+        placeholder={placeholder}
+        style={{ ...style, overflow: 'hidden' }}
+      />
+    );
+  }
+
+  return (
+    <div
+      onClick={handleViewClick}
+      style={{
+        ...style,
+        cursor: disabled ? 'not-allowed' : 'text',
+        whiteSpace: 'pre-wrap',
+        wordWrap: 'break-word',
+        minHeight: style.minHeight || '80px',
+      }}
+    >
+      {renderHighlightedText(val, comments, isDark, placeholder)}
+    </div>
+  );
+};
+
+// ── HYBRID MIXED (FILL IN BLANKS) INLINE INPUT ───────────────────────────────
+const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers, comments, isDark }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) inputRef.current.focus();
+  }, [isEditing]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={val || ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={handleBlur}
+        onFocus={focusHandlers?.onFocus}
+        placeholder={placeholder}
+        style={{
+          display: 'inline-block', minWidth: '60px', maxWidth: '250px',
+          padding: '2px 6px', margin: '0 4px', border: `1px solid ${t.border}`,
+          borderRadius: '4px', fontSize: '0.8rem', color: t.text,
+          background: 'transparent', outline: 'none',
+        }}
+      />
+    );
+  }
+
   return (
     <span
-      ref={spanRef}
-      className="mixed-inline-input"
-      contentEditable={!disabled}
-      suppressContentEditableWarning
-      data-placeholder={placeholder}
-      onInput={e => onChange(e.currentTarget.textContent)}
-      onPaste={e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); }}
-      onFocus={focusHandlers?.onFocus}
-      onBlur={focusHandlers?.onBlur}
+      onClick={handleViewClick}
       style={{
         display: 'inline-block', minWidth: '60px', maxWidth: '250px',
-        padding: '2px 6px', margin: '0 4px', border: `1px solid ${t.border}`,
+        padding: '2px 6px', margin: '0 4px', border: `1px solid transparent`,
+        borderBottom: `1px dashed ${t.border}`,
         borderRadius: '4px', fontSize: '0.8rem', color: t.text,
         background: 'transparent', outline: 'none', wordBreak: 'break-word',
         whiteSpace: 'pre-wrap', cursor: disabled ? 'not-allowed' : 'text', verticalAlign: 'middle',
       }}
-    />
+    >
+      {renderHighlightedText(val, comments, isDark, placeholder)}
+    </span>
   );
 };
 
+
+// ── MAIN BASIC INPUT COMPONENT ───────────────────────────────────────────────
 export default function BasicInputBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
   const [localValue, setLocalValue] = useState(value ?? '');
   const [isFocused, setIsFocused] = useState(false);
@@ -50,6 +212,17 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
   const showFullPlaceholder = usePlaceholderGuide && !hiddenGuides[block.id];
   const typingTimeout = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Active Comments for this specific block path
+  const [blockComments, setBlockComments] = useState([]);
+  useEffect(() => {
+    if (!block?.dataPath) return;
+    const q = query(collection(db, 'im-comments'), where('dataPath', '==', block.dataPath));
+    const unsub = onSnapshot(q, (snap) => {
+      setBlockComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [block?.dataPath]);
 
   // ── THEME TOKENS ────────────────────────────────────────────────────────
   const t = {
@@ -90,12 +263,9 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
   };
 
   // ── INCOMING DATA SYNC ──────────────────────────────────────────────────
-  // isUploading blocks ALL snapshot interference while upload is in flight.
-  // The 2s cooldown in finally{} covers both Firestore snapshot firings
-  // (local write ack + server confirm) so the guard never expires too early.
   useEffect(() => {
     if (isFocused) return;
-    if (isUploading) return; // ← key fix: ignore ANY incoming value while uploading
+    if (isUploading) return; 
 
     if (block.type === 'image' || block.type === 'file') {
       if (Array.isArray(value)) {
@@ -108,7 +278,6 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
         setUploadedFiles([]);
       }
     } else if (block.type === 'mixed') {
-      // Ensure mixed blocks initialize as arrays
       setLocalValue(Array.isArray(value) ? value : []);
     } else if (value !== localValue) {
       setLocalValue(value ?? '');
@@ -174,8 +343,6 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     } catch (err) {
       console.error('Upload failed:', err);
     } finally {
-      // Keep isUploading=true for 2s to block both Firestore snapshot firings
-      // (Firestore fires once for local write ack, once for server confirmation)
       setTimeout(() => setIsUploading(false), 2000);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -203,7 +370,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
 
   // ── RENDER ──────────────────────────────────────────────────────────────
   const renderInput = () => {
-// 1. INSTRUCTION block — read-only note
+    // 1. INSTRUCTION block
     if (block.type === 'instruction') {
       return (
         <div style={{ padding: '12px 16px', borderRadius: '8px', fontSize: '0.85rem', color: t.guideText, background: t.guide, borderLeft: `3px solid ${t.guideLeft}`, lineHeight: 1.6 }}>
@@ -239,7 +406,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       );
     }
 
-    // 3. COMPLIANCE block — Yes / No / NA
+    // 3. COMPLIANCE block
     if (block.type === 'compliance') {
       const opts = block.options || ['Yes', 'No', 'NA'];
       return (
@@ -266,10 +433,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       const showCaption = block.allowCaption !== false;
       return (
         <div>
-          {/* Hidden file input */}
           <input ref={fileInputRef} type="file" accept="image/*" multiple={!!block.multiple} style={{ display: 'none' }} onChange={handleFileUpload} />
-
-          {/* Upload zone */}
           <div
             onClick={() => fileInputRef.current?.click()}
             style={{ border: `2px dashed ${t.border}`, borderRadius: 10, padding: '20px 16px', textAlign: 'center', cursor: 'pointer', background: t.uploadZone, transition: 'border-color 0.2s, background 0.2s', color: t.textMuted, fontSize: '0.85rem' }}
@@ -284,8 +448,6 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                 </>
             }
           </div>
-
-          {/* Preview grid */}
           {uploadedFiles.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
               {uploadedFiles.map((f, i) => (
@@ -296,12 +458,10 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                     style={{ display: 'block', width: '100%', height: imgHeight, objectFit: imgFit }}
                     onError={e => { e.currentTarget.style.background = t.surface; e.currentTarget.style.minHeight = imgHeight; }}
                   />
-                  {/* Remove button */}
                   <button onClick={() => removeFile(i)}
                     style={{ position: 'absolute', top: 6, right: 6, background: '#ef4444', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }}>
                     <X size={11} />
                   </button>
-                  {/* Caption input */}
                   {showCaption && (
                     <div style={{ padding: '6px 10px 8px', background: t.captionBg }}>
                       <input
@@ -313,7 +473,6 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                       />
                     </div>
                   )}
-                  {/* File name label */}
                   <div style={{ padding: showCaption ? '0 10px 8px' : '6px 10px 8px', fontSize: '0.72rem', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {f.name}
                   </div>
@@ -325,7 +484,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       );
     }
 
-    // 5. FILE upload — PDFs, docs, etc.
+    // 5. FILE upload
     if (block.type === 'file') {
       const showNA = block.allowNA !== false;
       if (isNA) {
@@ -388,9 +547,17 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     // 7. TEXTAREA
     if (block.type === 'textarea') {
       return (
-        <textarea value={localValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur}
-          placeholder={effectivePlaceholder} rows={block.rows || 4}
-          style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} />
+        <HybridTextarea
+          val={localValue}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          disabled={!!lockedBy}
+          placeholder={effectivePlaceholder}
+          style={{ ...inputStyle, resize: 'vertical', minHeight: (block.rows || 4) * 24 + 'px' }}
+          comments={blockComments}
+          isDark={isDark}
+        />
       );
     }
 
@@ -398,13 +565,28 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (block.type === 'number' || block.type === 'currency' || block.type === 'percentage') {
       const prefix = block.type === 'currency' ? '₹' : null;
       const suffix = block.type === 'percentage' ? '%' : null;
+      const mergedStyle = { 
+        ...inputStyle, 
+        borderRadius: prefix ? '0 8px 8px 0' : suffix ? '8px 0 0 8px' : '8px', 
+        borderLeft: prefix ? 'none' : `1px solid ${t.border}`, 
+        borderRight: suffix ? 'none' : `1px solid ${t.border}` 
+      };
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-          {prefix && <span style={{ padding: '12px 12px', background: t.surface, border: `1px solid ${t.border}`, borderRight: 'none', borderRadius: '8px 0 0 8px', color: t.textMuted, fontSize: '0.9rem', fontWeight: 600 }}>{prefix}</span>}
-          <input type="number" value={localValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur}
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+          {prefix && <span style={{ padding: '12px 12px', background: t.surface, border: `1px solid ${t.border}`, borderRight: 'none', borderRadius: '8px 0 0 8px', color: t.textMuted, fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center' }}>{prefix}</span>}
+          <HybridInput
+            type="number"
+            val={localValue}
+            onChange={handleChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            disabled={!!lockedBy}
             placeholder={effectivePlaceholder || '0'}
-            style={{ ...inputStyle, borderRadius: prefix ? '0 8px 8px 0' : suffix ? '8px 0 0 8px' : '8px', borderLeft: prefix ? 'none' : `1px solid ${t.border}`, borderRight: suffix ? 'none' : `1px solid ${t.border}` }} />
-          {suffix && <span style={{ padding: '12px 12px', background: t.surface, border: `1px solid ${t.border}`, borderLeft: 'none', borderRadius: '0 8px 8px 0', color: t.textMuted, fontSize: '0.9rem', fontWeight: 600 }}>{suffix}</span>}
+            style={mergedStyle}
+            comments={blockComments}
+            isDark={isDark}
+          />
+          {suffix && <span style={{ padding: '12px 12px', background: t.surface, border: `1px solid ${t.border}`, borderLeft: 'none', borderRadius: '0 8px 8px 0', color: t.textMuted, fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center' }}>{suffix}</span>}
         </div>
       );
     }
@@ -412,8 +594,18 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     // 9. DATE
     if (block.type === 'date') {
       return (
-        <input type="date" value={localValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur}
-          style={{ ...inputStyle, colorScheme: isDark ? 'dark' : 'light' }} />
+        <HybridInput
+          type="date"
+          val={localValue}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          disabled={!!lockedBy}
+          placeholder={effectivePlaceholder}
+          style={{ ...inputStyle, colorScheme: isDark ? 'dark' : 'light' }}
+          comments={blockComments}
+          isDark={isDark}
+        />
       );
     }
 
@@ -434,21 +626,6 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
             boxShadow: isFocused ? focusStyle.boxShadow : 'none'
           }}
         >
-<style>{`
-  .mixed-inline-input:empty::before { 
-    content: attr(data-placeholder); 
-    color: ${t.textMuted}; 
-    pointer-events: none; 
-    opacity: 0.6; 
-    /* Safe wrap restored */
-    white-space: pre-wrap;
-    word-wrap: break-word;
-  } 
-  .mixed-inline-input:focus { 
-    border-color: ${t.accent} !important; 
-    box-shadow: 0 0 0 2px rgba(239,68,68,0.15); 
-  }
-`}</style>
          {parts.map((part, pi) => {
             if (/^\[.+\]$/.test(part)) {
               const idx      = inputIdx++;
@@ -464,6 +641,8 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                   placeholder={placeholder} 
                   t={t} 
                   focusHandlers={{ onFocus: handleFocus, onBlur: handleBlur }} 
+                  comments={blockComments}
+                  isDark={isDark}
                 />
               );
             }
@@ -475,14 +654,17 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
 
     // 11. EMAIL / TEXT — default
     return (
-      <input
+      <HybridInput
         type={block.type === 'email' ? 'email' : 'text'}
-        value={localValue}
+        val={localValue}
         onChange={handleChange}
         onFocus={handleFocus}
         onBlur={handleBlur}
+        disabled={!!lockedBy}
         placeholder={effectivePlaceholder}
         style={inputStyle}
+        comments={blockComments}
+        isDark={isDark}
       />
     );
   };

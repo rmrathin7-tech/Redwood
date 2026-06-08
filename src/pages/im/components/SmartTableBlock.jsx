@@ -4,8 +4,30 @@ import BlockWrapper from './BlockWrapper';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db } from '../../../firebase.js';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const storage = getStorage();
+
+// ── GLOBAL HIGHLIGHT STYLES ──────────────────────────────────────────────────
+const STYLE_ID = 'im-smarttable-comments-styles';
+if (!document.getElementById(STYLE_ID)) {
+  const s = document.createElement('style');
+  s.id = STYLE_ID;
+  s.textContent = `
+    .comment-glow {
+      background-color: rgba(245,158,11,0.28) !important;
+      border-bottom: 2px solid #f59e0b !important;
+      cursor: pointer !important;
+      transition: background-color 0.15s;
+      border-radius: 2px;
+    }
+    .comment-glow:hover {
+      background-color: rgba(245,158,11,0.45) !important;
+    }
+  `;
+  document.head.appendChild(s);
+}
 
 // ── UNIQUE ID HELPER ─────────────────────────────────────────────────────────
 const genRowId = () => `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -41,7 +63,6 @@ function parseValue(value, block) {
   return { rows, headers: block.colHeaders || [], repeatedTables: [], runtimeSchemaRows: null, mainInstanceName: '', subheadingInputs: [] };
 }
 
-// ── SEED EMPTY DATA ROW ──────────────────────────────────────────────────────
 function seedEmptyRow(schemaRows) {
   const row = { _rowId: genRowId() };
   (schemaRows || []).forEach(schemaRow => {
@@ -54,33 +75,222 @@ function seedEmptyRow(schemaRows) {
   return row;
 }
 
-// ── AUTO RESIZING TEXTAREA ───────────────────────────────────────────────────
-const AutoResizeTextarea = ({ val, onChange, disabled, placeholder, cellInputStyle, focusHandlers }) => {
-  const ref = useRef(null);
+// ── HYBRID TEXTAREA COMPONENT ────────────────────────────────────────────────
+const HybridTextarea = ({ val, onChange, disabled, placeholder, cellInputStyle, focusHandlers, comments, isDark }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
   useEffect(() => {
-    if (ref.current) {
-      ref.current.style.height = 'auto';
-      ref.current.style.height = `${ref.current.scrollHeight}px`;
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
     }
-  }, [val]);
+  }, [isEditing, val]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
+
+  const renderHighlightedText = () => {
+    if (!val) return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
+    let text = String(val);
+    if (!comments || comments.length === 0) return <span>{text}</span>;
+    
+    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    comments.forEach(c => {
+      if (c.quote && c.status !== 'resolved') {
+        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedQuote})`, 'gi');
+        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+      }
+    });
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
+  if (isEditing) {
+    return (
+      <textarea
+        ref={inputRef}
+        value={val}
+        onChange={e => {
+          onChange(e.target.value);
+          e.target.style.height = 'auto';
+          e.target.style.height = `${e.target.scrollHeight}px`;
+        }}
+        onBlur={handleBlur}
+        onFocus={focusHandlers?.onFocus}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={1}
+        title={placeholder || 'Enter value'} 
+        style={{
+          ...cellInputStyle, 
+          whiteSpace: 'pre-wrap', 
+          wordWrap: 'break-word',
+          overflow: 'hidden',
+          resize: 'none'
+        }}      
+      />
+    );
+  }
+
   return (
-    <textarea
-      ref={ref}
-      value={val}
-      onChange={onChange}
-      disabled={disabled}
-      placeholder={placeholder}
-      rows={1}
-      title={placeholder || 'Enter value'} 
-      style={{
+    <div 
+      onClick={handleViewClick}
+      style={{ 
         ...cellInputStyle, 
-        whiteSpace: 'pre-wrap', 
+        cursor: disabled ? 'default' : 'text',
+        minHeight: '34px',
+        whiteSpace: 'pre-wrap',
         wordWrap: 'break-word',
-        overflow: 'hidden',
-        resize: 'none'
-      }}      
-      {...focusHandlers}
-    />
+      }}
+    >
+      {renderHighlightedText()}
+    </div>
+  );
+};
+
+// ── HYBRID STANDARD INPUT COMPONENT ──────────────────────────────────────────
+const HybridInput = ({ val, onChange, disabled, placeholder, cellInputStyle, focusHandlers, comments, isDark, iType, showPrefix, showSuffix }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
+
+  const renderHighlightedText = () => {
+    if (val === undefined || val === null || val === '') {
+      return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
+    }
+    
+    let text = String(val);
+    if (!comments || comments.length === 0) return <span>{text}</span>;
+
+    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    
+    comments.forEach(c => {
+      if (c.quote && c.status !== 'resolved') {
+        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedQuote})`, 'gi');
+        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+      }
+    });
+
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
+  if (isEditing) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
+        {showPrefix && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>₹</span>}
+        <input
+          ref={inputRef}
+          type={iType === 'currency' || iType === 'percentage' || iType === 'number' ? 'number' : (iType === 'lang' || iType === 'date' ? 'date' : 'text')}
+          value={val}
+          onChange={e => onChange(e.target.value)}
+          onBlur={handleBlur}
+          onFocus={focusHandlers?.onFocus}
+          disabled={disabled}
+          placeholder={placeholder}
+          style={{ ...cellInputStyle, paddingLeft: showPrefix ? '2px' : '10px', colorScheme: isDark ? 'dark' : 'light' }}
+        />
+        {showSuffix && <span style={{ padding: '0 10px 0 2px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>%</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      onClick={handleViewClick}
+      style={{ 
+        ...cellInputStyle, 
+        display: 'flex', 
+        alignItems: 'center', 
+        paddingLeft: showPrefix ? '2px' : '10px',
+        cursor: disabled ? 'default' : 'text',
+        minHeight: '34px',
+        whiteSpace: 'pre-wrap',
+        wordWrap: 'break-word',
+      }}
+    >
+      {showPrefix && val && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>₹</span>}
+      {renderHighlightedText()}
+      {showSuffix && val && <span style={{ padding: '0 10px 0 2px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>%</span>}
+    </div>
+  );
+};
+
+// ── HYBRID MIXED (FILL IN BLANKS) INLINE INPUT ───────────────────────────────
+const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers, comments }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) inputRef.current.focus();
+  }, [isEditing]);
+
+  const handleViewClick = () => { if (!disabled) setIsEditing(true); };
+  const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
+
+  const renderHighlightedText = () => {
+    if (!val) return <span style={{ color: t.textMuted, opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
+    let text = String(val);
+    if (!comments || comments.length === 0) return <span>{text}</span>;
+
+    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    comments.forEach(c => {
+      if (c.quote && c.status !== 'resolved') {
+        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(${escapedQuote})`, 'gi');
+        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+      }
+    });
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={val || ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={handleBlur}
+        onFocus={focusHandlers?.onFocus}
+        placeholder={placeholder}
+        style={{
+          display: 'inline-block', minWidth: '60px', maxWidth: '250px',
+          padding: '2px 6px', margin: '0 4px', border: `1px solid ${t.border}`,
+          borderRadius: '4px', fontSize: '0.8rem', color: t.text,
+          background: 'transparent', outline: 'none',
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={handleViewClick}
+      style={{
+        display: 'inline-block', minWidth: '60px', maxWidth: '250px',
+        padding: '2px 6px', margin: '0 4px', border: `1px solid transparent`,
+        borderBottom: `1px dashed ${t.border}`,
+        borderRadius: '4px', fontSize: '0.8rem', color: t.text,
+        background: 'transparent', outline: 'none', wordBreak: 'break-word',
+        whiteSpace: 'pre-wrap', cursor: disabled ? 'default' : 'text', verticalAlign: 'middle',
+      }}
+    >
+      {renderHighlightedText()}
+    </span>
   );
 };
 
@@ -191,43 +401,10 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   );
 };
 
-// ── MIXED (FILL IN BLANKS) INLINE INPUT ──────────────────────────────────────
-const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers }) => {
-  const spanRef = useRef(null);
-  useEffect(() => {
-    if (spanRef.current && !spanRef.current.textContent && val) spanRef.current.textContent = val;
-  }, []);
-  useEffect(() => {
-    if (spanRef.current && val !== spanRef.current.textContent) {
-      if (document.activeElement !== spanRef.current) spanRef.current.textContent = val || '';
-    }
-  }, [val]);
-  return (
-    <span
-      ref={spanRef}
-      className="mixed-inline-input"
-      contentEditable={!disabled}
-      suppressContentEditableWarning
-      data-placeholder={placeholder}
-      onInput={e => onChange(e.currentTarget.textContent)}
-      onPaste={e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); }}
-      onFocus={focusHandlers.onFocus}
-      onBlur={focusHandlers.onBlur}
-      style={{
-        display: 'inline-block', minWidth: '60px', maxWidth: '250px',
-        padding: '2px 6px', margin: '0 4px', border: `1px solid ${t.border}`,
-        borderRadius: '4px', fontSize: '0.8rem', color: t.text,
-        background: 'transparent', outline: 'none', wordBreak: 'break-word',
-        whiteSpace: 'pre-wrap', cursor: disabled ? 'not-allowed' : 'text', verticalAlign: 'middle',
-      }}
-    />
-  );
-};
-
 // ── CONTROLLED REPEAT TABLE INSTANCE ─────────────────────────────────────────
 const RepeatTableInstance = ({
   idx, tableData, headers, runtimeSchemaRows, hasSchema, numCols,
-  block, t, cellInputStyle, lockedBy, onUpdate, onRemove, isDark, renderCellContent, focusHandlers
+  block, t, cellInputStyle, lockedBy, onUpdate, onRemove, isDark, renderCellContent, focusHandlers, blockComments
 }) => {
   const rows = tableData?.rows || [];
   const instanceName = tableData?.instanceName || '';
@@ -308,7 +485,17 @@ const RepeatTableInstance = ({
                       ))
                     : Array.from({ length: numCols }, (_, cIdx) => (
                         <td key={cIdx} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < numCols - 1 ? `1px solid ${t.border}` : 'none' }}>
-                          <input value={row[`col_${cIdx}`] ?? ''} onChange={e => updateRepeatedCell(rIdx, `col_${cIdx}`, undefined, e.target.value)} disabled={!!lockedBy} style={cellInputStyle} placeholder="" {...focusHandlers} />
+                          <HybridInput 
+                            val={row[`col_${cIdx}`] ?? ''} 
+                            onChange={newVal => updateRepeatedCell(rIdx, `col_${cIdx}`, undefined, newVal)} 
+                            disabled={!!lockedBy} 
+                            cellInputStyle={cellInputStyle} 
+                            placeholder="" 
+                            focusHandlers={focusHandlers}
+                            comments={blockComments}
+                            isDark={isDark}
+                            iType="text"
+                          />
                         </td>
                       ))
                   }
@@ -368,6 +555,17 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const [repeatedTables, setRepeatedTables] = useState(initial.repeatedTables || []);
   const [mainInstanceName, setMainInstanceName] = useState(initial.mainInstanceName || '');
 
+  // Active Comments for this specific block path
+  const [blockComments, setBlockComments] = useState([]);
+  useEffect(() => {
+    if (!block?.dataPath) return;
+    const q = query(collection(db, 'im-comments'), where('dataPath', '==', block.dataPath));
+    const unsub = onSnapshot(q, (snap) => {
+      setBlockComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [block?.dataPath]);
+
   const t = {
     bg:           isDark ? '#04060a'                : '#f8fafc',
     surface:      isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
@@ -423,7 +621,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     onBlur: handleBlur
   }), [handleFocus, handleBlur]);
 
-  // ── FIX: REWRITTEN EFFECT THAT PROPERLY SYNC MASTER SCHEMA WITHOUT DELETING NEW COLUMNS/ROWS
   useEffect(() => {
     if (isFocusedRef.current) return;
     const parsed = parseValue(value, block);
@@ -557,7 +754,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     save(undefined, undefined, undefined, undefined, val);
   }
 
-  // ── FIX: ADD ROW NOW COPIES A DATA ROW SCHEMA 
   const addRow = () => {
     const curSchema = stateRefs.current.runtimeSchemaRows;
     let newSchema = curSchema;
@@ -590,7 +786,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
-  // ── FIX: ROW INSERTIONS NOW DEEP CLONE A DATA ROW
   const insertRowBefore = useCallback((rIdx) => {
     isFocusedRef.current = true;
     const curSchema = stateRefs.current.runtimeSchemaRows;
@@ -625,7 +820,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     setTimeout(() => { isFocusedRef.current = false; }, 4000);
   }, [flushSave]);
 
-  // ── COLUMN INSERTIONS & DELETIONS ─────────────────────────────────────────
   const insertColBefore = (cIdx) => {
     isFocusedRef.current = true;
     const curHeaders = stateRefs.current.headers;
@@ -751,7 +945,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     setTimeout(() => { isFocusedRef.current = false; }, 4000);
   };
 
-  // ── TABLE REPEAT MUTATIONS ────────────────────────────────────────────────
   const repeatTable = () => {
     const curSchema   = stateRefs.current.runtimeSchemaRows;
     const curRepeated = stateRefs.current.repeatedTables;
@@ -876,7 +1069,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     navigator.clipboard.writeText(tsv).catch(() => {});
   };
 
-  // ── PASTE INTEGRATION ─────────────────────────────────────────────────────
   const pasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -922,7 +1114,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     } catch (err) { console.error('Paste failed:', err); }
   };
 
-  // ── DYNAMIC TEMPLATE INPUT PARSER (SHARED) ────────────────────────────────
   const renderTemplateInput = useCallback((part, keyIdx, inputVal, onInputChange, disabled) => {
     const inner = part.slice(1, -1);
     const colonIdx = inner.indexOf(':');
@@ -967,10 +1158,9 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
        }
     }
 
-    return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} />;
-  }, [t, isDark, focusHandlers]);
+    return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} comments={blockComments} />;
+  }, [t, isDark, focusHandlers, blockComments]);
 
-  // ── UNIFIED RICH CELL RENDERING ───────────────────────────────────────────
   const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtectedRow = false, tableInstanceId = 'main', contextRows = records) => {
     const cellPlaceholder = cell.placeholder || '';
     const usePlaceholderGuide = !!cell.showPlaceholderAsGuide && !!cellPlaceholder;
@@ -1071,7 +1261,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
             {activeCondition && (
               activeCondition.thenMode === 'richtext'
                 ? (
-                  /* ── RICH TEXT MODE ── */
                   <TableQuillEditor
                     val={valObj.richtext || ''}
                     onChange={(newHtml) => onValChange({ ...valObj, richtext: newHtml })}
@@ -1083,7 +1272,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
                     isDark={isDark}
                   />
                 ) : (
-                  /* ── FILL-IN-THE-BLANKS MODE ── */
                   <div style={{ lineHeight: 1.8, paddingLeft: 6, borderLeft: `2px solid ${t.border}` }}>
                     {(activeCondition.template || '').split(/(\[[^\]]*\])/g).map((part, pi) => {
                       if (/^\[.*\]$/.test(part)) {
@@ -1120,7 +1308,16 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' }}>
               {guideToggle}
               {guidePanel}
-              <AutoResizeTextarea val={val} onChange={e => onValChange(e.target.value)} disabled={isProtectedRow || !!lockedBy} placeholder={usePlaceholderGuide ? '' : cellPlaceholder} cellInputStyle={cellInputStyle} focusHandlers={focusHandlers} />
+              <HybridTextarea 
+                val={val} 
+                onChange={e => onValChange(e)} 
+                disabled={isProtectedRow || !!lockedBy} 
+                placeholder={usePlaceholderGuide ? '' : cellPlaceholder} 
+                cellInputStyle={cellInputStyle} 
+                focusHandlers={focusHandlers} 
+                comments={blockComments}
+                isDark={isDark}
+              />
             </div>
           );
         }
@@ -1144,10 +1341,17 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
                 {block.allowNA && <option value="N/A" style={optionStyle}>N/A</option>}
               </select>
               {isCustom && cell.allowCustom && (
-                <input value={customText} onChange={e => { const v = e.target.value; setCustomValues(prev => ({ ...prev, [customKey]: v })); onValChange(v ? `__custom__:${v}` : '__custom__'); }}
-                  placeholder="Type your own value…" disabled={isProtectedRow || !!lockedBy}
-                  style={{ ...cellInputStyle, padding: '4px 8px', border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem' }}
-                  {...focusHandlers} />
+                <HybridInput 
+                  val={customText} 
+                  onChange={v => { setCustomValues(prev => ({ ...prev, [customKey]: v })); onValChange(v ? `__custom__:${v}` : '__custom__'); }}
+                  placeholder="Type your own value…" 
+                  disabled={isProtectedRow || !!lockedBy}
+                  cellInputStyle={{ ...cellInputStyle, padding: '4px 8px', border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem' }}
+                  focusHandlers={focusHandlers}
+                  comments={blockComments}
+                  isDark={isDark}
+                  iType="text"
+                />
               )}
             </div>
           );
@@ -1155,27 +1359,27 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         const showPrefix = iType === 'currency';
         const showSuffix = iType === 'percentage';
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px', height: '100%' }}>
             {guideToggle}
             {guidePanel}
-            <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
-              {showPrefix && <span style={{ padding: '0 4px 0 10px', color: t.textMuted, fontSize: '0.8rem' }}>₹</span>}
-              <input
-                type={iType === 'currency' || iType === 'percentage' || iType === 'number' ? 'number' : (iType === 'lang' || iType === 'date' ? 'date' : undefined)}
-                value={val}
-                onChange={e => onValChange(e.target.value)}
-                disabled={isProtectedRow || !!lockedBy}
-                placeholder={usePlaceholderGuide ? '' : cellPlaceholder}
-                style={{ ...cellInputStyle, paddingLeft: showPrefix ? '2px' : '10px', colorScheme: isDark ? 'dark' : 'light' }}
-                {...focusHandlers}
-              />
-              {showSuffix && <span style={{ padding: '0 10px 0 2px', color: t.textMuted, fontSize: '0.8rem' }}>%</span>}
-            </div>
+            <HybridInput
+              val={val}
+              onChange={newVal => onValChange(newVal)}
+              disabled={isProtectedRow || !!lockedBy}
+              placeholder={usePlaceholderGuide ? '' : cellPlaceholder}
+              cellInputStyle={cellInputStyle}
+              focusHandlers={focusHandlers}
+              comments={blockComments}
+              isDark={isDark}
+              iType={iType}
+              showPrefix={showPrefix}
+              showSuffix={showSuffix}
+            />
           </div>
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput]);
+  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, blockComments]);
 
   const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
@@ -1208,7 +1412,6 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   const numCols        = headers.length || block.cols || 2;
   const hasCustomWidths = block.colWidths && block.colWidths.some(w => w && w.trim() !== '');
 
-  // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
 
@@ -1337,7 +1540,17 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
                         <td key={cIdx} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < numCols - 1 ? `1px solid ${t.border}` : 'none' }}>
                           {isProtectedRow
                             ? <div style={{ padding: '8px 10px', color: t.totalText, fontWeight: 700, fontSize: '0.85rem' }}>{colTotals?.[cIdx] ?? ''}</div>
-                            : <input value={v} onChange={e => updateCell(rIdx, cellId, undefined, e.target.value)} disabled={!!lockedBy} style={cellInputStyle} {...focusHandlers} />
+                            : <HybridInput 
+                                val={v} 
+                                onChange={newVal => updateCell(rIdx, cellId, undefined, newVal)} 
+                                disabled={!!lockedBy} 
+                                cellInputStyle={cellInputStyle} 
+                                placeholder="" 
+                                focusHandlers={focusHandlers}
+                                comments={blockComments}
+                                isDark={isDark}
+                                iType="text"
+                              />
                           }
                         </td>
                       );
@@ -1418,6 +1631,7 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
           isDark={isDark}
           renderCellContent={renderCellContent}
           focusHandlers={focusHandlers}
+          blockComments={blockComments}
           onUpdate={(updater, newName) => handleRepeatedTableUpdate(idx, updater, newName)}
           onRemove={() => handleRepeatedTableRemove(idx)}
         />

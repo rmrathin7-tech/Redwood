@@ -30,7 +30,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
   const [drafts, setDrafts] = useState({}); // commentId -> text
   const [selectionPopup, setSelectionPopup] = useState(null);
 
-// ── INTELLIGENT TEXT SELECTION LISTENER ───────────────────────────────────
+  // ── INTELLIGENT TEXT SELECTION LISTENER ───────────────────────────────────
   useEffect(() => {
     const handleMouseUp = (e) => {
       setTimeout(() => {
@@ -40,6 +40,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
         let node = null;
         let x = 0;
         let y = 0;
+        let startOffset = null;
+        let endOffset = null;
 
         const activeEl = document.activeElement;
         const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
@@ -50,6 +52,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
           const end = activeEl.selectionEnd;
           if (start !== undefined && end !== undefined && start !== end) {
             text = activeEl.value.substring(start, end).trim();
+            startOffset = start;
+            endOffset = end;
             node = activeEl;
             const rect = activeEl.getBoundingClientRect();
             x = e.clientX; // Position near the mouse cursor for inputs
@@ -85,7 +89,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
             curr = curr.parentNode;
           }
 
-          setSelectionPopup({ text, label: blockLabel, path: blockPath, x, y });
+          setSelectionPopup({ text, label: blockLabel, path: blockPath, x, y, startOffset, endOffset });
         } else {
           setSelectionPopup(null);
         }
@@ -105,13 +109,14 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
       document.removeEventListener('mousedown', handleMouseDown);
     };
   }, []);
+
   // ── FETCH COMMENTS ────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState(null);
   const [showResolved, setShowResolved] = useState(false);
   const [replyText, setReplyText] = useState({});
   const [newCommentText, setNewCommentText] = useState({});
-  const [workspaceUsers, setWorkspaceUsers] = useState([]); // <-- NEW
-  const [assigneeFilter, setAssigneeFilter] = useState('all'); // <-- NEW
+  const [workspaceUsers, setWorkspaceUsers] = useState([]);
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
   const user = auth.currentUser;
   const activeRef = useRef(null);
 
@@ -158,7 +163,6 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
 
   // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
   useEffect(() => {
-    // If sidebar is closed, kill the line
     if (!isOpen) {
       window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
       return;
@@ -173,22 +177,23 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
       window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
     }
 
-    // Cleanup when unmounting
     return () => window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
   }, [activeId, comments, isOpen]);
 
   // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
   useEffect(() => {
     const onCreate = async (e) => {
-      const { commentId, dataPath, quote, contextLabel, sectionId } = e.detail;
+      const { commentId, dataPath, quote, contextLabel, sectionId, offsetStart, offsetEnd } = e.detail;
       if (!imId || !user) return;
       await addDoc(collection(db, 'im-comments'), {
         id: commentId,
         imId,
-        sectionId: sectionId || 'global', // <-- ADDED: Save section relation
+        sectionId: sectionId || 'global',
         dataPath: dataPath || 'global',
         contextLabel: contextLabel || 'General',
         quote: quote ? quote.slice(0, 200) : 'General Comment',
+        offsetStart: offsetStart ?? null, // Capture exact start for hybrid text mapping
+        offsetEnd: offsetEnd ?? null,     // Capture exact end for hybrid text mapping
         status: 'open',
         createdBy: { uid: user.uid, email: user.email },
         createdAt: serverTimestamp(),
@@ -354,7 +359,9 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
                 dataPath: selectionPopup.path,
                 quote: selectionPopup.text,
                 contextLabel: selectionPopup.label,
-                sectionId: activeSection // <-- ADDED: Save the current section to the comment
+                sectionId: activeSection,
+                offsetStart: selectionPopup.startOffset,
+                offsetEnd: selectionPopup.endOffset
               }
             }));
             setSelectionPopup(null);
@@ -378,7 +385,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
           display: 'flex', flexDirection: 'column',
           height: '100%', overflow: 'hidden', flexShrink: 0,
           position: 'relative', zIndex: 100000, /* FLOAT OVER THE FULLSCREEN EDITOR */
-          boxShadow: isDark ? '-8px 0 30px rgba(0,0,0,0.5)' : '-8px 0 30px rgba(0,0,0,0.1)', /* Drop shadow for depth */
+          boxShadow: isDark ? '-8px 0 30px rgba(0,0,0,0.5)' : '-8px 0 30px rgba(0,0,0,0.1)',
         }}>
           {/* ── HEADER ── */}
       <div style={{
@@ -470,9 +477,9 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
             newCommentText={newCommentText[comment.id] || ''}
             onActivate={() => {
                   setActiveId(p => p === comment.id ? null : comment.id);
-                  // Trigger the smart jump sequence
+                  // Added commentId to payload for pinpoint word routing
                   window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
-                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId } 
+                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id } 
                   }));
                 }}
             onReply={() => handleReply(comment.id)}
@@ -520,9 +527,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
                 newCommentText={newCommentText[comment.id] || ''}
                 onActivate={() => {
                   setActiveId(p => p === comment.id ? null : comment.id);
-                  // Trigger the smart jump sequence
                   window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
-                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId } 
+                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id } 
                   }));
                 }}
                 onReply={() => handleReply(comment.id)}

@@ -417,22 +417,41 @@ export default function IMWorkspace() {
   // ── INTELLIGENT COMMENT JUMPING ──
   useEffect(() => {
     const handler = (e) => {
-      const { sectionId, dataPath } = e.detail;
+      const { sectionId, dataPath, commentId } = e.detail;
       
+      const executeJump = () => {
+        // 1. Try to find the exact highlighted word span across the DOM
+        const exactSpan = document.querySelector(`[data-comment-id="${commentId}"]`);
+        
+        if (exactSpan) {
+          // Force the browser viewport to center perfectly on the specific glowing word
+          exactSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Optional visual flair: Briefly pulse the word to draw the eye
+          const originalBg = exactSpan.style.backgroundColor;
+          exactSpan.style.transition = 'background-color 0.3s ease';
+          exactSpan.style.backgroundColor = 'rgba(245, 158, 11, 0.6)'; // Amber pulse
+          setTimeout(() => {
+            exactSpan.style.backgroundColor = originalBg;
+          }, 600);
+        } else {
+          // 2. Fallback: If the exact span isn't found (e.g., hidden in truncated text), scroll to the parent block
+          window.dispatchEvent(new CustomEvent('im-focus-block', { detail: { dataPath } }));
+        }
+      };
+
       // If the comment belongs to a different section, switch to it first
       if (sectionId && sectionId !== 'global' && sectionId !== activeSection) {
         handleSectionClick(sectionId);
         
         // Wait 800ms for the section transition and block stagger to finish rendering
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('im-focus-block', { detail: { dataPath } }));
-        }, 800);
+        setTimeout(executeJump, 800);
       } else {
-        // We are already in the right section, fire the scroll immediately
-        window.dispatchEvent(new CustomEvent('im-focus-block', { detail: { dataPath } }));
+        // We are already in the right section, fire the scroll immediately (with a 50ms buffer for DOM paint)
+        setTimeout(executeJump, 50); 
       }
     };
-    
+  
     window.addEventListener('im-jump-to-comment', handler);
     return () => window.removeEventListener('im-jump-to-comment', handler);
   }, [activeSection, handleSectionClick]);
