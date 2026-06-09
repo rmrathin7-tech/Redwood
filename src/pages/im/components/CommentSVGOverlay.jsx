@@ -9,7 +9,6 @@ export default function CommentSVGOverlay() {
   const requestRef = useRef(null);
   
   // Caching references to bypass expensive DOM queries in the 60fps loop
-  const sourceNodeRef = useRef(null);
   const cardNodeRef = useRef(null);
 
   // 1. Listen for the active comment being broadcasted
@@ -36,29 +35,42 @@ export default function CommentSVGOverlay() {
       if (!cardNodeRef.current || !cardNodeRef.current.isConnected) {
         cardNodeRef.current = document.getElementById(`comment-card-${activeLine.commentId}`);
       }
-      
-      if (!sourceNodeRef.current || !sourceNodeRef.current.isConnected) {
-        // First priority: Target the exact glowing text span
-        let target = document.querySelector(`[data-comment-id="${activeLine.commentId}"]`);
-        
-        // Fallback: If the exact word isn't rendered, target the parent block
-        if (!target) {
-          target = document.querySelector(`[data-block-path="${activeLine.dataPath}"]`);
-        }
-        
-        sourceNodeRef.current = target;
 
-        // Dynamic Z-Index elevation:
-        // If the exact text is inside the fullscreen portal, float the SVG over the portal
-        if (sourceNodeRef.current) {
-          const isFullscreen = !!sourceNodeRef.current.closest('.im-fs-shell');
-          setZIndex(isFullscreen ? 100001 : 9998); 
+      // Always prioritize re-querying the exact highlighted mark each frame.
+      // Block fallback is temporary and re-resolved on every frame.
+      let sourceNode = null;
+      const fullscreenShell = document.querySelector('.im-fs-shell');
+      
+      // 1. PRIORITY 1: Force it to look inside the Fullscreen Editor FIRST
+      if (fullscreenShell) {
+        sourceNode = fullscreenShell.querySelector(`[data-comment-id="${activeLine.commentId}"]`);
+      }
+      
+      // 2. PRIORITY 2: If fullscreen is closed, fall back to the locked inline preview
+      if (!sourceNode) {
+        sourceNode = document.querySelector(`[data-comment-id="${activeLine.commentId}"]`);
+      }
+
+      // 3. FALLBACK: If the exact highlight mark is gone, point to the parent block instead
+      if (!sourceNode) {
+        if (fullscreenShell) {
+          sourceNode = fullscreenShell.querySelector(`[data-block-path="${activeLine.dataPath}"]`);
+        }
+        if (!sourceNode) {
+          sourceNode = document.querySelector(`[data-block-path="${activeLine.dataPath}"]`);
         }
       }
 
+      // Dynamic Z-Index elevation:
+      // If the exact text is inside the fullscreen portal, float the SVG over the portal
+      if (sourceNode) {
+        const isFullscreen = !!sourceNode.closest('.im-fs-shell');
+        setZIndex(isFullscreen ? 100001 : 9998); 
+      }
+
       // Draw the line if both anchors are firmly in the DOM
-      if (sourceNodeRef.current && cardNodeRef.current && pathRef.current) {
-        const sRect = sourceNodeRef.current.getBoundingClientRect();
+      if (sourceNode && cardNodeRef.current && pathRef.current) {
+        const sRect = sourceNode.getBoundingClientRect();
         const cRect = cardNodeRef.current.getBoundingClientRect();
 
         // Only calculate the curve if both elements are actually visible
@@ -95,7 +107,6 @@ export default function CommentSVGOverlay() {
 
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      sourceNodeRef.current = null;
       cardNodeRef.current = null;
     };
   }, [activeLine]);

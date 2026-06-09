@@ -11,8 +11,9 @@ import {
 } from 'lucide-react';
 
 const storage = getStorage();
+const COMMENT_DOM_SETTLEMENT_DELAY_MS = 50;
 
-// ── COMMENT BLOT ──────────────────────────────────────────────────────────────
+// ── COMMENT BLOT ───────────────────────────────────────────────────────────────
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
   class CommentBlot extends Inline {
@@ -42,19 +43,18 @@ if (!Quill.imports['formats/comment']) {
     }
   }
   CommentBlot.blotName = 'comment';
-  // FIX: Must use 'mark' so Quill's parchment engine does not strip the custom attributes
   CommentBlot.tagName = 'mark';
   Quill.register(CommentBlot, true);
 }
 
-// ── FONT WHITELIST ─────────────────────────────────────────────────────────────
+// ── FONT WHITELIST ─────────────────────────────────────────────────────────
 if (!Quill.imports['formats/font']?.whitelist) {
   const Font = Quill.import('formats/font');
   Font.whitelist = ['dm-sans', 'arial', 'georgia', 'courier'];
   Quill.register(Font, true);
 }
 
-// ── GLOBAL STYLES ─────────────────────────────────────────────────────────────
+// ── GLOBAL STYLES ─────────────────────────────────────────────────────────
 const STYLE_ID = 'im-rte-global-styles-v4';
 if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
@@ -66,7 +66,7 @@ if (!document.getElementById(STYLE_ID)) {
       border-radius: 0 !important; padding: 0 !important; margin: 0 !important;
       display: inline !important; line-height: inherit !important;
       cursor: pointer !important; transition: background-color 0.15s;
-      color: inherit !important; /* Prevent default browser mark styling */
+      color: inherit !important;
     }
     mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
     mark.im-comment-highlight[data-comment-status="resolved"] {
@@ -236,7 +236,10 @@ if (!document.getElementById(STYLE_ID)) {
 }
 
 // ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
-function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur, readOnly, targetCommentId }) {
+function FullscreenEditor({
+  block, value, onChange, onClose, onFocus, onBlur, readOnly,
+  targetCommentId, targetCommentQuote, onQuillReady
+}) {
   const paperRef   = useRef(null);
   const toolbarRef = useRef(null);
   const quillRef   = useRef(null);
@@ -302,23 +305,7 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur, re
     if (!readOnly) {
       setTimeout(() => quillRef.current?.focus(), 80);
     }
-
-    // FIX: Execute intelligent jump + SVG re-fire *after* Quill generates the DOM
-    if (targetCommentId) {
-      setTimeout(() => {
-        const exactSpan = paperRef.current.querySelector(`[data-comment-id="${targetCommentId}"]`);
-        if (exactSpan) {
-          exactSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          exactSpan.classList.add('active-comment-glow');
-          setTimeout(() => exactSpan.classList.remove('active-comment-glow'), 1500);
-          
-          // Force the SVG overlay to attach to this new span inside the portal
-          window.dispatchEvent(new CustomEvent('im-active-comment-changed', {
-            detail: { commentId: targetCommentId, dataPath: block.dataPath }
-          }));
-        }
-      }, 150); 
-    }
+    if (onQuillReady) onQuillReady(quillRef.current);
 
     quillRef.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
@@ -341,24 +328,66 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur, re
       const txt = value.replace(/<[^>]*>/g, ' ').trim();
       setWc(txt ? txt.split(/\s+/).length : 0);
     }
+
+    return () => {
+      if (onQuillReady) onQuillReady(null);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── FIX: INTELLIGENT JUMP TO COMMENT WITH PROPER TIMING ────────────────────
+  useEffect(() => {
+    if (!targetCommentId || !paperRef.current || !quillRef.current) return;
+
+    let attempts = 0;
+    let jumpTimer;
+
+    const executeJump = () => {
+      let target = paperRef.current.querySelector(`[data-comment-id="${targetCommentId}"]`);
+      let appliedByQuote = false;
+
+      if (!target && targetCommentQuote) {
+        appliedByQuote = ensureCommentHighlight(quillRef.current, {
+          commentId: targetCommentId,
+          quote: targetCommentQuote,
+          status: 'open',
+        });
+        if (appliedByQuote) {
+          target = paperRef.current.querySelector(`[data-comment-id="${targetCommentId}"]`);
+        }
+      }
+
+      if (target) {
+        // Wait 250ms to ensure the 220ms CSS opening animation is 100% finished
+        // before calculating the scroll coordinates.
+        setTimeout(() => {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('active-comment-glow');
+          setTimeout(() => target.classList.remove('active-comment-glow'), 1500);
+
+          if (appliedByQuote && onChange) {
+            onChange(block.dataPath, quillRef.current.root.innerHTML);
+          }
+
+          window.dispatchEvent(new CustomEvent('im-active-comment-changed', {
+            detail: { commentId: targetCommentId, dataPath: block.dataPath, quote: targetCommentQuote }
+          }));
+        }, 250); 
+      } else if (attempts < 8) {
+        // If Quill hasn't rendered the text yet, retry every 50ms (up to 8 times)
+        attempts++;
+        jumpTimer = setTimeout(executeJump, 50); 
+      }
+    };
+
+    executeJump();
+
+    return () => clearTimeout(jumpTimer);
+  }, [block.dataPath, onChange, targetCommentId, targetCommentQuote]);
+
   const tbl = () => quillRef.current?.getModule('table');
 
-  // Build outline from headings
-  const [outline, setOutline] = useState([]);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!quillRef.current) return;
-      const headings = [];
-      quillRef.current.root.querySelectorAll('h1,h2,h3').forEach((el, i) => {
-        headings.push({ tag: el.tagName, text: el.textContent.trim().slice(0, 36), idx: i });
-      });
-      setOutline(headings);
-    }, 1500);
-    return () => clearInterval(interval);
-  }, []);
+   
 
   return ReactDOM.createPortal(
     <div 
@@ -446,30 +475,7 @@ function FullscreenEditor({ block, value, onChange, onClose, onFocus, onBlur, re
             </div>
           </div>
 
-          <div style={{ padding: '0 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <Hash size={13} color="#64748b" />
-              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#475569' }}>Outline</span>
-            </div>
-            {outline.length === 0
-              ? <p style={{ fontSize: 11, color: '#334155', fontStyle: 'italic' }}>No headings yet</p>
-              : outline.map((h, i) => (
-                <div key={i} style={{
-                  fontSize: h.tag === 'H1' ? 12 : h.tag === 'H2' ? 11 : 10,
-                  fontWeight: h.tag === 'H1' ? 700 : 500,
-                  color: h.tag === 'H1' ? '#94a3b8' : '#475569',
-                  paddingLeft: h.tag === 'H1' ? 0 : h.tag === 'H2' ? 10 : 18,
-                  marginBottom: 8, cursor: 'pointer',
-                  transition: 'color 0.15s',
-                }}
-                  onMouseEnter={e => e.currentTarget.style.color = '#e2e8f0'}
-                  onMouseLeave={e => e.currentTarget.style.color = h.tag === 'H1' ? '#94a3b8' : '#475569'}
-                >
-                  {h.text || '(untitled)'}
-                </div>
-              ))
-            }
-          </div>
+            
 
           <div style={{ marginTop: 'auto', padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.7 }}>
@@ -576,20 +582,67 @@ function tblBtn(color = '#3b82f6') {
   };
 }
 
-// ── MAIN COMPONENT ────────────────────────────────────────────────────────────
+// ── HELPER FUNCTIONS FOR COMMENT HIGHLIGHTING ──────────────────────────────────
+function escapeRegex(value = '') {
+  return value.replace(/[.*+?^${}()|[\]\\\\]/g, '\\\\$&');
+}
+
+function findQuoteRange(quill, quote) {
+  if (!quill || !quote) return null;
+  const text = quill.getText() || '';
+  const trimmedQuote = quote.trim();
+  if (!trimmedQuote) return null;
+
+  // Exact match
+  const exactIndex = text.indexOf(trimmedQuote);
+  if (exactIndex !== -1) return { index: exactIndex, length: trimmedQuote.length };
+
+  // Case-insensitive match
+  const ciIndex = text.toLowerCase().indexOf(trimmedQuote.toLowerCase());
+  if (ciIndex !== -1) return { index: ciIndex, length: trimmedQuote.length };
+
+  // Normalized whitespace match
+  const normalizedQuote = trimmedQuote.replace(/\s+/g, ' ');
+  if (!normalizedQuote) return null;
+  const pattern = escapeRegex(normalizedQuote).replace(/\s+/g, '\\s+');
+
+  const wsMatch = text.match(new RegExp(pattern));
+  if (wsMatch?.[0]) return { index: wsMatch.index, length: wsMatch[0].length };
+
+  const wsCiMatch = text.match(new RegExp(pattern, 'i'));
+  if (wsCiMatch?.[0]) return { index: wsCiMatch.index, length: wsCiMatch[0].length };
+
+  return null;
+}
+
+function ensureCommentHighlight(quill, { commentId, quote, status = 'open' }) {
+  if (!quill || !commentId || !quote) return false;
+  const existing = quill.root.querySelector(`[data-comment-id="${commentId}"]`);
+  if (existing) return false;
+
+  const range = findQuoteRange(quill, quote);
+  if (!range || range.length === 0) return false;
+
+  quill.formatText(range.index, range.length, 'comment', { id: commentId, status }, 'silent');
+  return true;
+}
+
+// ── MAIN COMPONENT ──────────────────────────────���─────────────────────────────
 export default function RichTextBlock({
   block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
 }) {
   const editorRef        = useRef(null);
   const toolbarRef       = useRef(null);
   const quillInstance    = useRef(null);
+  const fullscreenQuill  = useRef(null);
   const typingTimeout    = useRef(null);
   const pendingSelection = useRef(null);
 
   const [isFocused,  setIsFocused]  = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [targetCommentId, setTargetCommentId] = useState(null); // FIX: Store comment ID
+  const [targetCommentId, setTargetCommentId] = useState(null);
+  const [targetCommentQuote, setTargetCommentQuote] = useState('');
   
   useEffect(() => {
     if (document.getElementById('print-mount-point')?.contains(editorRef.current)) {
@@ -600,6 +653,12 @@ export default function RichTextBlock({
   const usePlaceholderGuide = !!block.showPlaceholderAsGuide && !!placeholderText;
   const [hiddenGuides, setHiddenGuides] = useState({});
   const showPlaceholderGuide = usePlaceholderGuide && !hiddenGuides[block.id];
+  const persistCommentMarkup = useCallback((quillRef) => {
+    if (!onChange || !quillRef?.current) return;
+    setTimeout(() => {
+      if (quillRef.current) onChange(block.dataPath, quillRef.current.root.innerHTML);
+    }, COMMENT_DOM_SETTLEMENT_DELAY_MS);
+  }, [block.dataPath, onChange]);
 
   const t = {
     bg:            isDark ? '#0d1117'                : '#ffffff',
@@ -613,18 +672,41 @@ export default function RichTextBlock({
     tableBorder:   isDark ? '#64748b'                : '#cbd5e1',
   };
 
-  // ── FIX: LISTEN FOR COMMENT JUMP EVENT ────────────────────────────────────
+  // ── LISTEN FOR COMMENT JUMP EVENT ────────────────────────────────────────────
   useEffect(() => {
     const handleJump = (e) => {
-      const { dataPath, commentId } = e.detail;
+      const { dataPath, commentId, quote } = e.detail || {};
       if (dataPath === block.dataPath) {
         setTargetCommentId(commentId);
+        setTargetCommentQuote(quote || '');
         setIsExpanded(true);
       }
     };
     window.addEventListener('im-jump-to-comment', handleJump);
     return () => window.removeEventListener('im-jump-to-comment', handleJump);
   }, [block.dataPath]);
+
+  // ── HANDLE EXTERNAL COMMENT CREATION ───────────────────────────────────────────
+  useEffect(() => {
+    const handleExternalCreate = (e) => {
+      const detail = e.detail || {};
+      const isTargetBlock = detail.dataPath === block.dataPath || detail.blockId === block.id;
+      if (!isTargetBlock || !detail.commentId || !detail.quote) return;
+
+      const payload = { commentId: detail.commentId, quote: detail.quote, status: 'open' };
+      const appliedMain = ensureCommentHighlight(quillInstance.current, payload);
+      const appliedFullscreen = ensureCommentHighlight(fullscreenQuill.current, payload);
+
+      if (onChange && quillInstance.current && appliedMain) {
+        persistCommentMarkup(quillInstance);
+      } else if (onChange && fullscreenQuill.current && appliedFullscreen) {
+        persistCommentMarkup(fullscreenQuill);
+      }
+    };
+
+    window.addEventListener('im-create-comment', handleExternalCreate);
+    return () => window.removeEventListener('im-create-comment', handleExternalCreate);
+  }, [block.dataPath, block.id, onChange, persistCommentMarkup]);
 
   const showBubble = useCallback((rect, range) => {
     const bubble = document.getElementById('im-comment-bubble');
@@ -642,13 +724,24 @@ export default function RichTextBlock({
 
   const createComment = useCallback((range) => {
     if (!quillInstance.current || !range || range.length === 0) return;
+    const quote = quillInstance.current.getText(range.index, range.length).replace(/\s+/g, ' ').trim();
+    if (!quote) return;
     const commentId = `cmt_${crypto.randomUUID().split('-')[0]}`;
     quillInstance.current.formatText(range.index, range.length, 'comment', { id: commentId, status: 'open' });
-    const quote = quillInstance.current.getText(range.index, range.length);
     window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
-    window.dispatchEvent(new CustomEvent('im-create-comment', { detail: { commentId, blockId: block.id, quote } }));
-    setTimeout(() => { if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML); }, 100);
-  }, [block.dataPath, block.id, onChange]);
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('im-create-comment', {
+        detail: {
+          commentId,
+          blockId: block.id,
+          dataPath: block.dataPath,
+          contextLabel: block.label || 'General',
+          quote
+        }
+      }));
+      persistCommentMarkup(quillInstance);
+    });
+  }, [block.dataPath, block.id, block.label, persistCommentMarkup]);
 
   const handleCommentClick = (e) => {
     e.preventDefault();
@@ -780,47 +873,62 @@ export default function RichTextBlock({
 
       <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', background: t.bg, position: 'relative' }}>
 
-        {!isPrinting && (
-          <div style={{
-            position: 'absolute', inset: 0, zIndex: 10,
-            background: isDark ? 'rgba(13,17,23,0.85)' : 'rgba(255,255,255,0.85)',
-            backdropFilter: 'blur(2px)', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            opacity: 1, transition: 'opacity 0.2s',
-          }}>
+{!isPrinting && (
+          <div 
+            onClick={(e) => { 
+              e.preventDefault(); 
+              e.stopPropagation();
+              setIsExpanded(true); 
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute', inset: 0, zIndex: 10,
+              pointerEvents: 'auto', /* ── THE MAGIC OVERRIDE ── */
+              background: isDark ? 'rgba(13,17,23,0.7)' : 'rgba(255,255,255,0.7)',
+              backdropFilter: 'blur(3px)', 
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', 
+              cursor: 'pointer', transition: 'background 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(13,17,23,0.6)' : 'rgba(255,255,255,0.6)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(13,17,23,0.7)' : 'rgba(255,255,255,0.7)' }}
+          >
             {lockedBy ? (
               <>
                 <button
-                  onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
-                    borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none',
-                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                    boxShadow: `0 4px 14px rgba(59,130,246,0.3)`
+                  onClick={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setIsExpanded(true); 
                   }}
-                >
-                  <Eye size={16} /> Read Only View
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none',
+                    fontSize: 14, fontWeight: 700, boxShadow: '0 4px 14px rgba(59,130,246,0.3)', cursor: 'pointer',
+                    pointerEvents: 'auto'
+                  }}>
+                  <Eye size={16} /> Read Full Document
                 </button>
                 <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
-                  Locked by {lockedBy}
+                  Locked by {lockedBy?.email ? lockedBy.email.split('@')[0] : 'another user'}
                 </div>
               </>
             ) : (
               <>
                 <button
-                  onClick={(e) => { e.preventDefault(); setIsExpanded(true); }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px',
-                    borderRadius: 8, background: t.accent, color: '#fff', border: 'none',
-                    fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                    boxShadow: `0 4px 14px rgba(239,68,68,0.3)`
+                  onClick={(e) => { 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    setIsExpanded(true); 
                   }}
-                >
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '10px 24px', borderRadius: 8, background: t.accent, color: '#fff', border: 'none',
+                    fontSize: 14, fontWeight: 700, boxShadow: '0 4px 14px rgba(239,68,68,0.3)', cursor: 'pointer',
+                    pointerEvents: 'auto'
+                  }}>
                   <Maximize2 size={16} /> Expand to Edit
                 </button>
-                <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
-                  Click to launch Fullscreen Editor
-                </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>Click anywhere to open editor</div>
               </>
             )}
           </div>
@@ -879,13 +987,13 @@ export default function RichTextBlock({
             <X size={11} /> Table
           </button>
           <div style={{ flex: 1 }} />
-          <button onMouseDown={handleCommentClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+          <button onMouseDown={handleCommentClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
             <MessageSquarePlus size={14} /> Comment
           </button>
           <button
             onMouseDown={e => { e.preventDefault(); setIsExpanded(true); }}
             title="Open fullscreen editor"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
           >
             <Maximize2 size={13} /> Expand
           </button>
@@ -899,7 +1007,7 @@ export default function RichTextBlock({
         .ql-container.ql-snow { border: none !important; }
         .im-quill-canvas .ql-editor { 
           min-height: ${block.minHeight || '160px'}; 
-          max-height: ${isPrinting ? 'none' : '300px'};
+          max-height: ${isPrinting ? 'none' : '250px'};
           overflow: hidden; 
           color: ${t.text} !important; 
           padding: ${isPrinting ? '0' : '16px 20px'};
@@ -927,12 +1035,14 @@ export default function RichTextBlock({
           onChange={onChange}
           onClose={() => {
             setIsExpanded(false);
-            setTargetCommentId(null); // Clear ID on close to prevent re-scrolls
+            // NOTE: Don't clear targetCommentId/Quote here - they persist for re-opening
           }}
           onFocus={onFocus}
           onBlur={onBlur}
           readOnly={!!lockedBy}
-          targetCommentId={targetCommentId} // FIX: Pass ID to the portal
+          targetCommentId={targetCommentId}
+          targetCommentQuote={targetCommentQuote}
+          onQuillReady={(instance) => { fullscreenQuill.current = instance; }}
         />
       )}
 
@@ -964,7 +1074,7 @@ function BubblePortal({ onComment }) {
     const bubble = document.createElement('div');
     bubble.id = 'im-comment-bubble';
     const btn = document.createElement('button');
-    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Comment`;
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
     btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); onComment(); });
     bubble.appendChild(btn);
     document.body.appendChild(bubble);

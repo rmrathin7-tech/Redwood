@@ -191,46 +191,46 @@ return (
       {/* ── CONTENT ───────────────────────────────────────────────────────── */}
       <div style={{
         padding:       block?.label ? '6px 18px 16px 18px' : '16px 18px',
-        opacity:       isLocked ? 0.25 : 1,
+        opacity:       isLocked ? 0.7 : 1,
         pointerEvents: isLocked ? 'none' : 'auto',
         transition:    'opacity 0.25s ease',
       }}>
         {children}
       </div>
 
-      {/* ── LOCK OVERLAY ──────────────────────────────────────────────────── */}
+      {/* ── LOCK OVERLAY (READ-ONLY BADGE) ────────────────────────────────── */}
       {isLocked && (
         <div style={{
           position:       'absolute',
-          inset:          0,
+          top:            '16px', right: '16px',
           zIndex:         50,
-          borderRadius:   '12px',
-          background:     isDark
-            ? 'rgba(8, 12, 20, 0.55)'
-            : 'rgba(255,255,255,0.7)',
-          backdropFilter: 'blur(4px)',
+          borderRadius:   '30px',
+          background:     isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+          border:         `1px solid ${isDark ? 'rgba(245, 158, 11, 0.4)' : 'rgba(245, 158, 11, 0.6)'}`,
+          backdropFilter: 'blur(8px)',
           display:        'flex',
           alignItems:     'center',
-          justifyContent: 'center',
-          gap:            '10px',
+          padding:        '4px 12px 4px 4px',
+          gap:            '8px',
+          boxShadow:      '0 4px 15px rgba(0,0,0,0.15)',
         }}>
           {/* Avatar circle */}
           <div style={{
-            width:          '30px', height: '30px',
+            width:          '24px', height: '24px',
             borderRadius:   '50%',
             background:     'linear-gradient(135deg, #f59e0b, #d97706)',
             display:        'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize:       '12px', fontWeight: 800, color: '#fff',
-            boxShadow:      '0 0 0 2px rgba(245,158,11,0.3)',
+            fontSize:       '11px', fontWeight: 800, color: '#fff',
+            boxShadow:      '0 0 0 2px rgba(245,158,11,0.2)',
           }}>
             {lockedBy.email.charAt(0).toUpperCase()}
           </div>
-          <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: T.amber }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', lineHeight: '1.2' }}>
               {lockedBy.email.split('@')[0]}
             </div>
-            <div style={{ fontSize: '10px', color: T.textMuted, marginTop: '1px' }}>
-              is editing this field
+            <div style={{ fontSize: '9px', fontWeight: 700, color: '#ef4444', lineHeight: '1.1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Is Editing
             </div>
           </div>
         </div>

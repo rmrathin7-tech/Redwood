@@ -171,7 +171,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     const comment = comments.find(c => c.id === activeId);
     if (activeId && comment) {
       window.dispatchEvent(new CustomEvent('im-active-comment-changed', { 
-        detail: { commentId: activeId, dataPath: comment.dataPath } 
+        detail: { commentId: activeId, dataPath: comment.dataPath, quote: comment.quote } 
       }));
     } else {
       window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
@@ -235,7 +235,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     return found.empty ? null : found.docs[0];
   }, []);
 
-  // ── ACTIONS ───────────────────────────────────────────────────────────────
+  // ── ACTIONS ──────────────────────────────────────────────────────────────
   const handleFirstComment = useCallback(async (commentId) => {
     const text = newCommentText[commentId]?.trim();
     if (!text || !user) return;
@@ -477,10 +477,15 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
             newCommentText={newCommentText[comment.id] || ''}
             onActivate={() => {
                   setActiveId(p => p === comment.id ? null : comment.id);
-                  // Added commentId to payload for pinpoint word routing
-                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
-                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id } 
-                  }));
+                  const payload = { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id, quote: comment.quote };
+                  
+                  // 1. Fire immediately to trigger the workspace tab/section switch
+                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  
+                  // 2. Fire again after 150ms so the newly mounted editor catches it and expands
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  }, 150);
                 }}
             onReply={() => handleReply(comment.id)}
             onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}
@@ -527,9 +532,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
                 newCommentText={newCommentText[comment.id] || ''}
                 onActivate={() => {
                   setActiveId(p => p === comment.id ? null : comment.id);
-                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { 
-                    detail: { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id } 
-                  }));
+                  const payload = { dataPath: comment.dataPath, sectionId: comment.sectionId, commentId: comment.id, quote: comment.quote };
+                  
+                  window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  }, 150);
                 }}
                 onReply={() => handleReply(comment.id)}
                 onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}

@@ -127,19 +127,21 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             ref={el => fileRefs.current[refKey] = el}
             onChange={e => { handleUpload(itemIdx, field, e.target.files); e.target.value = ''; }}
           />
-          <div
-            onClick={() => fileRefs.current[refKey]?.click()}
-            style={{
-              border: `2px dashed ${t.border}`, borderRadius: '8px', padding: '16px',
-              textAlign: 'center', cursor: 'pointer', background: t.bg,
-              color: t.textMuted, fontSize: '0.8rem', transition: 'border-color 0.2s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
-            onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
-          >
-            <UploadCloud size={16} style={{ margin: '0 auto 4px', display: 'block' }} />
-            Click to upload {field.multiple ? 'images' : 'image'}
-          </div>
+          {!lockedBy && (
+            <div
+              onClick={() => fileRefs.current[refKey]?.click()}
+              style={{
+                border: `2px dashed ${t.border}`, borderRadius: '8px', padding: '16px',
+                textAlign: 'center', cursor: 'pointer', background: t.bg,
+                color: t.textMuted, fontSize: '0.8rem', transition: 'border-color 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
+            >
+              <UploadCloud size={16} style={{ margin: '0 auto 4px', display: 'block' }} />
+              Click to upload {field.multiple ? 'images' : 'image'}
+            </div>
+          )}
           {/* Caption input — fixes site photos issue */}
           {files.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
@@ -149,16 +151,19 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
                     <img src={f.url} alt={f.caption || f.name}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '6px', border: `1px solid ${t.border}` }}
                     />
-                    <button onClick={() => removeUpload(itemIdx, field.id, fi)}
-                      style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                      <X size={10} />
-                    </button>
+                    {!lockedBy && (
+                      <button onClick={() => removeUpload(itemIdx, field.id, fi)}
+                        style={{ position: 'absolute', top: '-6px', right: '-6px', width: '18px', height: '18px', borderRadius: '50%', background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                        <X size={10} />
+                      </button>
+                    )}
                   </div>
                   {/* Editable caption per image */}
                   <input
                     type="text"
                     placeholder="Caption…"
                     value={f.caption || ''}
+                    disabled={!!lockedBy}
                     onChange={e => {
                       const current = [...(Array.isArray(val) ? val : [])];
                       current[fi] = { ...current[fi], caption: e.target.value };
@@ -189,15 +194,17 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             ref={el => fileRefs.current[refKey] = el}
             onChange={e => { handleUpload(itemIdx, field, e.target.files); e.target.value = ''; }}
           />
-          <button onClick={() => fileRefs.current[refKey]?.click()}
-            style={{ padding: '8px 16px', borderRadius: '8px', border: `1px solid ${t.border}`, background: t.surface, color: t.text, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <UploadCloud size={13} /> Attach File
-          </button>
+          {!lockedBy && (
+            <button onClick={() => fileRefs.current[refKey]?.click()}
+              style={{ padding: '8px 16px', borderRadius: '8px', border: `1px solid ${t.border}`, background: t.surface, color: t.text, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <UploadCloud size={13} /> Attach File
+            </button>
+          )}
           {files.map((f, fi) => (
             <div key={fi} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', padding: '6px 10px', borderRadius: '6px', background: t.surface, border: `1px solid ${t.border}` }}>
               <FileText size={12} style={{ color: t.textMuted }} />
               <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#3b82f6', fontSize: '0.8rem', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</a>
-              <button onClick={() => removeUpload(itemIdx, field.id, fi)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><X size={12} /></button>
+              {!lockedBy && <button onClick={() => removeUpload(itemIdx, field.id, fi)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><X size={12} /></button>}
             </div>
           ))}
         </div>
@@ -211,6 +218,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
           <label style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: t.textMuted, display: 'block', marginBottom: '6px' }}>{field.label}</label>
           <textarea
             value={val} rows={field.rows || 3}
+            disabled={!!lockedBy}
             onChange={e => updateField(itemIdx, field.id, e.target.value)}
             onFocus={e => { handleFocus(); e.currentTarget.style.borderColor = t.borderFocus; }}
             onBlur={e =>  { handleBlur();  e.currentTarget.style.borderColor = t.border; }}
@@ -227,8 +235,9 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
         <div key={field.id} style={{ marginBottom: '12px' }}>
           <label style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: t.textMuted, display: 'block', marginBottom: '6px' }}>{field.label}</label>
           <select value={val} onChange={e => updateField(itemIdx, field.id, e.target.value)}
+            disabled={!!lockedBy}
             onFocus={handleFocus} onBlur={handleBlur}
-            style={{ ...inputStyle, cursor: 'pointer' }}>
+            style={{ ...inputStyle, cursor: lockedBy ? 'not-allowed' : 'pointer' }}>
             <option value="">Select…</option>
             {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
@@ -242,6 +251,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
         <label style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', color: t.textMuted, display: 'block', marginBottom: '6px' }}>{field.label}</label>
         <input
           type="text" value={val}
+          disabled={!!lockedBy}
           onChange={e => updateField(itemIdx, field.id, e.target.value)}
           onFocus={e => { handleFocus(); e.currentTarget.style.borderColor = t.borderFocus; }}
           onBlur={e =>  { handleBlur();  e.currentTarget.style.borderColor = t.border; }}
@@ -280,35 +290,39 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             </div>
 
             {/* Remove — won't remove the last entry, just clears it */}
-            <button
-              onClick={() => removeItem(idx)}
-              title="Remove entry"
-              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', opacity: 0.5, transition: 'opacity 0.2s', paddingTop: '2px', flexShrink: 0 }}
-              onMouseEnter={e => e.currentTarget.style.opacity = 1}
-              onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
-            >
-              <Trash2 size={15} />
-            </button>
+            {!lockedBy && (
+              <button
+                onClick={() => removeItem(idx)}
+                title="Remove entry"
+                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', opacity: 0.5, transition: 'opacity 0.2s', paddingTop: '2px', flexShrink: 0 }}
+                onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                onMouseLeave={e => e.currentTarget.style.opacity = 0.5}
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Add entry */}
-      <button
-        onClick={addItem}
-        style={{
-          marginTop: '12px', width: '100%', padding: '10px',
-          borderRadius: '8px', border: `1px dashed ${t.border}`,
-          background: 'transparent', color: t.textMuted,
-          fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          gap: '6px', transition: 'all 0.2s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.accent; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted; }}
-      >
-        <Plus size={14} /> Add {block.addLabel || 'New Entry'}
-      </button>
+{/* Add entry */}
+      {!lockedBy && (
+        <button
+          onClick={addItem}
+          style={{
+            marginTop: '12px', width: '100%', padding: '10px',
+            borderRadius: '8px', border: `1px dashed ${t.border}`,
+            background: 'transparent', color: t.textMuted,
+            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: '6px', transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted; }}
+        >
+          <Plus size={14} /> Add {block.label ? `to ${block.label}` : 'entry'}
+        </button>
+      )}
     </BlockWrapper>
   );
 }

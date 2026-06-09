@@ -87,13 +87,15 @@ export default function RepeatingBlockSet({
                 }}
               />
 
-              <button onClick={() => removeSet(idx)} disabled={!!lockedBy}
-                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: lockedBy ? 'not-allowed' : 'pointer', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600 }}
-                onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                onMouseLeave={e => e.currentTarget.style.opacity = 0.6}
-              >
-                <Trash2 size={14} /> Remove Set
-              </button>
+              {!lockedBy && (
+                <button onClick={() => removeSet(idx)}
+                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600 }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                  onMouseLeave={e => e.currentTarget.style.opacity = 0.6}
+                >
+                  <Trash2 size={14} /> Remove Set
+                </button>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -120,20 +122,22 @@ export default function RepeatingBlockSet({
         ))}
       </div>
 
-      <button onClick={addSet} disabled={!!lockedBy}
-        style={{
-          marginTop: '16px', width: '100%', padding: '10px',
-          borderRadius: '8px', border: `1px dashed ${t.border}`,
-          background: 'transparent', color: t.textMuted,
-          fontSize: '0.85rem', fontWeight: 600, cursor: lockedBy ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-          transition: 'all 0.2s',
-        }}
-        onMouseEnter={e => { if(!lockedBy) { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.accent; } }}
-        onMouseLeave={e => { if(!lockedBy) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted; } }}
-      >
-        <Plus size={14} /> {block.addLabel || 'Add Set'}
-      </button>
+      {!lockedBy && (
+        <button onClick={addSet}
+          style={{
+            marginTop: '16px', width: '100%', padding: '10px',
+            borderRadius: '8px', border: `1px dashed ${t.border}`,
+            background: 'transparent', color: t.textMuted,
+            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textMuted; }}
+        >
+          <Plus size={14} /> {block.addLabel || 'Add Set'}
+        </button>
+      )}
 
     </BlockWrapper>
   );
