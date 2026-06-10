@@ -472,6 +472,58 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     }
   };
 
+  const handleMatrixFieldChange = async (task, sectionKey, field, newValue) => {
+    if (!task.linkedSections || task.linkedSections.length <= 1) {
+      if (field === 'status') return handleUpdateStatus(task.id, newValue);
+      if (field === 'dueDate') return handleUpdateDueDate(task.id, newValue);
+      return handleUpdateTaskField(task.id, field, newValue);
+    }
+
+    const newLinkedSections = [sectionKey];
+    const remainingSections = task.linkedSections.filter(k => k !== sectionKey);
+    
+    const originalTitle = task.customTitle 
+      ? task.title 
+      : buildTaskTitleFromSections(remainingSections).trim() || 'Untitled Task';
+
+    await updateDoc(doc(db, 'im-tasks', task.id), {
+      linkedSections: remainingSections,
+      title: originalTitle,
+      updatedAt: serverTimestamp()
+    });
+
+    let newAssignee = task.assignee;
+    let newReviewer = task.reviewer;
+    let newStatus = task.status;
+    let newDueDate = task.dueDate;
+
+    if (field === 'status') newStatus = newValue;
+    else if (field === 'dueDate') newDueDate = newValue;
+    else if (field === 'assignee' || field === 'reviewer') {
+      const userObj = workspaceUsers.find(u => u.userId === newValue);
+      const payload = userObj ? { uid: userObj.userId, email: userObj.email } : null;
+      if (field === 'assignee') newAssignee = payload;
+      if (field === 'reviewer') newReviewer = payload;
+    }
+
+    const newTitle = buildTaskTitleFromSections(newLinkedSections).trim() || 'Untitled Task';
+
+    await addDoc(collection(db, 'im-tasks'), {
+      imId, 
+      projectId,
+      title: newTitle,
+      description: task.description || '',
+      assignee: newAssignee,
+      reviewer: newReviewer,
+      linkedSections: newLinkedSections,
+      status: newStatus,
+      dueDate: newDueDate,
+      customTitle: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  };
+
   // ── DRAG AND DROP ──
   const handleDragStart = (e, taskId) => { e.dataTransfer.setData('taskId', taskId); e.currentTarget.style.opacity = '0.4'; };
   const handleDragEnd = (e) => { e.currentTarget.style.opacity = '1'; };
@@ -966,7 +1018,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                         <select 
                           className="glass-select"
                           value={activeTask.assignee?.uid || ''} 
-                          onChange={(e) => handleUpdateTaskField(activeTask.id, 'assignee', e.target.value)}
+                          onChange={(e) => handleMatrixFieldChange(activeTask, section.key, 'assignee', e.target.value)}
                           style={{ width: '100%', minWidth: '100px', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.assignee ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           <option value="">Unassigned</option>
@@ -978,7 +1030,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                         <select 
                           className="glass-select"
                           value={activeTask.reviewer?.uid || ''} 
-                          onChange={(e) => handleUpdateTaskField(activeTask.id, 'reviewer', e.target.value)}
+                          onChange={(e) => handleMatrixFieldChange(activeTask, section.key, 'reviewer', e.target.value)}
                           style={{ width: '100%', minWidth: '100px', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.reviewer ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           <option value="">No Reviewer</option>
@@ -990,7 +1042,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                         <select 
                           className="glass-select"
                           value={activeTask.status} 
-                          onChange={(e) => handleUpdateStatus(activeTask.id, e.target.value)}
+                          onChange={(e) => handleMatrixFieldChange(activeTask, section.key, 'status', e.target.value)}
                           style={{ width: '100%', minWidth: '110px', padding: '6px', borderRadius: '6px', background: colDef ? `${colDef.color}15` : T.surface2, border: colDef ? `1px solid ${colDef.color}40` : `1px solid ${T.border}`, color: colDef ? colDef.color : T.text, fontSize: '0.8rem', fontWeight: 700, outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -1000,7 +1052,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                         <input
                           type="date"
                           value={activeTask.dueDate || ''}
-                          onChange={(e) => handleUpdateDueDate(activeTask.id, e.target.value)}
+                          onChange={(e) => handleMatrixFieldChange(activeTask, section.key, 'dueDate', e.target.value)}
                           style={{ width: '100%', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.78rem', outline: 'none', boxSizing: 'border-box' }}
                         />
                         {activeTask.dueDate && (
