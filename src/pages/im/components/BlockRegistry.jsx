@@ -3,14 +3,16 @@ import BasicInputBlock from './BasicInputBlock';
 import RichTextBlock from './RichTextBlock';
 import SmartTableBlock from './SmartTableBlock';
 import RepeatingGroupBlock from './RepeatingGroupBlock';
-import RepeatingBlockSet from './RepeatingBlockSet'; // ← ADDED IMPORT
+import RepeatingBlockSet from './RepeatingBlockSet'; 
 import ConditionalSwitcherBlock from './ConditionalSwitcherBlock';
 import ChartBlock from './ChartBlock';
 
 // Layout-only block types (no data, no wrapper needed)
 const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
 
-export default function BlockRegistry({ block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections = [], customNames = {} }) {
+export default function BlockRegistry({
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames, activeSection
+}) {
   if (!block || !block.type) return null;
 
   // ── Layout blocks (headings, dividers) ────────────────────────────────────
@@ -46,7 +48,8 @@ export default function BlockRegistry({ block, value, onChange, lockedBy, onFocu
 
   switch (block.type) {
     case 'quill':
-      return <RichTextBlock {...commonProps} />;
+      // Forcefully pass down activeSection to link operations board comments natively
+      return <RichTextBlock {...commonProps} activeSection={activeSection} />;
 
     case 'table':
     case 'table-static':
@@ -56,7 +59,7 @@ export default function BlockRegistry({ block, value, onChange, lockedBy, onFocu
     case 'repeating-group':
       return <RepeatingGroupBlock {...commonProps} />;
 
-    case 'repeating-block-set':                // ← ADDED ROUTE
+    case 'repeating-block-set':                
       return <RepeatingBlockSet {...commonProps} />;
 
     case 'conditional-switch':

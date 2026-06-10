@@ -104,6 +104,7 @@ export default function IMSettings() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
   const imId = searchParams.get('im');
+  const mode = searchParams.get('mode') || 'master'; // <-- NEW: Catch the routing mode
   const [sections, setSections] = useState([]);
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [activeBlockId, setActiveBlockId] = useState(null);
@@ -124,6 +125,18 @@ export default function IMSettings() {
 
   useEffect(() => {
     const loadSchema = async () => {
+      // 1. If in Dossier Mode, check if a local schema already exists
+      if (mode === 'dossier' && imId) {
+        const imSnap = await getDoc(doc(db, 'investment-memos', imId));
+        if (imSnap.exists() && imSnap.data().dossierSchema) {
+          const data = imSnap.data().dossierSchema;
+          setSections(data || []);
+          if (data?.length > 0) setActiveSectionId(data[0].id);
+          return; // Stop here if local schema is found
+        }
+      }
+      
+      // 2. Fallback to Master Schema (if mode is master, OR if it's the first time tailoring this dossier)
       const snap = await getDoc(doc(db, 'config', 'im-schema'));
       if (snap.exists()) {
         const data = snap.data();
@@ -132,7 +145,7 @@ export default function IMSettings() {
       }
     };
     loadSchema();
-  }, []);
+  }, [mode, imId]);
 
   // Title Cleaner Helper (Removes hardcoded "1." from DB titles)
   const cleanTitle = (text) => {
@@ -371,10 +384,20 @@ export default function IMSettings() {
     setIsSaving(true);
     setSaveMsg('');
     try {
-      await setDoc(doc(db, 'config', 'im-schema'), { sections });
+      if (mode === 'dossier' && imId) {
+        // Save ONLY to this specific IM Document
+        await setDoc(doc(db, 'investment-memos', imId), { 
+          dossierSchema: sections 
+        }, { merge: true });
+      } else {
+        // Save to the Global Master Blueprint
+        await setDoc(doc(db, 'config', 'im-schema'), { sections });
+      }
+      
       setSaveMsg('✓ Saved');
       setTimeout(() => setSaveMsg(''), 3000);
     } catch (e) {
+      console.error(e);
       setSaveMsg('✗ Save failed');
     }
     setIsSaving(false);
@@ -1189,7 +1212,9 @@ export default function IMSettings() {
             <ArrowLeft size={15} /> Exit
           </button>
           <div style={{ width: 1, height: 20, background: T.border }} />
-          <h1 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: T.primary, letterSpacing: '1px' }}>IM SCHEMA BUILDER</h1>
+          <h1 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: mode === 'dossier' ? '#f59e0b' : T.primary, letterSpacing: '1px' }}>
+            {mode === 'dossier' ? 'LOCAL DOSSIER SCHEMA' : 'MASTER SCHEMA BUILDER'}
+          </h1>
           <button
             onClick={() => setLeftPanelOpen(!leftPanelOpen)}
             style={{ background: leftPanelOpen ? T.primaryLight : 'none', border: `1px solid ${leftPanelOpen ? T.primaryBorder : T.border}`, color: leftPanelOpen ? T.primary : T.mutedText, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem' }}>

@@ -9,6 +9,8 @@ import {
   ArrowDown, ArrowRight, X, Maximize2, Minimize2,
   FileText, Hash, AlignLeft, CheckSquare, Save, Info, Eye
 } from 'lucide-react';
+import ImageResize from '@mgreminger/quill-image-resize-module';
+Quill.register('modules/imageResize', ImageResize);
 
 const storage = getStorage();
 const COMMENT_DOM_SETTLEMENT_DELAY_MS = 50;
@@ -231,6 +233,10 @@ if (!document.getElementById(STYLE_ID)) {
       padding: 7px 10px; min-width: 40px;
     }
     .im-quill-canvas .ql-editor img { max-width: 100%; border-radius: 4px; }
+    
+    /* Reset paragraph flow and enforce inline images with spacing */
+    .ql-editor p { display: block; }
+    .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; }
   `;
   document.head.appendChild(s);
 }
@@ -277,6 +283,11 @@ function FullscreenEditor({
         const url  = await getDownloadURL(snap.ref);
         const range = quill.getSelection(true);
         quill.insertEmbed(range.index, 'image', url);
+        
+        // Inject a space and move the cursor after it so side-by-side images work
+        quill.insertText(range.index + 1, ' ', 'user');
+        quill.setSelection(range.index + 2, 'silent');
+        
         setTimeout(() => { if (onChange) onChange(block.dataPath, quill.root.innerHTML); }, 100);
       } catch (err) { console.error('Image upload failed:', err); }
     };
@@ -295,6 +306,9 @@ function FullscreenEditor({
           handlers: {
             image: function () { makeImageHandler(quillRef.current); },
           },
+        },
+        imageResize: {
+          modules: ['Resize', 'DisplaySize']
         },
         clipboard: { matchVisual: false },
       },
@@ -541,7 +555,13 @@ function FullscreenEditor({
               </span>
             </div>
 
-            <div className="im-fs-table-bar" style={{ display: readOnly ? 'none' : 'flex' }}>
+            <div className="im-fs-table-bar" style={{ 
+              display: readOnly ? 'none' : 'flex',
+              position: 'sticky',
+              top: '58px',
+              zIndex: 9,
+              background: '#eff6ff'
+            }}>
               <span style={{ fontSize: 10, fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: 1, marginRight: 4 }}>Table</span>
               <button onMouseDown={e => { e.preventDefault(); tbl()?.insertTable(3, 3); }} style={tblBtn()}>
                 <Table2 size={11} /> Insert
@@ -769,17 +789,25 @@ export default function RichTextBlock({
           const url  = await getDownloadURL(snap.ref);
           const range = this.quill.getSelection(true);
           this.quill.insertEmbed(range.index, 'image', url);
+          
+          // Inject a space and move the cursor after it so side-by-side images work
+          this.quill.insertText(range.index + 1, ' ', 'user');
+          this.quill.setSelection(range.index + 2, 'silent');
+          
           setTimeout(() => { if (onChange) onChange(block.dataPath, this.quill.root.innerHTML); }, 100);
         } catch (err) { console.error('Quill image upload failed:', err); }
       };
     }
 
-    quillInstance.current = new Quill(editorRef.current, {
+quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
       placeholder: usePlaceholderGuide ? '' : (placeholderText || 'Start writing…'),
       modules: {
         table: true,
         toolbar: { container: toolbarRef.current, handlers: { image: imageUploadHandler } },
+        imageResize: {
+          modules: ['Resize', 'DisplaySize']
+        },
         clipboard: { matchVisual: false },
       },
     });
@@ -998,7 +1026,39 @@ export default function RichTextBlock({
             <Maximize2 size={13} /> Expand
           </button>
         </div>
-
+{/* Table Management Bar */}
+        <div className="im-fs-table-bar" style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: '6px', 
+          padding: '8px 12px', 
+          borderBottom: `1px solid ${t.border}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 9,
+          background: t.subBarBg 
+        }}>
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.insertTable(3,3); }} style={inlineBtn(t)}>
+            <Table2 size={11} /> Insert Table
+          </button>
+          <div style={{ width: 1, height: 14, background: t.border, margin: '0 4px' }} />
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.insertRowBelow(); }} style={inlineBtn(t)}>
+            <Plus size={10} /> Row
+          </button>
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.insertColumnRight(); }} style={inlineBtn(t)}>
+            <Plus size={10} /> Col
+          </button>
+          <div style={{ width: 1, height: 14, background: t.border, margin: '0 4px' }} />
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.deleteRow(); }} style={inlineBtn(t, '#ef4444')}>
+            <Trash2 size={10} /> Row
+          </button>
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.deleteColumn(); }} style={inlineBtn(t, '#ef4444')}>
+            <Trash2 size={10} /> Col
+          </button>
+          <button onMouseDown={e => { e.preventDefault(); quillInstance.current?.getModule('table')?.deleteTable(); }} style={inlineBtn(t, '#ef4444')}>
+            <X size={10} /> Table
+          </button>
+        </div>
         <div ref={editorRef} className="im-quill-canvas" style={{ color: t.text }} />
       </div>
 

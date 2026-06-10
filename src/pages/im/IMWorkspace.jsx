@@ -4,12 +4,12 @@ import {
   ArrowLeft, Settings, Sun, Moon, Menu,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, ChevronRight, Lock, PanelLeftClose,
   MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer,
-  Pencil, Check, Blocks
+  Pencil, Check, Blocks, Upload, Download
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
   doc, onSnapshot, updateDoc, serverTimestamp, setDoc, collection,
-  query, where
+  query, where, getDocs, writeBatch
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import BlockRegistry from './components/BlockRegistry.jsx';
@@ -17,6 +17,7 @@ import CommentsSidebar from './components/CommentsSidebar.jsx';
 import IMTaskBoard from './components/IMTaskBoard.jsx';
 import IMPrintPreview from './components/IMPrintPreview.jsx';
 import CommentSVGOverlay from './components/CommentSVGOverlay.jsx'; // <-- NEW IMPORT
+import SettingsAuthModal from './components/SettingsAuthModal.jsx'; // <-- NEW IMPORT
 
 // ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -33,6 +34,7 @@ export default function IMWorkspace() {
   const projectName = searchParams.get('name') || 'Active Dossier';
   
   const [user, setUser] = useState(null);
+  const [workspaceUsers, setWorkspaceUsers] = useState([]); // <-- ADD THIS
   const [schema, setSchema] = useState([]); // Master Schema (Read-Only here)
   const [excludedSections, setExcludedSections] = useState([]); // Local IM Exclusions
   const [customNames, setCustomNames] = useState({}); // Local IM Renames
@@ -55,6 +57,7 @@ export default function IMWorkspace() {
   // Tailor Template Modal State
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [showSettingsAuth, setShowSettingsAuth] = useState(false); // <-- NEW MODAL STATE
 
   // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
@@ -64,6 +67,7 @@ export default function IMWorkspace() {
   const saveTimers = useRef({});
   const savedTimers = useRef({});
   const mainRef = useRef(null);
+  const fileInputRef = useRef(null);
   
   const isDark = theme === 'dark';
   
@@ -113,16 +117,25 @@ export default function IMWorkspace() {
     return unsub;
   }, [projectId, imId, projectName, navigate]);
 
-  // Master Schema Fetch
+  // ── SCHEMA FETCH (THE FORK) ──
+  // Checks for a local Dossier Schema first. If none exists, falls back to Master Schema.
   useEffect(() => {
     if (!imId) return;
-    return onSnapshot(doc(db, 'config', 'im-schema'), (snap) => {
-      if (snap.exists()) {
-        const sections = snap.data().sections || [];
-        setSchema(sections);
-        // We set active section safely later based on visibleSchema
+    
+    // First, listen to the local IM document to see if it has a custom schema
+    const unsubLocal = onSnapshot(doc(db, 'investment-memos', imId), (localSnap) => {
+      if (localSnap.exists() && localSnap.data().dossierSchema) {
+        setSchema(localSnap.data().dossierSchema);
+      } else {
+        // If no local schema exists, fall back to the Master Schema
+        const unsubMaster = onSnapshot(doc(db, 'config', 'im-schema'), (masterSnap) => {
+          if (masterSnap.exists()) setSchema(masterSnap.data().sections || []);
+        });
+        return () => unsubMaster();
       }
     });
+    
+    return () => unsubLocal();
   }, [imId]);
 
   // Local IM Data & Exclusions Fetch
@@ -157,9 +170,17 @@ export default function IMWorkspace() {
     if (!projectId) return;
     return onSnapshot(collection(db, 'workspace-users'), (snap) => {
       const now = Date.now();
-      const locks = {}, online = [];
+      const locks = {}, online = [], allUsers = [];
+      
       snap.docs.forEach(d => {
         const u = d.data();
+        
+        // 1. Build the master list of active users
+        if (u.isActive !== false) {
+          allUsers.push({ uid: u.userId || d.id, email: u.email });
+        }
+
+        // 2. Handle online presence & locks
         const lastActive = u.lastActive?.toMillis?.() || 0;
         if (!u.isOnline || now - lastActive > 45_000) return;
         if (u.currentIM?.id !== projectId) return;
@@ -168,6 +189,8 @@ export default function IMWorkspace() {
           locks[u.currentBlockId] = { email: u.email, uid: u.userId };
         }
       });
+      
+      setWorkspaceUsers(allUsers); // <-- Set the state here!
       setActiveLocks(locks);
       setOnlineUsers(online);
     });
@@ -239,39 +262,71 @@ export default function IMWorkspace() {
     }
   };
 
-  const toggleSectionExclusion = async (id, isExcluding) => {
+const toggleSectionExclusion = async (id, isExcluding) => {
     let newExclusions = new Set(excludedSections);
     
+    // Helper to deeply exclude a block and all its nested branches/fields
+    const excludeBlockRecursive = (b) => {
+      newExclusions.add(b.id);
+      if (b.branches) b.branches.forEach(br => (br.blocks || []).forEach(excludeBlockRecursive));
+      if (b.blocks) b.blocks.forEach(excludeBlockRecursive);
+    };
+
     if (isExcluding) {
       newExclusions.add(id);
       
-      // Auto-exclude children AND blocks if a section is excluded
-      schema.filter(s => s.parentId === id).forEach(c => {
-        newExclusions.add(c.id);
-        (c.blocks || []).forEach(b => newExclusions.add(b.id));
-      });
-      
-      // Exclude blocks of the parent itself
+      // Check if it's a top-level section
       const sec = schema.find(s => s.id === id);
-      if (sec && sec.blocks) sec.blocks.forEach(b => newExclusions.add(b.id));
-
+      if (sec) {
+        (sec.blocks || []).forEach(excludeBlockRecursive);
+        // Auto-exclude child sections
+        schema.filter(s => s.parentId === id).forEach(c => {
+          newExclusions.add(c.id);
+          (c.blocks || []).forEach(excludeBlockRecursive);
+        });
+      } else {
+        // It's a block. Find it and exclude its sub-blocks
+        const findAndExclude = (blocks) => {
+          for (const b of blocks) {
+            if (b.id === id) excludeBlockRecursive(b);
+            if (b.branches) b.branches.forEach(br => findAndExclude(br.blocks || []));
+            if (b.blocks) findAndExclude(b.blocks);
+          }
+        };
+        schema.forEach(s => findAndExclude(s.blocks || []));
+      }
     } else {
       newExclusions.delete(id);
       
-      // Auto-restore parent if a child is restored
-      const sec = schema.find(s => s.id === id);
-      if (sec && sec.parentId) newExclusions.delete(sec.parentId);
-      
-      // If restoring a block, find its section and restore it too
-      schema.forEach(s => {
-        if (s.blocks && s.blocks.some(b => b.id === id)) {
-          newExclusions.delete(s.id);
-          if (s.parentId) newExclusions.delete(s.parentId);
-        }
-      });
+      // Deep restore: Restore parent blocks/sections if a deeply nested child is restored
+      const restoreParents = (targetId) => {
+        schema.forEach(s => {
+          if (s.id === targetId && s.parentId) newExclusions.delete(s.parentId);
+          
+          let foundInSection = false;
+          const searchBlocks = (blocks, parentBlockId) => {
+            for (const b of blocks) {
+              if (b.id === targetId) {
+                foundInSection = true;
+                if (parentBlockId) newExclusions.delete(parentBlockId);
+              }
+              if (b.branches) b.branches.forEach(br => searchBlocks(br.blocks || [], b.id));
+              if (b.blocks) searchBlocks(b.blocks, b.id);
+            }
+          };
+          searchBlocks(s.blocks || [], null);
+          
+          if (foundInSection) {
+            newExclusions.delete(s.id);
+            if (s.parentId) newExclusions.delete(s.parentId);
+          }
+        });
+      };
+      restoreParents(id);
     }
     
     const exclusionsArr = Array.from(newExclusions);
+    
     setExcludedSections(exclusionsArr); // Optimistic UI update
 
     // If the active section is suddenly excluded, transition away
@@ -409,10 +464,33 @@ export default function IMWorkspace() {
   }, []);
 
   useEffect(() => {
-    const handler = () => setCommentsSidebarOpen(true);
-    window.addEventListener('im-open-comments-sidebar', handler);
-    return () => window.removeEventListener('im-open-comments-sidebar', handler);
+    const openComments = () => setCommentsSidebarOpen(true);
+    const openTailor = () => setShowTailorModal(true);
+    
+    window.addEventListener('im-open-comments-sidebar', openComments);
+    window.addEventListener('im-open-tailor-modal', openTailor);
+    
+    return () => {
+      window.removeEventListener('im-open-comments-sidebar', openComments);
+      window.removeEventListener('im-open-tailor-modal', openTailor);
+    };
   }, []);
+
+  // ── DEEP LINKING FROM TASK BOARD MATRIX ──
+  useEffect(() => {
+    const handler = (e) => {
+      const { path } = e.detail;
+      if (path) {
+        // Find the section key based on the path/id provided
+        const targetSection = flatSections.find(s => s.key === path || s.id === path);
+        if (targetSection) {
+          handleSectionClick(targetSection.key);
+        }
+      }
+    };
+    window.addEventListener('im-jump-to-section', handler);
+    return () => window.removeEventListener('im-jump-to-section', handler);
+  }, [handleSectionClick, flatSections]);
 
   // ── INTELLIGENT COMMENT JUMPING ──
   useEffect(() => {
@@ -463,6 +541,117 @@ export default function IMWorkspace() {
     navigate(`/module-hub?project=${projectId}&name=${encodeURIComponent(projectName)}`);
   };
 
+
+  // ── FULL PROJECT ARCHIVE ENGINE (IMPORT / EXPORT) ──
+  const handleExportJSON = useCallback(async () => {
+    setSaveStatus('saving'); // Trigger the UI loading spinner
+    
+    try {
+      // 1. Fetch Comments
+      const commentsSnap = await getDocs(query(collection(db, 'im-comments'), where('imId', '==', imId)));
+      const commentsExport = commentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // 2. Fetch Tasks & Allocations
+      const tasksSnap = await getDocs(query(collection(db, 'im-tasks'), where('imId', '==', imId)));
+      const tasksExport = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // 3. Construct Master Archive
+      const archive = {
+        exportVersion: '2.0',
+        timestamp: new Date().toISOString(),
+        data: imData,
+        comments: commentsExport,
+        tasks: tasksExport
+      };
+
+      // 4. Trigger Download
+      const dataStr = JSON.stringify(archive, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${projectName.replace(/\s+/g, '_')}_Master_Archive.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    } catch (error) {
+      console.error("Export Failed:", error);
+      setSaveStatus('error');
+    }
+  }, [imData, projectName, imId]);
+
+  const handleImportJSON = useCallback(async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const importedObj = JSON.parse(event.target.result);
+        
+        // Backward compatibility: Detect if it's a V1 (just data) or V2 (full archive) file
+        const isFullArchive = !!importedObj.exportVersion;
+        const newImData = isFullArchive ? importedObj.data : importedObj;
+
+        if (typeof newImData !== 'object' || newImData === null) {
+          alert('Invalid JSON structure. Import aborted.');
+          return;
+        }
+        
+        if (!window.confirm('⚠️ CRITICAL WARNING: Restoring this archive will overwrite all text, comments, and task allocations in this memo to match the backup state. Proceed?')) {
+          e.target.value = '';
+          return;
+        }
+
+        setImData(newImData); // Instantly update UI
+        setSaveStatus('saving');
+
+        // 1. Update Document Data Matrix
+        await updateDoc(doc(db, 'investment-memos', imId), {
+          data: newImData,
+          updatedAt: serverTimestamp()
+        });
+
+        // 2. Restore Comments & Tasks via Firebase Batch (Ensures atomic, safe overwrites)
+        if (isFullArchive) {
+          const batch = writeBatch(db);
+          
+          if (importedObj.comments) {
+            importedObj.comments.forEach(c => {
+              const cId = c.id;
+              const cData = { ...c };
+              delete cData.id; // Clean payload
+              batch.set(doc(db, 'im-comments', cId), cData);
+            });
+          }
+          
+          if (importedObj.tasks) {
+            importedObj.tasks.forEach(t => {
+              const tId = t.id;
+              const tData = { ...t };
+              delete tData.id; // Clean payload
+              batch.set(doc(db, 'im-tasks', tId), tData);
+            });
+          }
+          
+          await batch.commit(); // Execute massive write safely
+        }
+
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } catch (err) {
+        console.error('[IMWorkspace] Import failed:', err);
+        alert('Failed to parse or save imported JSON file. Ensure it is a valid backup.');
+        setSaveStatus('error');
+      }
+      e.target.value = ''; // Reset input
+    };
+    reader.readAsText(file);
+  }, [imId]);
   const SaveChip = () => {
     const config = {
       saving: { icon: <Loader2 size={11} style={{ animation: 'imSpin 0.8s linear infinite' }} />, label: 'Saving',  color: T.textMuted, bg: T.surface3, border: 'transparent' },
@@ -666,60 +855,88 @@ export default function IMWorkspace() {
                 {activeSectionSchema ? `${sectionNumberMap[activeSectionSchema.id]}. ${cleanTitle(activeSectionSchema.heading || activeSectionSchema.navLabel)}` : 'Investment Memo'}
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {LockIndicator()}
               {SaveChip()}
-              <div style={{ width: 1, height: 18, background: T.border, margin: '0 2px' }} />
+              <div style={{ width: 1, height: 18, background: T.border, margin: '0 4px' }} />
               
-              <button
-                onClick={() => setShowTailorModal(true)}
-                data-tip="Tailor Template"
-                className={`im-top-btn ${showTailorModal ? 'active' : ''}`}
-                style={{ '--active-bg': T.accentDim, '--active-color': T.accent }}
-              >
-                <Scissors size={18} />
-              </button>
-
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
                 data-tip="Operations Board"
                 className={`im-top-btn ${isTaskBoardOpen ? 'active' : ''}`}
-                style={{ '--active-bg': T.amberDim, '--active-color': T.amber }}
+                style={{ '--hover-bg': 'rgba(16, 185, 129, 0.15)', '--hover-color': '#10b981', '--hover-border': 'rgba(16, 185, 129, 0.3)', '--active-bg': 'rgba(16, 185, 129, 0.2)', '--active-color': '#10b981', '--active-border': 'rgba(16, 185, 129, 0.5)' }}
               >
                 <Kanban size={18} />
               </button>
 
               <button
-                onClick={() => setIsPreviewOpen(true)}
-                data-tip="Print Preview"
-                className="im-top-btn"
+                onClick={() => setShowTailorModal(true)}
+                data-tip="Tailor Template"
+                className={`im-top-btn ${showTailorModal ? 'active' : ''}`}
+                style={{ '--hover-bg': 'rgba(239, 68, 68, 0.15)', '--hover-color': '#ef4444', '--hover-border': 'rgba(239, 68, 68, 0.3)', '--active-bg': 'rgba(239, 68, 68, 0.2)', '--active-color': '#ef4444', '--active-border': 'rgba(239, 68, 68, 0.5)' }}
               >
-                <Printer size={18} />
+                <Scissors size={18} />
               </button>
 
               <button
                 onClick={() => setCommentsSidebarOpen(p => !p)}
                 data-tip="Comments"
                 className={`im-top-btn ${commentsSidebarOpen ? 'active' : ''}`}
-                style={{ '--active-bg': T.amberDim, '--active-color': T.amber }}
+                style={{ '--hover-bg': 'rgba(245, 158, 11, 0.15)', '--hover-color': '#f59e0b', '--hover-border': 'rgba(245, 158, 11, 0.3)', '--active-bg': 'rgba(245, 158, 11, 0.2)', '--active-color': '#f59e0b', '--active-border': 'rgba(245, 158, 11, 0.5)' }}
               >
                 <MessageSquare size={18} />
+              </button>
+
+              <button
+                onClick={() => setShowSettingsAuth(true)}
+                data-tip="Configuration Protocol"
+                className={`im-top-btn ${showSettingsAuth ? 'active' : ''}`}
+                style={{ '--hover-bg': 'rgba(139, 92, 246, 0.15)', '--hover-color': '#8b5cf6', '--hover-border': 'rgba(139, 92, 246, 0.3)', '--active-bg': 'rgba(139, 92, 246, 0.2)', '--active-color': '#8b5cf6', '--active-border': 'rgba(139, 92, 246, 0.5)' }}
+              >
+                <Settings size={18} />
+              </button>
+              
+              <div style={{ width: 1, height: 14, background: T.border, margin: '0 2px' }} />
+
+              {/* Hidden file input required to trigger OS file browser */}
+              <input type="file" accept=".json" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImportJSON} />
+              
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                data-tip="Import JSON Data"
+                className="im-top-btn"
+                style={{ '--hover-bg': 'rgba(59, 130, 246, 0.15)', '--hover-color': '#3b82f6', '--hover-border': 'rgba(59, 130, 246, 0.3)', '--active-bg': 'rgba(59, 130, 246, 0.2)', '--active-color': '#3b82f6', '--active-border': 'rgba(59, 130, 246, 0.5)' }}
+              >
+                <Upload size={18} />
+              </button>
+
+              <button
+                onClick={handleExportJSON}
+                data-tip="Export JSON Data"
+                className="im-top-btn"
+                style={{ '--hover-bg': 'rgba(16, 185, 129, 0.15)', '--hover-color': '#10b981', '--hover-border': 'rgba(16, 185, 129, 0.3)', '--active-bg': 'rgba(16, 185, 129, 0.2)', '--active-color': '#10b981', '--active-border': 'rgba(16, 185, 129, 0.5)' }}
+              >
+                <Download size={18} />
+              </button>
+
+              <div style={{ width: 1, height: 14, background: T.border, margin: '0 2px' }} />
+
+              <button
+                onClick={() => setIsPreviewOpen(true)}
+                data-tip="Print Preview"
+                className="im-top-btn"
+                style={{ '--hover-bg': T.surface3, '--hover-color': T.text, '--hover-border': T.border }}
+              >
+                <Printer size={18} />
               </button>
 
               <button
                 onClick={() => setTheme(p => p === 'dark' ? 'light' : 'dark')}
                 data-tip={isDark ? "Light Mode" : "Dark Mode"}
                 className="im-top-btn"
+                style={{ '--hover-bg': T.surface3, '--hover-color': T.text, '--hover-border': T.border }}
               >
                 {isDark ? <Sun size={18} /> : <Moon size={18} />}
-              </button>
-
-              <button
-                onClick={() => navigate(`/im-settings?im=${imId}&project=${projectId}&name=${encodeURIComponent(projectName)}`)}
-                data-tip="IM Settings"
-                className="im-top-btn"
-              >
-                <Settings size={18} />
               </button>
             </div>
           </div>
@@ -842,6 +1059,7 @@ export default function IMWorkspace() {
                         isDark={isDark}
                         excludedSections={excludedSections}
                         customNames={customNames}
+                        activeSection={activeSection} // <-- PASS THIS DOWN
                       />
                     </div>
                   );
@@ -934,7 +1152,7 @@ export default function IMWorkspace() {
                   const blockName = customNames[block.id] || block.label || 'Untitled Block';
                   
                   return (
-                    <div style={{ padding: '7px 16px 7px 52px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isExcluded ? 0.45 : 1, borderTop: `1px solid ${T.border}`, background: isExcluded ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                    <div style={{ padding: `7px 16px 7px ${52 + (depth * 20)}px`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isExcluded ? 0.45 : 1, borderTop: `1px solid ${T.border}`, background: isExcluded ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
                         <Blocks size={11} style={{ color: T.textMuted, flexShrink: 0 }} />
                         {isEditingBlock ? (
@@ -1001,12 +1219,14 @@ export default function IMWorkspace() {
                   return (
                     <div key={block.id}>
                       <BlockRow block={block} depth={depth} />
+                      
+                      {/* Conditional Switcher Support */}
                       {block.branches && block.branches.map(branch => {
                         const branchBlocks = branch.blocks || [];
                         if (branchBlocks.length === 0) return null;
                         return (
                           <div key={branch.id}>
-                            <div style={{ padding: `4px 16px 4px ${52 + (depth * 20)}px`, fontSize: '0.68rem', fontWeight: 700, color: T.textSub, background: 'rgba(0,0,0,0.2)', borderTop: `1px solid ${T.border}` }}>
+                            <div style={{ padding: `4px 16px 4px ${52 + ((depth + 1) * 20)}px`, fontSize: '0.68rem', fontWeight: 700, color: T.textSub, background: 'rgba(0,0,0,0.2)', borderTop: `1px solid ${T.border}` }}>
                               ↳ Branch: {branch.label || 'Option'}
                             </div>
                             {branchBlocks.map(subBlock => (
@@ -1015,6 +1235,18 @@ export default function IMWorkspace() {
                           </div>
                         );
                       })}
+
+                      {/* Standard Nested Blocks Support (Repeating Sets, etc.) */}
+                      {block.blocks && block.blocks.length > 0 && (
+                        <div>
+                          <div style={{ padding: `4px 16px 4px ${52 + ((depth + 1) * 20)}px`, fontSize: '0.68rem', fontWeight: 700, color: T.textSub, background: 'rgba(0,0,0,0.2)', borderTop: `1px solid ${T.border}` }}>
+                            ↳ Nested Fields
+                          </div>
+                          {block.blocks.map(subBlock => (
+                            <RecursiveBlockTree key={subBlock.id} block={subBlock} depth={depth + 1} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 };
@@ -1108,7 +1340,11 @@ export default function IMWorkspace() {
         isDark={isDark} 
         isOpen={commentsSidebarOpen} 
         onClose={() => setCommentsSidebarOpen(false)} 
-        activeSection={activeSection} 
+        activeSection={activeSection}
+        workspaceUsers={workspaceUsers}
+        flatSections={flatSections}
+        customNames={customNames}
+        excludedSections={excludedSections}
       />
       
       <CommentSVGOverlay /> {/* <-- MOUNT THE SVG OVERLAY HERE */}
@@ -1124,11 +1360,22 @@ export default function IMWorkspace() {
             schema={schema} 
             imData={imData} 
             excludedSections={excludedSections} 
-            customNames={customNames} // <-- ADD THIS LINE
+            customNames={customNames}
             projectName={projectName} 
             onClose={() => setIsPreviewOpen(false)} 
           />
         </div>
+      )}
+
+      {/* ── SETTINGS AUTHENTICATION MODAL ── */}
+      {showSettingsAuth && (
+        <SettingsAuthModal 
+          imId={imId} 
+          projectId={projectId} 
+          projectName={projectName} 
+          isDark={isDark} 
+          onClose={() => setShowSettingsAuth(false)} 
+        />
       )}
       
       <style>{`
@@ -1150,24 +1397,31 @@ export default function IMWorkspace() {
           min-width: 36px;
           padding: 0 8px;
           border-radius: 8px;
-          background: transparent;
+          /* Force a solid, slightly elevated background instead of transparent */
+          background: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
           color: var(--t-muted);
-          border: 1px solid transparent;
+          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
           cursor: pointer;
           font-family: inherit;
           font-size: 13px;
           font-weight: 600;
           transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          /* Add a subtle native shadow so it looks like a button */
+          box-shadow: ${isDark ? '0 2px 4px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.05)'};
         }
         .im-top-btn:hover {
-          background: var(--t-surface3);
-          color: var(--t-text);
-          border-color: var(--t-border);
+          background: var(--hover-bg, var(--t-surface));
+          color: var(--hover-color, var(--t-text));
+          border-color: var(--hover-border, var(--t-border));
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         .im-top-btn.active {
           background: var(--active-bg);
           color: var(--active-color);
           border-color: var(--active-border, transparent);
+          box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+          transform: translateY(0);
         }
         /* Custom Tooltip Logic */
         .im-top-btn[data-tip]::after {

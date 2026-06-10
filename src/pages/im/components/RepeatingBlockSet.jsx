@@ -4,7 +4,8 @@ import BlockWrapper from './BlockWrapper.jsx';
 import BlockRegistry from './BlockRegistry.jsx';
 
 export default function RepeatingBlockSet({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
+  excludedSections = [], customNames = {}
 }) {
   // Value payload expects: { instances: [ { _setId: '123', name: '...', sub_table_1: {...} } ] }
   const val = value || { instances: [] };
@@ -99,23 +100,29 @@ export default function RepeatingBlockSet({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {subBlocks.map((subConfig, subIdx) => {
-                const subValue = instance[subConfig.dataPath];
+            {subBlocks
+                .filter(subConfig => !excludedSections.includes(subConfig.id))
+                .map((subConfig, subIdx) => {
+                const subValue = instance[subConfig.dataPath] || '';
                 return (
                   <BlockRegistry
                     key={subConfig.id || subIdx}
-                    block={subConfig}
+                    block={{ ...subConfig, label: customNames[subConfig.id] || subConfig.label }}
                     value={subValue}
                     onChange={(childPath, childVal) => handleSubBlockChange(idx, childPath, childVal)}
                     lockedBy={lockedBy}
                     onFocus={onFocus}
                     onBlur={onBlur}
                     isDark={isDark}
+                    excludedSections={excludedSections}
+                    customNames={customNames}
                   />
                 );
               })}
-              {subBlocks.length === 0 && (
-                <div style={{ color: t.textMuted, fontSize: '0.8rem', textAlign: 'center' }}>No blocks defined in this set.</div>
+              {subBlocks.filter(subConfig => !excludedSections.includes(subConfig.id)).length === 0 && (
+                <div style={{ color: t.textMuted, fontSize: '0.8rem', textAlign: 'center', padding: '10px' }}>
+                  No visible blocks in this set.
+                </div>
               )}
             </div>
           </div>

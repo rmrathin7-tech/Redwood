@@ -24,7 +24,10 @@ function relativeTime(ts) {
   return `${Math.floor(diff / 86400000)}d ago`;
 }
 
-export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, activeSection }) {
+export default function CommentsSidebar({ 
+  imId, isDark = true, isOpen, onClose, activeSection, 
+  workspaceUsers = [], flatSections = [], customNames = {}, excludedSections = [] 
+}) {
   const [comments, setComments] = useState([]);
   const [activeTab, setActiveTab] = useState('current'); // 'current' or 'all'
   const [drafts, setDrafts] = useState({}); // commentId -> text
@@ -78,18 +81,20 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
         if (text.length > 0 && node) {
           let blockLabel = 'Document Level';
           let blockPath = 'global';
+          let blockId = null;
 
           let curr = node;
           while (curr && curr !== document.body) {
             if (curr.hasAttribute && curr.hasAttribute('data-block-label')) {
               blockLabel = curr.getAttribute('data-block-label');
               blockPath = curr.getAttribute('data-block-path');
+              blockId = curr.getAttribute('data-block-id');
               break;
             }
             curr = curr.parentNode;
           }
 
-          setSelectionPopup({ text, label: blockLabel, path: blockPath, x, y, startOffset, endOffset });
+          setSelectionPopup({ text, label: blockLabel, path: blockPath, blockId, x, y, startOffset, endOffset });
         } else {
           setSelectionPopup(null);
         }
@@ -115,8 +120,8 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
   const [showResolved, setShowResolved] = useState(false);
   const [replyText, setReplyText] = useState({});
   const [newCommentText, setNewCommentText] = useState({});
-  const [workspaceUsers, setWorkspaceUsers] = useState([]);
   const [assigneeFilter, setAssigneeFilter] = useState('all');
+  const [creatorFilter, setCreatorFilter] = useState('all'); // <-- NEW FILTER STATE
   const user = auth.currentUser;
   const activeRef = useRef(null);
 
@@ -143,23 +148,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     const q = query(collection(db, 'im-comments'), where('imId', '==', imId));
     return onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ _docId: d.id, ...d.data() }));
-      data.sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+      // FIX: Sort descending so newest comments pop up at the top
+      data.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setComments(data);
     });
   }, [imId]);
 
-  // ── FETCH WORKSPACE USERS FOR ASSIGNMENT ──────────────────────────────────
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'workspace-users'));
-        setWorkspaceUsers(snap.docs.map(d => ({ uid: d.id, email: d.data().email })));
-      } catch (err) {
-        console.error("Failed to fetch users", err);
-      }
-    };
-    fetchUsers();
-  }, []);
+
 
   // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
   useEffect(() => {
@@ -183,12 +178,13 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
   // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
   useEffect(() => {
     const onCreate = async (e) => {
-      const { commentId, dataPath, quote, contextLabel, sectionId, offsetStart, offsetEnd } = e.detail;
+      const { commentId, dataPath, quote, contextLabel, sectionId, offsetStart, offsetEnd, blockId } = e.detail;
       if (!imId || !user) return;
       await addDoc(collection(db, 'im-comments'), {
         id: commentId,
         imId,
         sectionId: sectionId || 'global',
+        blockId: blockId || null,
         dataPath: dataPath || 'global',
         contextLabel: contextLabel || 'General',
         quote: quote ? quote.slice(0, 200) : 'General Comment',
@@ -201,6 +197,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
         firstComment: '',
       });
       setActiveId(commentId);
+      setShowResolved(false); // <-- FIX: Automatically switch to Open tab
     };
 
     const onOpen = (e) => {
@@ -312,11 +309,16 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
     await updateDoc(d.ref, { replies: newReplies });
   }, [findDoc]);
 
-  // Filter by Tab state and Assignee
+// Filter by Tab state, Assignee, and Creator
   const visibleComments = comments.filter(c => {
+    if (excludedSections.includes(c.sectionId)) return false;
+    if (c.blockId && excludedSections.includes(c.blockId)) return false;
+
     if (activeTab !== 'all' && c.sectionId !== activeSection) return false;
     if (assigneeFilter === 'me' && c.assignee?.uid !== user?.uid) return false;
     if (assigneeFilter !== 'all' && assigneeFilter !== 'me' && c.assignee?.uid !== assigneeFilter) return false;
+    if (creatorFilter === 'me' && c.createdBy?.uid !== user?.uid) return false;
+    if (creatorFilter !== 'all' && creatorFilter !== 'me' && c.createdBy?.uid !== creatorFilter) return false;
     return true;
   });
 
@@ -357,6 +359,7 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
               detail: {
                 commentId,
                 dataPath: selectionPopup.path,
+                blockId: selectionPopup.blockId,
                 quote: selectionPopup.text,
                 contextLabel: selectionPopup.label,
                 sectionId: activeSection,
@@ -429,18 +432,35 @@ export default function CommentsSidebar({ imId, isDark = true, isOpen, onClose, 
               All Sections
             </button>
           </div>
+        </div>
 
-          {/* ASSIGNEE FILTER */}
+        {/* ── ASSIGNEE & CREATOR FILTERS ── */}
+        <div style={{ display: 'flex', gap: '8px', padding: '0 16px 12px' }}>
           <select 
             value={assigneeFilter} 
             onChange={(e) => setAssigneeFilter(e.target.value)}
             style={{ 
-              background: T.surface2, color: T.textMuted, border: `1px solid ${T.border}`, 
+              flex: 1, background: T.surface2, color: T.textMuted, border: `1px solid ${T.border}`, 
               borderRadius: 4, padding: '4px 6px', fontSize: '0.7rem', outline: 'none', cursor: 'pointer', fontWeight: 600
             }}
           >
             <option value="all">All Owners</option>
             <option value="me">Assigned to Me</option>
+            {workspaceUsers.filter(u => u.uid !== user?.uid).map(u => (
+              <option key={u.uid} value={u.uid}>{u.email?.split('@')[0]}</option>
+            ))}
+          </select>
+
+          <select 
+            value={creatorFilter} 
+            onChange={(e) => setCreatorFilter(e.target.value)}
+            style={{ 
+              flex: 1, background: T.surface2, color: T.textMuted, border: `1px solid ${T.border}`, 
+              borderRadius: 4, padding: '4px 6px', fontSize: '0.7rem', outline: 'none', cursor: 'pointer', fontWeight: 600
+            }}
+          >
+            <option value="all">All Creators</option>
+            <option value="me">Created by Me</option>
             {workspaceUsers.filter(u => u.uid !== user?.uid).map(u => (
               <option key={u.uid} value={u.uid}>{u.email?.split('@')[0]}</option>
             ))}

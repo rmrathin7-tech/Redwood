@@ -4,7 +4,8 @@ import {
   ArrowLeft, Search, Users, Sun, Moon, LogOut, 
   Plus, FileText, BarChart3, Network, Building2,
   CheckCircle2, MessageSquare, Trash2, Edit3, Globe,
-  ShieldAlert, Sparkles, RefreshCw, Kanban // <-- ADDED Kanban
+  ShieldAlert, Sparkles, RefreshCw, Kanban,
+  CornerDownRight, Clock, Link
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { 
@@ -111,8 +112,13 @@ export default function ModuleHub() {
   const [fsaList, setFsaList] = useState([]);
   const [fcList, setFcList] = useState([]);
   const [bsaList, setBsaList] = useState([]);
-  const [protocols, setProtocols] = useState([]);
   const [updates, setUpdates] = useState([]);
+  
+  // Progress Feed states
+  const [editingUpdateId, setEditingUpdateId] = useState(null);
+  const [editUpdateText, setEditUpdateText] = useState('');
+  const [replyingToId, setReplyingToId] = useState(null);
+  const [replyInput, setReplyInput] = useState('');
   const [domainMap, setDomainMap] = useState({});
   const [entityMap, setEntityMap] = useState({});
   const [rawDomains, setRawDomains] = useState([]);
@@ -203,10 +209,6 @@ export default function ModuleHub() {
     // BSAs
     unsubs.push(onSnapshot(collection(db, 'projects', projectId, 'bsa'), snap => {
       setBsaList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }));
-    // Protocols
-    unsubs.push(onSnapshot(query(collection(db, 'projects', projectId, 'protocols'), orderBy('createdAt', 'asc')), snap => {
-      setProtocols(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }));
     // Updates
     unsubs.push(onSnapshot(query(collection(db, 'projects', projectId, 'updates'), orderBy('createdAt', 'desc')), snap => {
@@ -329,14 +331,48 @@ export default function ModuleHub() {
     if (!updateInput.trim() || !user) return;
     try {
       await addDoc(collection(db, 'projects', projectId, 'updates'), {
-        text: updateInput.trim(), authorEmail: user.email, authorId: user.uid, createdAt: serverTimestamp()
+        text: updateInput.trim(), authorEmail: user.email, authorId: user.uid, createdAt: serverTimestamp(), replies: []
       });
       setUpdateInput('');
     } catch (err) { console.error(err); }
   };
 
-  const toggleProtocol = async (id, currentStatus) => {
-    await updateDoc(doc(db, 'projects', projectId, 'protocols', id), { checked: !currentStatus });
+  const handleDeleteUpdate = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this update?")) return;
+    await deleteDoc(doc(db, 'projects', projectId, 'updates', id));
+  };
+
+  const handleSaveEdit = async (id) => {
+    if (!editUpdateText.trim()) return;
+    await updateDoc(doc(db, 'projects', projectId, 'updates', id), {
+      text: editUpdateText.trim(), isEdited: true, updatedAt: serverTimestamp()
+    });
+    setEditingUpdateId(null);
+  };
+
+  const handlePostReply = async (id) => {
+    if (!replyInput.trim() || !user) return;
+    const updateRef = doc(db, 'projects', projectId, 'updates', id);
+    const snap = await getDoc(updateRef);
+    if (snap.exists()) {
+      const currentReplies = snap.data().replies || [];
+      await updateDoc(updateRef, {
+        replies: [...currentReplies, {
+          id: Date.now().toString(), text: replyInput.trim(), authorEmail: user.email, authorId: user.uid, createdAt: new Date().toISOString()
+        }]
+      });
+    }
+    setReplyingToId(null); setReplyInput('');
+  };
+
+  const renderTextWithLinks = (text) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.split(urlRegex).map((part, i) => 
+      part.match(urlRegex) 
+        ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: isDark ? '#00f0ff' : '#0ea5e9', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Link size={12} /> {part}</a>
+        : <span key={i}>{part}</span>
+    );
   };
 
   // ── INTERACTIVE CANVAS ENGINE ──
@@ -730,51 +766,86 @@ export default function ModuleHub() {
           </div>
         </div>
 
-        {/* ── TOP SPLIT: Protocols & Updates ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '24px', marginBottom: '60px' }}>
-          
-          {/* Protocols */}
-          <div className="panel-glass" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}><CheckCircle2 size={16} /> Protocols</h3>
-              <button onClick={() => setActiveModal('protocol')} style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', border: 'none', color: isDark ? '#fff' : '#000', padding: '4px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }} className="glass-btn">+ Add</button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '8px' }}>
-              {protocols.length > 0 ? protocols.map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)', borderRadius: '10px', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, transition: 'all 0.2s' }} className="glass-btn">
-                  <div onClick={() => toggleProtocol(p.id, p.checked)} className="check-hover" style={{ width: '18px', height: '18px', borderRadius: '4px', border: `2px solid ${p.checked ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)')}`, background: p.checked ? '#22c55e' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', flexShrink: 0 }}>
-                    {p.checked && <CheckCircle2 size={12} color="#fff" strokeWidth={4} />}
-                  </div>
-                  <span style={{ fontSize: '0.85rem', color: p.checked ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#e2e8f0' : '#0f172a'), textDecoration: p.checked ? 'line-through' : 'none', flex: 1, transition: 'all 0.2s' }}>{p.title}</span>
-                  <button onClick={() => { setDeleteTarget({id: p.id, type: 'protocol'}); setActiveModal('delete'); }} style={{ background: 'none', border: 'none', color: isDark ? '#475569' : '#94a3b8', cursor: 'pointer' }} className="action-hover"><Trash2 size={14} /></button>
-                </div>
-              )) : <div style={{ textAlign: 'center', color: isDark ? '#475569' : '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem', margin: 'auto' }}>No protocols defined</div>}
-            </div>
-          </div>
-
-          {/* Updates Feed */}
-          <div className="panel-glass" style={{ display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ margin: '0 0 20px 0', fontSize: '0.9rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}><MessageSquare size={16} /> Progress Feed</h3>
+       {/* ── PROGRESS FEED (FULL WIDTH) ── */}
+        <div style={{ marginBottom: '60px' }}>
+          <div className="panel-glass" style={{ display: 'flex', flexDirection: 'column', maxHeight: '600px' }}>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <MessageSquare size={18} color={isDark ? '#00f0ff' : '#0ea5e9'} /> Global Network Feed
+            </h3>
             
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px', marginBottom: '16px', maxHeight: '250px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', paddingRight: '8px', marginBottom: '20px' }}>
               {updates.length > 0 ? updates.map(u => (
-                <div key={u.id} style={{ padding: '12px 16px', background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)', borderRadius: '12px', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
-                  <div style={{ fontSize: '0.9rem', color: isDark ? '#e2e8f0' : '#0f172a', lineHeight: 1.5, marginBottom: '8px' }}>{u.text}</div>
-                  <div style={{ display: 'flex', gap: '12px', fontSize: '0.7rem', color: isDark ? '#64748b' : '#94a3b8', fontWeight: '500' }}>
-                    <span style={{ color: isDark ? '#94a3b8' : '#475569' }}>{u.authorEmail}</span>
-                    <span>{u.createdAt?.toDate ? u.createdAt.toDate().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : 'Just now'}</span>
+                <div key={u.id} style={{ padding: '16px', background: isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.7)', borderRadius: '12px', border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: `hsl(${(u.authorEmail?.charCodeAt(0) * 47 || 0) % 360},60%,${isDark ? '40%' : '60%'})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: '800', color: '#fff' }}>
+                        {u.authorEmail?.[0]?.toUpperCase() || '?'}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#e2e8f0' : '#0f172a' }}>{u.authorEmail?.split('@')[0]}</div>
+                        <div style={{ fontSize: '0.7rem', color: isDark ? '#64748b' : '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Clock size={10} /> {u.createdAt?.toDate ? u.createdAt.toDate().toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : 'Just now'}
+                          {u.isEdited && <span style={{ fontStyle: 'italic', opacity: 0.7 }}>(edited)</span>}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {u.authorId === user?.uid && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => { setEditingUpdateId(u.id); setEditUpdateText(u.text); }} style={{ background: 'none', border: 'none', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer' }} className="action-hover"><Edit3 size={14} /></button>
+                        <button onClick={() => handleDeleteUpdate(u.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }} className="action-hover"><Trash2 size={14} /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  {editingUpdateId === u.id ? (
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                      <input type="text" className="custom-input" value={editUpdateText} onChange={e => setEditUpdateText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSaveEdit(u.id)} autoFocus />
+                      <button onClick={() => handleSaveEdit(u.id)} style={{ padding: '0 16px', borderRadius: '10px', background: '#22c55e', color: '#fff', border: 'none', fontWeight: '600', cursor: 'pointer' }}>Save</button>
+                      <button onClick={() => setEditingUpdateId(null)} style={{ padding: '0 16px', borderRadius: '10px', background: 'transparent', border: `1px solid ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`, color: isDark ? '#fff' : '#000', cursor: 'pointer' }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.95rem', color: isDark ? '#cbd5e1' : '#334155', lineHeight: 1.6, marginBottom: '12px', wordBreak: 'break-word' }}>
+                      {renderTextWithLinks(u.text)}
+                    </div>
+                  )}
+
+                  <div style={{ marginLeft: '42px', paddingLeft: '16px', borderLeft: `2px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}` }}>
+                    {(u.replies || []).map(reply => (
+                      <div key={reply.id} style={{ marginBottom: '12px', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: '600', color: isDark ? '#e2e8f0' : '#0f172a' }}>{reply.authorEmail.split('@')[0]}</span>
+                          <span style={{ fontSize: '0.65rem', color: isDark ? '#64748b' : '#94a3b8' }}>{new Date(reply.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
+                        </div>
+                        <div style={{ color: isDark ? '#94a3b8' : '#475569', lineHeight: 1.5 }}>{renderTextWithLinks(reply.text)}</div>
+                      </div>
+                    ))}
+                    
+                    {replyingToId === u.id ? (
+                       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                         <input type="text" className="custom-input" placeholder="Type reply..." value={replyInput} onChange={e => setReplyInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePostReply(u.id)} autoFocus style={{ padding: '8px 12px', fontSize: '0.8rem' }} />
+                         <button onClick={() => handlePostReply(u.id)} style={{ padding: '0 12px', borderRadius: '8px', background: isDark ? 'rgba(0,240,255,0.1)' : 'rgba(14,165,233,0.1)', color: isDark ? '#00f0ff' : '#0ea5e9', border: 'none', fontWeight: '600', cursor: 'pointer', fontSize: '0.8rem' }}>Reply</button>
+                         <button onClick={() => { setReplyingToId(null); setReplyInput(''); }} style={{ padding: '0 12px', borderRadius: '8px', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
+                       </div>
+                    ) : (
+                      <button onClick={() => setReplyingToId(u.id)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: isDark ? '#00f0ff' : '#0ea5e9', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', padding: 0, opacity: 0.8 }}><CornerDownRight size={12} /> Reply</button>
+                    )}
                   </div>
                 </div>
-              )) : <div style={{ textAlign: 'center', color: isDark ? '#475569' : '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem', margin: 'auto' }}>No progress updates posted yet</div>}
+              )) : <div style={{ textAlign: 'center', color: isDark ? '#475569' : '#94a3b8', fontStyle: 'italic', fontSize: '0.9rem', padding: '40px' }}>No global updates logged. Be the first to transmit.</div>}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: 'auto' }}>
-              <input type="text" className="custom-input" placeholder="Transmit update to network..." value={updateInput} onChange={e => setUpdateInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePostUpdate()} style={{ background: isDark ? 'rgba(0,0,0,0.4)' : '#fff' }} />
-              <button onClick={handlePostUpdate} style={{ padding: '0 24px', borderRadius: '10px', background: isDark ? 'rgba(0,240,255,0.1)' : 'rgba(14,165,233,0.1)', border: `1px solid ${isDark ? 'rgba(0,240,255,0.3)' : 'rgba(14,165,233,0.3)'}`, color: isDark ? '#00f0ff' : '#0ea5e9', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }} className="glass-btn">Post</button>
+            <div style={{ display: 'flex', gap: '12px', background: isDark ? 'rgba(0,0,0,0.4)' : '#fff', padding: '16px', borderRadius: '12px', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: `hsl(${(user?.email?.charCodeAt(0) * 47 || 0) % 360},60%,${isDark ? '40%' : '60%'})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: '800', color: '#fff', flexShrink: 0 }}>
+                {user?.email?.[0]?.toUpperCase() || '?'}
+              </div>
+              <input type="text" className="custom-input" placeholder="Transmit network update..." value={updateInput} onChange={e => setUpdateInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePostUpdate()} style={{ background: 'transparent', border: 'none', boxShadow: 'none', padding: '0 8px', fontSize: '0.95rem' }} />
+              <button onClick={handlePostUpdate} style={{ padding: '0 24px', borderRadius: '10px', background: isDark ? 'rgba(0,240,255,0.1)' : 'rgba(14,165,233,0.1)', border: `1px solid ${isDark ? 'rgba(0,240,255,0.3)' : 'rgba(14,165,233,0.3)'}`, color: isDark ? '#00f0ff' : '#0ea5e9', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }} className="glass-btn">Transmit</button>
             </div>
           </div>
-
         </div>
+
 
        {/* ── MODULE GRIDS ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

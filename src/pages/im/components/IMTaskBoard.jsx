@@ -23,7 +23,7 @@ const DEFAULT_COLUMNS = [
 ];
 
 export default function IMTaskBoard({ imId, projectId, isDark = true, onClose }) {
-  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'matrix'
+  const [viewMode, setViewMode] = useState('matrix'); // Default to Operations Matrix
   
   // Data States
   const [tasks, setTasks] = useState([]);
@@ -154,8 +154,15 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
       if (snap.exists()) setColumns(snap.data().columns || []);
       else setDoc(doc(db, 'im-task-config', imId), { columns: DEFAULT_COLUMNS });
     }));
-    unsubs.push(onSnapshot(doc(db, 'config', 'im-schema'), (snap) => {
-      if (snap.exists()) setSchema(snap.data().sections || []);
+    // Sync with the tailored dossier template schema instead of the static master layout
+    unsubs.push(onSnapshot(doc(db, 'investment-memos', imId), (localSnap) => {
+      if (localSnap.exists() && localSnap.data().dossierSchema) {
+        setSchema(localSnap.data().dossierSchema);
+      } else {
+        onSnapshot(doc(db, 'config', 'im-schema'), (masterSnap) => {
+          if (masterSnap.exists()) setSchema(masterSnap.data().sections || []);
+        });
+      }
     }));
     // Fetch Local IM Exclusions
     unsubs.push(onSnapshot(doc(db, 'investment-memos', imId), (snap) => {
@@ -259,12 +266,22 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
 
   const filteredTasks = useMemo(() => {
     return tasks.filter(t => {
-      if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      let passesSearch = true;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const titleMatch = t.title.toLowerCase().includes(q);
+        const sectionMatch = (t.linkedSections || []).some(key => {
+          const sec = flatSections.find(s => s.key === key);
+          return sec && cleanTitle(sec.navLabel || sec.heading).toLowerCase().includes(q);
+        });
+        passesSearch = titleMatch || sectionMatch;
+      }
+      if (!passesSearch) return false;
       if (filterAssignee && t.assignee?.uid !== filterAssignee) return false;
       if (filterReviewer && t.reviewer?.uid !== filterReviewer) return false;
       return true;
     });
-  }, [tasks, searchQuery, filterAssignee, filterReviewer]);
+  }, [tasks, searchQuery, filterAssignee, filterReviewer, flatSections]);
 
   const sectionChildKeysByParent = useMemo(() => {
     const sectionById = new Map(visibleSchema.map(s => [s.id, s]));
@@ -333,6 +350,76 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
       overdue: dueSummary.overdue
     };
   }, [columns, filteredTasks, getDueDateState]);
+
+  // ── COMMENT ANALYTICS & SLA ENGINE ──
+  const commentStatsBySection = useMemo(() => {
+    const stats = {};
+    schema.forEach(sec => {
+      if (sec?.key) {
+        stats[sec.key] = { total: 0, open: 0, resolved: 0, slaBreached: 0, comments: [] };
+      }
+    });
+
+    const now = Date.now();
+    const SLA_MS = 48 * 60 * 60 * 1000; // 48-hour SLA threshold
+
+    comments.forEach(comment => {
+      const cSectionId = comment.sectionId || '';
+      const cDataPath = comment.dataPath || '';
+
+      // Bulletproof matching: cross-reference keys and IDs across both fields
+      const matchedSec = schema.find(sec => {
+        if (!sec) return false;
+        return (
+          (sec.key && (cSectionId === sec.key || cDataPath.includes(sec.key))) ||
+          (sec.id && (cSectionId === sec.id || cDataPath.includes(sec.id)))
+        );
+      });
+      
+      if (matchedSec && matchedSec.key) {
+        const secKey = matchedSec.key;
+        if (!stats[secKey]) stats[secKey] = { total: 0, open: 0, resolved: 0, slaBreached: 0, comments: [] };
+        
+        stats[secKey].total += 1;
+        stats[secKey].comments.push(comment);
+        
+        if (comment.status === 'resolved') {
+          stats[secKey].resolved += 1;
+        } else {
+          stats[secKey].open += 1;
+          const createdAt = comment.createdAt?.toMillis ? comment.createdAt.toMillis() : (comment.createdAt || now);
+          if (now - createdAt > SLA_MS) stats[secKey].slaBreached += 1;
+        }
+      }
+    });
+    return stats;
+  }, [comments, schema]);
+
+  // ORPHAN CATCHER: Sections excluded from the template, but still have active comments
+  const excludedSectionsWithComments = useMemo(() => {
+    return excludedSections.map(exId => schema.find(s => s.id === exId))
+      .filter(sec => {
+        if (!sec || !sec.key) return false;
+        const stats = commentStatsBySection[sec.key];
+        return stats && stats.open > 0;
+      });
+  }, [excludedSections, schema, commentStatsBySection]);
+
+  const handleDeepLinkSection = (e, path) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('im-jump-to-section', { detail: { path } }));
+    if (onClose) onClose();
+  };
+
+  const handleDeepLinkComment = (e, path) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
+    // Slight delay ensures the sidebar renders before trying to jump inside it
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('im-jump-to-section', { detail: { path } }));
+    }, 150);
+    if (onClose) onClose();
+  };
 
   // ── INLINE MUTATIONS ──
   const handleUpdateTaskField = async (taskId, field, userId) => {
@@ -529,7 +616,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         <div style={{ flex: '1 1 300px', minWidth: '200px', position: 'relative' }}>
           <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: T.textMuted }} />
           <input 
-            type="text" placeholder="Search tasks by title..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            type="text" placeholder="Search tasks or sections..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px 10px 40px', borderRadius: '8px', border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: 'none', fontSize: '0.85rem' }}
           />
         </div>
@@ -720,49 +807,156 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     </div>
   );
 
-  const renderMatrix = () => (
+  const renderMatrix = () => {
+    // INTELLIGENT CHECK: Are we actually hiding anything?
+    // We compare the total flat schema items vs the items currently cleared to render.
+    const hasActiveExclusions = schema.length > visibleSchema.length;
+
+    return (
     <div style={{ padding: '0 32px 40px', position: 'relative', zIndex: 10 }}>
+      
+      {/* EXCLUSION PROTOCOL INFORMATIONAL BANNER */}
+      {hasActiveExclusions && (
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          gap: '16px',
+          padding: '12px 20px', 
+          background: isDark ? 'rgba(239, 68, 68, 0.06)' : 'rgba(239, 68, 68, 0.04)', 
+          border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)'}`, 
+          borderRadius: '10px', 
+          marginBottom: '16px',
+          animation: 'imFadeIn 0.2s ease-out'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.82rem', color: isDark ? '#fca5a5' : '#b91c1c', fontWeight: 500, lineHeight: 1.4 }}>
+              Some sections/subsections have been excluded. Kindly review the tailor template for more inputs.
+            </span>
+          </div>
+          <button 
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('im-open-tailor-modal'));
+              if (onClose) onClose();
+            }}
+            style={{ 
+              background: '#ef4444', 
+              color: '#ffffff', 
+              border: 'none', 
+              padding: '6px 14px', 
+              borderRadius: '6px', 
+              fontSize: '0.78rem', 
+              fontWeight: 700, 
+              cursor: 'pointer', 
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.25)',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#dc2626'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            Review Structure
+          </button>
+        </div>
+      )}
+
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', overflow: 'hidden', boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)' }}>
         
-        {/* Matrix Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr', padding: '16px 24px', background: T.surface2, borderBottom: `1px solid ${T.border}`, fontSize: '0.7rem', fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>
+     {/* Matrix Header */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1.2fr 1fr 1.5fr', gap: '16px', padding: '16px 24px', background: T.surface2, borderBottom: `1px solid ${T.border}`, fontSize: '0.7rem', fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>
           <div>Document Section</div>
           <div>Assignee</div>
           <div>Reviewer</div>
           <div>Task Status</div>
-          <div>Due Date</div>
-          <div>Open Comments</div>
+          <div>Target Due</div>
+          <div>Audit / Comments</div>
         </div>
         
         {/* Matrix Rows */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {flatSections.map(section => {
-            const activeTask = filteredTasks.find(t => t.linkedSections?.includes(section.key));
+            // Find the raw task first to determine row visibility independently of the Kanban filters
+            const activeTask = tasks.find(t => t.linkedSections?.includes(section.key));
+            
+            // Intelligent row visibility logic:
+            let isVisible = true;
+            
+            // 1. If filtering by Assignee/Reviewer, we strictly require a matching task
+            if (filterAssignee && activeTask?.assignee?.uid !== filterAssignee) isVisible = false;
+            if (filterReviewer && activeTask?.reviewer?.uid !== filterReviewer) isVisible = false;
+            
+            // 2. If searching, the section name OR the task title must match
+            if (searchQuery) {
+              const q = searchQuery.toLowerCase();
+              const secName = cleanTitle(section.navLabel || section.heading).toLowerCase();
+              const taskTitle = activeTask ? activeTask.title.toLowerCase() : '';
+              if (!secName.includes(q) && !taskTitle.includes(q)) isVisible = false;
+            }
+
+            if (!isVisible) return null;
+
             const colDef = activeTask ? columns.find(c => c.id === activeTask.status) : null;
             const dueState = activeTask ? getDueDateState(activeTask) : null;
-            const openComms = []; // Assuming no direct comment linkage required for the update focus
-            const hasComments = openComms.length > 0;
+            
+            const cStats = commentStatsBySection[section.key] || { total: 0, open: 0, resolved: 0, slaBreached: 0 };
+            const hasComments = cStats.total > 0;
             const isExpanded = expandedComments[section.key];
-
-            if (!activeTask && (searchQuery || filterAssignee || filterReviewer)) return null;
 
             return (
               <React.Fragment key={section.id}>
                 {/* Main Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr', padding: '12px 24px', borderBottom: `1px solid ${T.border}`, alignItems: 'center', transition: 'background 0.2s', background: isExpanded ? T.surface3 : 'transparent' }} onMouseEnter={e => e.currentTarget.style.background = T.surface3} onMouseLeave={e => e.currentTarget.style.background = isExpanded ? T.surface3 : 'transparent'}>
+                <div 
+                  style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1.2fr 1fr 1.5fr', gap: '16px', padding: '12px 24px', borderBottom: `1px solid ${T.border}`, alignItems: 'center', transition: 'all 0.2s', background: isExpanded ? T.surface3 : 'transparent', cursor: 'default' }} 
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface3} 
+                  onMouseLeave={e => e.currentTarget.style.background = isExpanded ? T.surface3 : 'transparent'}
+                >
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {!section.isParent && <ArrowRight size={14} color={T.textMuted} style={{ marginLeft: '16px' }} />}
-                    <span style={{ fontSize: section.isParent ? '0.9rem' : '0.85rem', fontWeight: section.isParent ? 700 : 500, color: section.isParent ? T.text : T.textMuted }}>
-                      <span style={{ color: T.primary, marginRight: '6px', fontWeight: 800 }}>{sectionNumberMap[section.id]}.</span>
-                      {cleanTitle(section.navLabel || section.heading)}
-                    </span>
-                    {activeTask && (
-                      <>
-                        <button onClick={() => openEditModal(activeTask)} title="Edit existing allocation" style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', opacity: 0.5 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
-                          <Edit3 size={12} />
+                    <button 
+                      onClick={(e) => handleDeepLinkSection(e, section.key)}
+                      style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      title="Jump to this section in the workspace"
+                    >
+                      <span style={{ fontSize: section.isParent ? '0.9rem' : '0.85rem', fontWeight: section.isParent ? 700 : 500, color: section.isParent ? T.text : T.textMuted, transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = section.isParent ? T.text : T.textMuted}>
+                        <span style={{ color: T.accent, marginRight: '6px', fontWeight: 800 }}>{sectionNumberMap[section.id]}.</span>
+                        {cleanTitle(section.navLabel || section.heading)}
+                      </span>
+                    </button>
+                         {activeTask && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button 
+                          onClick={() => openEditModal(activeTask)} 
+                          title="Edit Configuration" 
+                          style={{ 
+                            background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', 
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`, 
+                            color: T.text, 
+                            cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', 
+                            justifyContent: 'center', padding: '6px 8px', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' 
+                          }} 
+                          onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'; e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.boxShadow = isDark ? '0 4px 12px rgba(0,0,0,0.5)' : '0 4px 12px rgba(0,0,0,0.1)'; }} 
+                          onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'; e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          <Edit3 size={15} />
                         </button>
-                      </>
+                        <button 
+                          onClick={() => openDetailModal(activeTask)} 
+                          title="Open Detailed Task View" 
+                          style={{ 
+                            background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', 
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`, 
+                            color: T.text, 
+                            cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', 
+                            justifyContent: 'center', padding: '6px 8px', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' 
+                          }} 
+                          onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'; e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.boxShadow = isDark ? '0 4px 12px rgba(0,0,0,0.5)' : '0 4px 12px rgba(0,0,0,0.1)'; }} 
+                          onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'; e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          <FileText size={15} />
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -773,7 +967,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           className="glass-select"
                           value={activeTask.assignee?.uid || ''} 
                           onChange={(e) => handleUpdateTaskField(activeTask.id, 'assignee', e.target.value)}
-                          style={{ width: '90%', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.assignee ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
+                          style={{ width: '100%', minWidth: '100px', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.assignee ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           <option value="">Unassigned</option>
                           {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email.split('@')[0]}</option>)}
@@ -785,7 +979,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           className="glass-select"
                           value={activeTask.reviewer?.uid || ''} 
                           onChange={(e) => handleUpdateTaskField(activeTask.id, 'reviewer', e.target.value)}
-                          style={{ width: '90%', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.reviewer ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
+                          style={{ width: '100%', minWidth: '100px', padding: '6px', borderRadius: '6px', background: T.surface2, border: `1px solid ${T.border}`, color: activeTask.reviewer ? T.text : T.textMuted, fontSize: '0.8rem', outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           <option value="">No Reviewer</option>
                           {workspaceUsers.map(u => <option key={u.userId} value={u.userId}>{u.email.split('@')[0]}</option>)}
@@ -797,12 +991,12 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                           className="glass-select"
                           value={activeTask.status} 
                           onChange={(e) => handleUpdateStatus(activeTask.id, e.target.value)}
-                          style={{ width: '90%', padding: '6px', borderRadius: '6px', background: colDef ? `${colDef.color}15` : T.surface2, border: colDef ? `1px solid ${colDef.color}40` : `1px solid ${T.border}`, color: colDef ? colDef.color : T.text, fontSize: '0.8rem', fontWeight: 700, outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
+                          style={{ width: '100%', minWidth: '110px', padding: '6px', borderRadius: '6px', background: colDef ? `${colDef.color}15` : T.surface2, border: colDef ? `1px solid ${colDef.color}40` : `1px solid ${T.border}`, color: colDef ? colDef.color : T.text, fontSize: '0.8rem', fontWeight: 700, outline: 'none', cursor: 'pointer', boxSizing: 'border-box', textOverflow: 'ellipsis' }}
                         >
                           {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                         </select>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '90%' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
                         <input
                           type="date"
                           value={activeTask.dueDate || ''}
@@ -825,11 +1019,38 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
                     </div>
                   )}
 
-                  <div>
+                  <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                     {hasComments ? (
-                      <span style={{ fontSize: '0.75rem', color: T.amber }}>Issues Available</span>
+                      <button 
+                        onClick={(e) => handleDeepLinkComment(e, section.key)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: T.surface, border: `1px solid ${T.border}`, borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s', width: 'max-content' }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = T.textMuted}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                      >
+                        {cStats.open > 0 ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b', whiteSpace: 'nowrap' }}>
+                            <MessageSquare size={12} /> {cStats.open} Open
+                          </span>
+                        ) : (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 700, color: '#10b981', whiteSpace: 'nowrap' }}>
+                            <UserCheck size={12} /> 0 Open
+                          </span>
+                        )}
+
+                        {cStats.resolved > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 700, color: '#10b981', borderLeft: `1px solid ${T.border}`, paddingLeft: '8px', whiteSpace: 'nowrap' }}>
+                            {cStats.resolved} Resolved
+                          </span>
+                        )}
+
+                        {cStats.slaBreached > 0 && (
+                          <span title={`${cStats.slaBreached} comments open for >48 hours!`} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 800, color: '#ef4444', borderLeft: `1px solid ${T.border}`, paddingLeft: '8px', animation: 'imPulse 2s infinite', whiteSpace: 'nowrap' }}>
+                            <AlertTriangle size={12} /> {cStats.slaBreached} Flagged
+                          </span>
+                        )}
+                      </button>
                     ) : (
-                      <span style={{ fontSize: '0.75rem', color: T.textMuted, opacity: 0.5 }}>Clean</span>
+                      <span style={{ fontSize: '0.75rem', color: T.textMuted, opacity: 0.5, fontStyle: 'italic' }}>No active audit</span>
                     )}
                   </div>
                 </div>
@@ -837,9 +1058,45 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
             )
           })}
         </div>
+        
+        {/* ORPHAN BUCKET FOR EXCLUDED SECTIONS WITH ACTIVE COMMENTS */}
+        {excludedSectionsWithComments.length > 0 && (
+          <div style={{ borderTop: `2px dashed rgba(239,68,68,0.3)`, background: isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.02)' }}>
+            <div style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              ⚠️ Archived / Excluded Sections (With Active Comments)
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {excludedSectionsWithComments.map(sec => {
+                const cStats = commentStatsBySection[sec.key];
+                return (
+                  <div key={sec.id} style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1.5fr', gap: '16px', padding: '12px 24px', borderBottom: `1px solid rgba(239,68,68,0.1)`, alignItems: 'center' }}>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: 0.7 }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 500, color: '#ef4444', textDecoration: 'line-through' }}>
+                        {cleanTitle(sec.navLabel || sec.heading)}
+                      </span>
+                    </div>
+
+                    <div style={{ gridColumn: 'span 4', fontSize: '0.75rem', color: T.textMuted, fontStyle: 'italic' }}>
+                      Section is currently excluded from the final memo.
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <button onClick={(e) => handleDeepLinkComment(e, sec.key)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', background: 'rgba(239,68,68,0.1)', border: `1px solid rgba(239,68,68,0.4)`, borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}>
+                        <MessageSquare size={12} /> {cStats.open} Stranded Comments
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
+  }; // <-- THIS IS THE MISSING BRACKET
 
   return (
     <div style={{ fontFamily: '"DN Sans", sans-serif', position: 'fixed', inset: 0, zIndex: 1000, background: T.bg, display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease-out', overflow: 'hidden' }}>
@@ -858,11 +1115,11 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
             </div>
             <div style={{ width: '1px', height: '32px', background: T.border }} />
             <div style={{ display: 'flex', background: T.surface3, padding: '4px', borderRadius: '8px', border: `1px solid ${T.border}` }}>
-              <button onClick={() => setViewMode('kanban')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, background: viewMode === 'kanban' ? (isDark ? 'rgba(255,255,255,0.1)' : '#fff') : 'transparent', color: viewMode === 'kanban' ? T.text : T.textMuted, transition: 'all 0.2s' }}>
-                <Kanban size={15} /> Kanban
-              </button>
               <button onClick={() => setViewMode('matrix')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, background: viewMode === 'matrix' ? (isDark ? 'rgba(255,255,255,0.1)' : '#fff') : 'transparent', color: viewMode === 'matrix' ? T.text : T.textMuted, transition: 'all 0.2s' }}>
                 <ListTree size={15} /> Matrix
+              </button>
+              <button onClick={() => setViewMode('kanban')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, background: viewMode === 'kanban' ? (isDark ? 'rgba(255,255,255,0.1)' : '#fff') : 'transparent', color: viewMode === 'kanban' ? T.text : T.textMuted, transition: 'all 0.2s' }}>
+                <Kanban size={15} /> Kanban
               </button>
             </div>
           </div>
@@ -1116,6 +1373,23 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         }
         ::-webkit-scrollbar-thumb:hover {
           background: ${T.textMuted}; 
+        }
+        
+        /* Force native HTML5 calendar picker icons to match the theme color instead of breaking in dark mode */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+          filter: ${isDark ? 'invert(1) sepia(1) saturate(5) hue-rotate(175deg)' : 'none'};
+          cursor: pointer;
+          opacity: 0.8;
+          transition: opacity 0.2s;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover {
+          opacity: 1;
+        }
+
+        @keyframes imPulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
         }
       `}</style>
     </div>
