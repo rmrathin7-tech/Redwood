@@ -1011,14 +1011,20 @@ const toggleSectionExclusion = async (id, isExcluding) => {
                       </div>
                       <div style={{ width: '1px', height: '14px', background: T.border }} />
                       <select 
-                        value={sectionTask.status}
-                        onChange={(e) => updateDoc(doc(db, 'im-tasks', sectionTask.id), { status: e.target.value })}
-                        style={{ background: 'transparent', border: 'none', color: T.text, fontSize: '0.8rem', fontWeight: 700, outline: 'none', cursor: 'pointer' }}
-                      >
-                        {taskColumns.map(col => (
-                          <option key={col.id} value={col.id}>{col.label}</option>
-                        ))}
-                      </select>
+                value={sectionTask.status}
+                onChange={(e) => updateDoc(doc(db, 'im-tasks', sectionTask.id), { status: e.target.value })}
+                style={{ background: 'transparent', border: 'none', color: T.text, fontSize: '0.8rem', fontWeight: 700, outline: 'none', cursor: 'pointer' }}
+              >
+                {taskColumns.map(col => (
+                  <option 
+                    key={col.id} 
+                    value={col.id} 
+                    style={{ background: T.surface, color: T.text }}
+                  >
+                    {col.label}
+                  </option>
+                ))}
+              </select>
                     </div>
                   );
                 })()}
