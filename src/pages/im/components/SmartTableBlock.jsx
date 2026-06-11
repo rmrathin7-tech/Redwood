@@ -29,6 +29,99 @@ if (!document.getElementById(STYLE_ID)) {
   document.head.appendChild(s);
 }
 
+// ── ADDED: GLOBAL HIGHLIGHT STYLES FOR QUILL ─────────────────────────────────
+const STYLE_ID_QUILL = 'im-smarttable-quill-comments';
+if (!document.getElementById(STYLE_ID_QUILL)) {
+  const s = document.createElement('style');
+  s.id = STYLE_ID_QUILL;
+  s.textContent = `
+    mark.im-comment-highlight {
+      background-color: rgba(245,158,11,0.28) !important;
+      border-bottom: 2px solid #f59e0b !important;
+      border-radius: 0 !important; padding: 0 !important; margin: 0 !important;
+      display: inline !important; line-height: inherit !important;
+      cursor: pointer !important; transition: background-color 0.15s;
+      color: inherit !important;
+    }
+    mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    mark.im-comment-highlight[data-comment-status="resolved"] {
+      background-color: rgba(148,163,184,0.18) !important;
+      border-bottom: 2px solid #94a3b8 !important;
+    }
+    .active-comment-glow {
+      background-color: rgba(245, 158, 11, 0.6) !important;
+      transition: background-color 0.3s ease !important;
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+// ── ADDED: COMMENT BLOT FOR INLINE QUILL ──────────────────────────────────────
+if (!Quill.imports['formats/comment']) {
+  const Inline = Quill.import('blots/inline');
+  class CommentBlot extends Inline {
+    static create(value) {
+      const node = super.create();
+      node.setAttribute('data-comment-id', value.id || value);
+      node.setAttribute('data-comment-status', value.status || 'open');
+      node.className = 'im-comment-highlight';
+      CommentBlot.applyStyle(node, value.status || 'open');
+      node.style.cursor = 'pointer';
+      return node;
+    }
+    static applyStyle(node, status) {
+      if (status === 'resolved') {
+        node.style.backgroundColor = 'rgba(148,163,184,0.18)';
+        node.style.borderBottom = '2px solid #94a3b8';
+      } else {
+        node.style.backgroundColor = 'rgba(245,158,11,0.28)';
+        node.style.borderBottom = '2px solid #f59e0b';
+      }
+    }
+    static formats(node) {
+      return {
+        id: node.getAttribute('data-comment-id'),
+        status: node.getAttribute('data-comment-status') || 'open',
+      };
+    }
+  }
+  CommentBlot.blotName = 'comment';
+  CommentBlot.tagName = 'mark';
+  Quill.register(CommentBlot, true);
+}
+
+// ── ADDED: QUILL RANGE HELPERS ────────────────────────────────────────────────
+function escapeRegex(value = '') { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function findQuoteRange(quill, quote) {
+  if (!quill || !quote) return null;
+  const text = quill.getText() || '';
+  const trimmedQuote = quote.trim();
+  if (!trimmedQuote) return null;
+  const exactIndex = text.indexOf(trimmedQuote);
+  if (exactIndex !== -1) return { index: exactIndex, length: trimmedQuote.length };
+  const ciIndex = text.toLowerCase().indexOf(trimmedQuote.toLowerCase());
+  if (ciIndex !== -1) return { index: ciIndex, length: trimmedQuote.length };
+  const normalizedQuote = trimmedQuote.replace(/\s+/g, ' ');
+  if (!normalizedQuote) return null;
+  const pattern = escapeRegex(normalizedQuote).replace(/\s+/g, '\\s+');
+  const wsMatch = text.match(new RegExp(pattern));
+  if (wsMatch?.[0]) return { index: wsMatch.index, length: wsMatch[0].length };
+  const wsCiMatch = text.match(new RegExp(pattern, 'i'));
+  if (wsCiMatch?.[0]) return { index: wsCiMatch.index, length: wsCiMatch[0].length };
+  return null;
+}
+
+function ensureCommentHighlight(quill, { commentId, quote, status = 'open' }) {
+  if (!quill || !commentId || !quote) return false;
+  const existing = quill.root.querySelector(`[data-comment-id="${commentId}"]`);
+  if (existing) return false;
+  const range = findQuoteRange(quill, quote);
+  if (!range || range.length === 0) return false;
+  quill.formatText(range.index, range.length, 'comment', { id: commentId, status }, 'silent');
+  return true;
+}
+
 // ── UNIQUE ID HELPER ─────────────────────────────────────────────────────────
 const genRowId = () => `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 const addRowId = (r) => (r && r._rowId ? r : { ...r, _rowId: genRowId() });
@@ -299,6 +392,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   const editorRef      = useRef(null);
   const quillInstance  = useRef(null);
   const typingTimeout  = useRef(null);
+  const pendingCommentRange = useRef(null); // <-- Tracks exact selection
   const [isFocused, setIsFocused] = useState(false);
 
   const latestOnChange = useRef(onChange);
@@ -343,6 +437,13 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     });
     if (val) quillInstance.current.root.innerHTML = val;
     
+    quillInstance.current.root.addEventListener('click', (e) => {
+      const span = e.target.closest('[data-comment-id]');
+      if (!span) return;
+      window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
+      window.dispatchEvent(new CustomEvent('im-open-comment', { detail: { commentId: span.getAttribute('data-comment-id') } }));
+    });
+
     quillInstance.current.on('text-change', (delta, oldDelta, source) => {
       if (source !== 'user') return;
       clearTimeout(typingTimeout.current);
@@ -365,6 +466,80 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
         if (latestFocusHandlers.current?.onBlur) latestFocusHandlers.current.onBlur();
       }, 300);
     });
+
+    // ── TRACK EXACT SELECTION TO PREVENT MULTI-CELL RACE CONDITIONS ──
+    quillInstance.current.on('selection-change', (range) => {
+      if (range && range.length > 0) {
+        pendingCommentRange.current = range;
+      } else {
+        setTimeout(() => { pendingCommentRange.current = null; }, 400); // Buffer for external clicks
+      }
+    });
+
+    // ── EVENT LISTENERS FOR SVG & HIGHLIGHTS ──
+    const persistHtml = () => latestOnChange.current(quillInstance.current.root.innerHTML);
+
+    const handleCreateComment = (e) => {
+      const detail = e.detail || {};
+      if (detail.dataPath !== block.dataPath) return;
+      
+      // PRECISION CREATION: Only the exact cell that was highlighted gets formatted!
+      if (pendingCommentRange.current) {
+        quillInstance.current.formatText(pendingCommentRange.current.index, pendingCommentRange.current.length, 'comment', { id: detail.commentId, status: 'open' }, 'silent');
+        setTimeout(persistHtml, 50); // 50ms DOM settlement delay before saving
+        pendingCommentRange.current = null;
+      }
+    };
+
+    const handleJump = (e) => {
+      const { dataPath, commentId, quote } = e.detail || {};
+      if (dataPath !== block.dataPath) return;
+      
+      let target = quillInstance.current.root.querySelector(`[data-comment-id="${commentId}"]`);
+      if (!target && quote) {
+        const applied = ensureCommentHighlight(quillInstance.current, { commentId, quote, status: 'open' });
+        if (applied) {
+          target = quillInstance.current.root.querySelector(`[data-comment-id="${commentId}"]`);
+          setTimeout(persistHtml, 50);
+        }
+      }
+
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('active-comment-glow');
+        setTimeout(() => target.classList.remove('active-comment-glow'), 1500);
+      }
+    };
+
+    const handleStatusUpdate = (e) => {
+      const { commentId, status } = e.detail;
+      const spans = quillInstance.current.root.querySelectorAll(`[data-comment-id="${commentId}"]`);
+      if (spans.length > 0) {
+        spans.forEach((span) => {
+          span.setAttribute('data-comment-status', status);
+          if (status === 'resolved') {
+            span.style.backgroundColor = 'rgba(148,163,184,0.18)';
+            span.style.borderBottom = '2px solid #94a3b8';
+          } else if (status === 'deleted') {
+            span.replaceWith(document.createTextNode(span.textContent));
+          } else {
+            span.style.backgroundColor = 'rgba(245,158,11,0.28)';
+            span.style.borderBottom = '2px solid #f59e0b';
+          }
+        });
+        if (status === 'deleted') setTimeout(persistHtml, 50);
+      }
+    };
+
+    window.addEventListener('im-create-comment', handleCreateComment);
+    window.addEventListener('im-jump-to-comment', handleJump);
+    window.addEventListener('im-comment-status-update', handleStatusUpdate);
+
+    return () => {
+      window.removeEventListener('im-create-comment', handleCreateComment);
+      window.removeEventListener('im-jump-to-comment', handleJump);
+      window.removeEventListener('im-comment-status-update', handleStatusUpdate);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1323,8 +1498,15 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
         }
         if (iType === 'select') {
           const customKey  = `${tableInstanceId}_${rIdx}_${cell.id}`;
-          const isCustom   = val === '__custom__';
-          const customText = customValues[customKey] || '';
+          
+          // ── THE FIX: Check if it starts with __custom__ instead of an exact match
+          const isCustom   = typeof val === 'string' && val.startsWith('__custom__');
+          
+          // ── THE FIX: Extract the typed text so it stays in the box during re-renders
+          const customText = isCustom && val.includes(':') 
+            ? val.substring(val.indexOf(':') + 1) 
+            : (customValues[customKey] || '');
+            
           const optionStyle = { background: isDark ? '#1f2937' : '#ffffff', color: t.text };
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px 6px' }}>
