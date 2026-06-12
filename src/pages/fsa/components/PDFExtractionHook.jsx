@@ -132,14 +132,17 @@ const applyExtractedPayload = useCallback((targetYearStr) => {
     const safeYear = targetYearStr || formatFinancialYear(new Date().getFullYear());
     let injectedCount = 0;
 
+    // The backend payload structure has keys like 'profit_and_loss', 'balance_sheet'
     Object.entries(extractionResult.payload).forEach(([docKey, extractionData]) => {
       const frontendDocMap = { profit_and_loss: 'pnl', balance_sheet: 'bs', cash_flow: 'cashflow' };
       const activeDocKey = frontendDocMap[docKey] || 'pnl';
 
-      if (extractionData && extractionData.data) {
-        let dataToProcess = extractionData.data;
+      // 1. Handle potential 'data' wrapper from legacy structure
+      let dataToProcess = extractionData.data ? extractionData.data : extractionData;
 
-        // CHECK FOR YEAR LAYER: Does the AI output have "2025" or "2024" as top-level keys?
+      if (dataToProcess && typeof dataToProcess === 'object') {
+        
+        // 2. CHECK FOR YEAR LAYER: Does the AI output have "2025" or "2024" as top-level keys?
         const firstKey = Object.keys(dataToProcess)[0];
         if (firstKey && !isNaN(parseInt(firstKey)) && firstKey.length === 4) {
           // It is grouped by year! Find the requested year, otherwise default to the most recent one
@@ -147,17 +150,19 @@ const applyExtractedPayload = useCallback((targetYearStr) => {
           dataToProcess = yearMatch ? dataToProcess[yearMatch] : dataToProcess[firstKey];
         }
 
-        // Now loop through the clean, flattened sections (e.g., 'revenue', 'directcosts')
-        Object.entries(dataToProcess).forEach(([sectionKey, items]) => {
-          if (typeof items === 'object' && items !== null) {
-            Object.entries(items).forEach(([itemKey, numericVal]) => {
-              if (typeof numericVal === 'number' || !isNaN(parseFloat(numericVal))) {
-                onInjectExtractedPayload(activeDocKey, sectionKey, itemKey, parseFloat(numericVal), safeYear);
-                injectedCount += 1;
-              }
-            });
-          }
-        });
+        // 3. Now loop through the clean, flattened sections (e.g., 'revenue', 'directcosts')
+        if (dataToProcess && typeof dataToProcess === 'object') {
+           Object.entries(dataToProcess).forEach(([sectionKey, items]) => {
+            if (typeof items === 'object' && items !== null) {
+              Object.entries(items).forEach(([itemKey, numericVal]) => {
+                if (typeof numericVal === 'number' || !isNaN(parseFloat(numericVal))) {
+                  onInjectExtractedPayload(activeDocKey, sectionKey, itemKey, parseFloat(numericVal), safeYear);
+                  injectedCount += 1;
+                }
+              });
+            }
+          });
+        }
       }
     });
 
@@ -165,8 +170,7 @@ const applyExtractedPayload = useCallback((targetYearStr) => {
     setExtractionResult(null);
     setSelectedPdfFile(null);
     return injectedCount;
-  }, [extractionResult, onInjectExtractedPayload]);
-  
+  }, [extractionResult, onInjectExtractedPayload]);  
   const togglePdfDrawer = useCallback(() => setPdfDrawerOpen(prev => !prev), []);
 
   const resetExtractionState = useCallback(() => {
