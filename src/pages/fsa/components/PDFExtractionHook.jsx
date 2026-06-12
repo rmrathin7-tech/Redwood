@@ -126,7 +126,7 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
     }
   }, [selectedPdfFile, configSchemas]);
 
-  const applyExtractedPayload = useCallback((targetYearStr) => {
+const applyExtractedPayload = useCallback((targetYearStr) => {
     if (!extractionResult?.payload || !onInjectExtractedPayload) return 0;
 
     const safeYear = targetYearStr || formatFinancialYear(new Date().getFullYear());
@@ -137,7 +137,18 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
       const activeDocKey = frontendDocMap[docKey] || 'pnl';
 
       if (extractionData && extractionData.data) {
-        Object.entries(extractionData.data).forEach(([sectionKey, items]) => {
+        let dataToProcess = extractionData.data;
+
+        // CHECK FOR YEAR LAYER: Does the AI output have "2025" or "2024" as top-level keys?
+        const firstKey = Object.keys(dataToProcess)[0];
+        if (firstKey && !isNaN(parseInt(firstKey)) && firstKey.length === 4) {
+          // It is grouped by year! Find the requested year, otherwise default to the most recent one
+          const yearMatch = Object.keys(dataToProcess).find(k => k.includes(safeYear) || safeYear.includes(k));
+          dataToProcess = yearMatch ? dataToProcess[yearMatch] : dataToProcess[firstKey];
+        }
+
+        // Now loop through the clean, flattened sections (e.g., 'revenue', 'directcosts')
+        Object.entries(dataToProcess).forEach(([sectionKey, items]) => {
           if (typeof items === 'object' && items !== null) {
             Object.entries(items).forEach(([itemKey, numericVal]) => {
               if (typeof numericVal === 'number' || !isNaN(parseFloat(numericVal))) {
@@ -155,7 +166,7 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
     setSelectedPdfFile(null);
     return injectedCount;
   }, [extractionResult, onInjectExtractedPayload]);
-
+  
   const togglePdfDrawer = useCallback(() => setPdfDrawerOpen(prev => !prev), []);
 
   const resetExtractionState = useCallback(() => {
