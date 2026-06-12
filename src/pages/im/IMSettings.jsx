@@ -4,7 +4,7 @@ import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
   Image as ImageIcon, Table, Copy, Trash2, ArrowUp, ArrowDown,
   Info, Layers, PanelLeft, PanelRight, Grid3X3, X, AlignJustify,
-  Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download
+  Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download, Link
 } from 'lucide-react';
 import { db } from '../../firebase.js';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -26,6 +26,7 @@ const BLOCK_TYPES = [
   { id: 'table',           icon: <Table size={15} />,        label: 'Smart Table',         desc: 'Fixed or dynamic table' },
   { id: 'repeating-group', icon: <Copy size={15} />,         label: 'Repeating Group',     desc: 'Founders, testimonials, awards…' },
   { id: 'list',            icon: <List size={15} />,         label: 'Bullet List',         desc: 'Editable list with auto S.No' },
+  { id: 'fsa-link',        icon: <Link size={15} />,         label: 'FSA Link',            desc: 'Live financial dashboard link' },
 ];
 
 const BLOCK_DEFAULTS = {
@@ -97,6 +98,7 @@ image: {
   objectFit: 'cover',
 },
   file:       { multiple: false },
+  'fsa-link': { desc: 'Select a Financial Statement Analysis to display a live summary dashboard.' },
 };
 
 export default function IMSettings() {
