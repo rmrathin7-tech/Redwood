@@ -21,7 +21,9 @@ import FCSettings from './pages/fc/FCSettings.jsx';
 
 // BSA (Bank Statement Analysis) - ADDED HERE
 import BSAWorkspace from './pages/bsa/BSAWorkspace.jsx';
-
+import SRLHub from './pages/srl/SRLHub.jsx';
+import SRLSettings from './pages/srl/SRLSettings.jsx';
+import PublicSRLView from './pages/srl/PublicSRLView.jsx';
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
@@ -44,6 +46,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
         {/* BSA Route - ADDED HERE */}
         <Route path="/bsa" element={<BSAWorkspace />} />
+
+        {/* SRL Routes */}
+        <Route path="/srl-hub" element={<SRLHub />} />
+        <Route path="/srl-settings" element={<SRLSettings />} />
+        <Route path="/public/srl/:srlId" element={<PublicSRLView />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

@@ -142,13 +142,20 @@ export default function CommentsSidebar({
     inputBorder: isDark ? 'rgba(255,255,255,0.12)'     : '#d1d5db',
   };
 
-  // ── FIRESTORE LISTENER ────────────────────────────────────────────────────
+// ── FIRESTORE LISTENER ────────────────────────────────────────────────────
   useEffect(() => {
     if (!imId) return;
     const q = query(collection(db, 'im-comments'), where('imId', '==', imId));
     return onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ _docId: d.id, ...d.data() }));
-      // FIX: Sort descending so newest comments pop up at the top
+      const data = snap.docs.map(d => {
+        const docData = d.data();
+        return {
+          ...docData, // Spread the raw data
+          _docId: d.id, // Store the Firestore Document ID
+          id: docData.id || d.id, // <--- THE FIX: Fallback to doc ID if custom 'id' is missing
+        };
+      });
+      // Sort descending so newest comments pop up at the top
       data.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setComments(data);
     });
@@ -224,13 +231,27 @@ export default function CommentsSidebar({
     }
   }, [activeId]);
 
-  // ── HELPERS to find Firestore doc by custom `id` field ────────────────────
+// ── HELPERS to find Firestore doc by custom `id` field ────────────────────
   const findDoc = useCallback(async (commentId) => {
+    // 1. Try finding by the new explicit 'id' field
     const found = await getDocs(
       query(collection(db, 'im-comments'), where('id', '==', commentId))
     );
-    return found.empty ? null : found.docs[0];
-  }, []);
+    if (!found.empty) return found.docs[0];
+
+    // 2. BACKWARD COMPATIBILITY FALLBACK:
+    // If not found, it is an old comment lacking the explicit 'id' field in the DB.
+    // We look up the document ID (_docId) from our local React state instead.
+    const localComment = comments.find(c => c.id === commentId);
+    if (localComment && localComment._docId) {
+      return {
+        ref: doc(db, 'im-comments', localComment._docId),
+        data: () => localComment // Mock data() for functions that read from the payload
+      };
+    }
+    
+    return null;
+  }, [comments]); // <-- IMPORTANT: Ensure 'comments' is in this dependency array
 
   // ── ACTIONS ──────────────────────────────────────────────────────────────
   const handleFirstComment = useCallback(async (commentId) => {
