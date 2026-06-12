@@ -321,6 +321,38 @@ function FullscreenEditor({
     }
     if (onQuillReady) onQuillReady(quillRef.current);
 
+    // --- NEW PASTE & DROP HANDLER FOR FULLSCREEN ---
+    const handleDirectUpload = async (file, quill) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      try {
+        const path = `im-quill/${block.dataPath}/${Date.now()}-${file.name}`;
+        const snap = await uploadBytes(storageRef(storage, path), file);
+        const url  = await getDownloadURL(snap.ref);
+        const range = quill.getSelection(true) || { index: quill.getLength() };
+        quill.insertEmbed(range.index, 'image', url);
+        quill.insertText(range.index + 1, ' ', 'user');
+        quill.setSelection(range.index + 2, 'silent');
+        setTimeout(() => { if (onChange) onChange(block.dataPath, quill.root.innerHTML); }, 100);
+      } catch (err) { console.error('Image paste/drop upload failed:', err); }
+    };
+
+    quillRef.current.root.addEventListener('paste', (e) => {
+      const file = e.clipboardData?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        e.preventDefault(); // Stop the base64 crash
+        handleDirectUpload(file, quillRef.current);
+      }
+    });
+
+    quillRef.current.root.addEventListener('drop', (e) => {
+      const file = e.dataTransfer?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        e.preventDefault(); // Stop the base64 crash
+        handleDirectUpload(file, quillRef.current);
+      }
+    });
+    // -----------------------------------------------
+
     quillRef.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
       setSaved(false);
@@ -657,6 +689,7 @@ export default function RichTextBlock({
   const fullscreenQuill  = useRef(null);
   const typingTimeout    = useRef(null);
   const pendingSelection = useRef(null);
+  const hasUnsavedChanges = useRef(false);
 
   const [isFocused,  setIsFocused]  = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -814,6 +847,38 @@ quillInstance.current = new Quill(editorRef.current, {
 
     if (value) quillInstance.current.root.innerHTML = value;
 
+    // --- NEW PASTE & DROP HANDLER FOR MAIN EDITOR ---
+    const handleMainDirectUpload = async (file, quill) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      try {
+        const path = `im-quill/${block.dataPath}/${Date.now()}-${file.name}`;
+        const snap = await uploadBytes(storageRef(storage, path), file);
+        const url  = await getDownloadURL(snap.ref);
+        const range = quill.getSelection(true) || { index: quill.getLength() };
+        quill.insertEmbed(range.index, 'image', url);
+        quill.insertText(range.index + 1, ' ', 'user');
+        quill.setSelection(range.index + 2, 'silent');
+        setTimeout(() => { if (onChange) onChange(block.dataPath, quill.root.innerHTML); }, 100);
+      } catch (err) { console.error('Image paste/drop upload failed:', err); }
+    };
+
+    quillInstance.current.root.addEventListener('paste', (e) => {
+      const file = e.clipboardData?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        e.preventDefault(); // Stop the base64 crash
+        handleMainDirectUpload(file, quillInstance.current);
+      }
+    });
+
+    quillInstance.current.root.addEventListener('drop', (e) => {
+      const file = e.dataTransfer?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        e.preventDefault(); // Stop the base64 crash
+        handleMainDirectUpload(file, quillInstance.current);
+      }
+    });
+    // ------------------------------------------------
+
     quillInstance.current.on('selection-change', (range) => {
       if (!range || range.length === 0) { setTimeout(() => hideBubble(), 150); return; }
       const nr = quillInstance.current.selection.getNativeRange();
@@ -829,9 +894,13 @@ quillInstance.current = new Quill(editorRef.current, {
 
     quillInstance.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
+      hasUnsavedChanges.current = true; // Lock local state
       clearTimeout(typingTimeout.current);
       typingTimeout.current = setTimeout(() => {
-        if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML);
+        if (onChange) {
+          onChange(block.dataPath, quillInstance.current.root.innerHTML);
+          hasUnsavedChanges.current = false; // Release lock after auto-save
+        }
       }, 800);
     });
 
@@ -839,7 +908,11 @@ quillInstance.current = new Quill(editorRef.current, {
     quillInstance.current.root.addEventListener('blur',  () => {
       setIsFocused(false); if (onBlur) onBlur(block.id);
       clearTimeout(typingTimeout.current);
-      if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML);
+      // ONLY push a save if you actually typed something
+      if (onChange && hasUnsavedChanges.current) {
+        onChange(block.dataPath, quillInstance.current.root.innerHTML);
+        hasUnsavedChanges.current = false;
+      }
     });
 
     const onCommentUpdate = (e) => {
