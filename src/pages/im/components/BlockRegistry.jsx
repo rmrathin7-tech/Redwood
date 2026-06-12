@@ -6,6 +6,7 @@ import RepeatingGroupBlock from './RepeatingGroupBlock';
 import RepeatingBlockSet from './RepeatingBlockSet'; 
 import ConditionalSwitcherBlock from './ConditionalSwitcherBlock';
 import ChartBlock from './ChartBlock';
+import FSALinkBlock from './FSALinkBlock';
 
 // Layout-only block types (no data, no wrapper needed)
 const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
@@ -67,6 +68,9 @@ export default function BlockRegistry({
 
     case 'chart':                              
       return <ChartBlock {...commonProps} />;
+
+    case 'fsa-link':
+      return <FSALinkBlock {...commonProps} />;
 
     // All simple field types go to BasicInputBlock
     case 'instruction':
