@@ -66,6 +66,7 @@ export default function IMWorkspace() {
   
   const saveTimers = useRef({});
   const savedTimers = useRef({});
+  const activeEditPaths = useRef(new Set());
   const mainRef = useRef(null);
   const fileInputRef = useRef(null);
   
@@ -144,12 +145,37 @@ export default function IMWorkspace() {
     return onSnapshot(doc(db, 'investment-memos', imId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setImData(prev => ({ ...prev, ...(data.data || {}) }));
+        
+        setImData(prev => {
+          const incoming = data.data || {};
+          
+          // Deep merge engine that respects your active locks
+          const mergeSafely = (target, source, currentPath = '') => {
+            const result = { ...target };
+            for (const key in source) {
+              const path = currentPath ? `${currentPath}.${key}` : key;
+              
+              if (activeEditPaths.current.has(path)) {
+                continue; // Skip this field entirely because you are currently typing in it
+              }
+              
+              if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
+                result[key] = mergeSafely(result[key] || {}, source[key], path);
+              } else {
+                result[key] = source[key];
+              }
+            }
+            return result;
+          };
+
+          return mergeSafely(prev, incoming);
+        });
+
         setExcludedSections(data.excludedSections || []);
         setCustomNames(data.customNames || {});
       }
     });
-  }, [imId]);
+  }, [imId]); 
 
   useEffect(() => {
     if (!imId) return;
@@ -358,6 +384,9 @@ const toggleSectionExclusion = async (id, isExcluding) => {
 
   const handleDataChange = useCallback(async (dataPath, value, blockId) => {
     if (!dataPath || !imId) return;
+    
+    activeEditPaths.current.add(dataPath); // Protect this exact path from Firebase snapshots
+    
     setImData(prev => {
       const next = { ...prev };
       const keys = dataPath.split('.');
@@ -378,6 +407,8 @@ const toggleSectionExclusion = async (id, isExcluding) => {
           [`data.${dataPath}`]: value,
           updatedAt: serverTimestamp(),
         });
+        
+        activeEditPaths.current.delete(dataPath); // Remove protection once safely in database
         setSaveStatus('saved');
         if (blockId) {
           window.dispatchEvent(new CustomEvent('im-block-saved', { detail: { blockId } }));
