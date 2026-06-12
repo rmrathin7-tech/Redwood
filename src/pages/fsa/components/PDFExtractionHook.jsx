@@ -1,11 +1,12 @@
 /**
  * src/pages/fsa/components/PDFExtractionHook.jsx
- * MODULAR STANDALONE PDF PARSING & API INGESTION CONTROLLER
- * Fully upgraded to connect to the Hugging Face Async Enterprise Engine.
+ * ASYNC JOB QUEUE ENGINE (Local -> Cloud Run Ready)
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { formatFinancialYear } from '../utils/fsaFormatters.js';
+import { db } from '../../../firebase.js'; // Adjust this path if your firebase.js is located elsewhere
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
   const [pdfDrawerOpen, setPdfDrawerOpen] = useState(false);
@@ -13,120 +14,114 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionResult, setExtractionResult] = useState(null);
 
-  const targetEndpoint = 'https://rathin-07-financialstatementextractorv2.hf.space/analyze-pipeline';
-const buildExtractionSchema = (coaNodes = []) => {
-  const schema = {};
+  // We need a ref to hold the active Firestore listener so we can cleanly shut it down
+  const activeListenerRef = useRef(null);
 
-  coaNodes.forEach(node => {
-    if (node.type === 'section') {
-      schema[node.key] = [];
+  // Pointing to our new Local FastAPI Server!
+  const targetEndpoint = 'http://127.0.0.1:8000/api/v1/extract';
 
-      if (Array.isArray(node.items)) {
-        schema[node.key] = node.items.map(item => {
-          if (typeof item === 'string') return item;
-
-          if (typeof item === 'object') {
-            return (
-              item.label ||
-              item.dataKey ||
-              item.key ||
-              ''
-            );
-          }
-
-          return '';
-        }).filter(Boolean);
+  const buildExtractionSchema = (coaNodes = []) => {
+    const schema = {};
+    coaNodes.forEach(node => {
+      if (node.type === 'section') {
+        schema[node.key] = [];
+        if (Array.isArray(node.items)) {
+          schema[node.key] = node.items.map(item => {
+            if (typeof item === 'string') return item;
+            if (typeof item === 'object') return item.label || item.dataKey || item.key || '';
+            return '';
+          }).filter(Boolean);
+        }
       }
-    }
-  });
+    });
+    return schema;
+  };
 
-  return schema;
-};
-const executePdfExtraction = useCallback(async () => {
-  if (!selectedPdfFile) {
-    alert('Please select a PDF file first.');
-    return;
-  }
+  const executePdfExtraction = useCallback(async () => {
+    if (!selectedPdfFile) {
+      alert('Please select a PDF file first.');
+      return;
+    }
 
     setIsExtracting(true);
-    setExtractionResult(null);
+    // Tell the UI we are starting
+    setExtractionResult({ status: 'PROCESSING', message: 'Uploading document to secure engine...' });
 
     try {
       const formData = new FormData();
       formData.append('file', selectedPdfFile);
-if (configSchemas?.chartOfAccounts?.shared?.pnl) {
-  formData.append(
-    'pnl_schema',
-    JSON.stringify(
-      buildExtractionSchema(
-        configSchemas.chartOfAccounts.shared.pnl
-      )
-    )
-  );
-}
 
-if (configSchemas?.chartOfAccounts?.shared?.bs) {
-  formData.append(
-    'bs_schema',
-    JSON.stringify(
-      buildExtractionSchema(
-        configSchemas.chartOfAccounts.shared.bs
-      )
-    )
-  );
-}
+      if (configSchemas?.chartOfAccounts?.shared?.pnl) {
+        formData.append('pnl_schema', JSON.stringify(buildExtractionSchema(configSchemas.chartOfAccounts.shared.pnl)));
+      }
+      if (configSchemas?.chartOfAccounts?.shared?.bs) {
+        formData.append('bs_schema', JSON.stringify(buildExtractionSchema(configSchemas.chartOfAccounts.shared.bs)));
+      }
+      if (configSchemas?.chartOfAccounts?.shared?.cashflow) {
+        formData.append('cf_schema', JSON.stringify(buildExtractionSchema(configSchemas.chartOfAccounts.shared.cashflow)));
+      }
 
-if (configSchemas?.chartOfAccounts?.shared?.cashflow) {
-  formData.append(
-    'cf_schema',
-    JSON.stringify(
-      buildExtractionSchema(
-        configSchemas.chartOfAccounts.shared.cashflow
-      )
-    )
-  );
-}
-
+      // 1. Drop the file off at the backend
       const response = await fetch(targetEndpoint, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Server responded with ${response.status}`);
 
       const result = await response.json();
-console.log(
-  'EXTRACTION RESULT',
-  JSON.stringify(result, null, 2)
-);
-      if (result.status === 'error') {
-        throw new Error(result.message || 'Extraction server returned an error.');
-      }
+      const jobId = result.job_id;
 
-      const extractedPayload = result.extracted_data || {};
+      if (!jobId) throw new Error('No Job ID returned from server.');
 
-      setExtractionResult({
-        status: 'SUCCESS',  
-        confidence: result.document_info?.confidence || 0.9,
-        parsedNodes: Object.keys(extractedPayload).length,
-        message: `Successfully extracted ${result.page_summary?.relevant_pages || 0} financial pages.`,
-        payload: extractedPayload,
+      // 2. Clear any old listeners
+      if (activeListenerRef.current) activeListenerRef.current(); 
+
+      // 3. Start listening to Firebase for real-time progress updates!
+      const jobRef = doc(db, 'fsa_jobs', jobId);
+      activeListenerRef.current = onSnapshot(jobRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          
+          if (data.status === 'processing') {
+            // Update the UI with the live message from Python
+            setExtractionResult({
+              status: 'PROCESSING',
+              message: data.message || 'Extracting data...',
+            });
+          } else if (data.status === 'completed') {
+            // Success! The UI can now render the "Apply Data" button
+            setExtractionResult({
+              status: 'SUCCESS',  
+              confidence: 0.95, // Replaced with actual confidence score later
+              parsedNodes: Object.keys(data.payload || {}).length,
+              message: data.message || 'Extraction complete.',
+              payload: data.payload,
+            });
+            setIsExtracting(false);
+            if (activeListenerRef.current) activeListenerRef.current(); // Kill listener
+          } else if (data.status === 'error') {
+            // Safe Error Catch: No crashed databases!
+            setExtractionResult({
+              status: 'ERROR',
+              message: data.message || 'Extraction failed.',
+            });
+            setIsExtracting(false);
+            if (activeListenerRef.current) activeListenerRef.current(); // Kill listener
+          }
+        }
+      }, (err) => {
+        console.error('Firestore listener error:', err);
+        setExtractionResult({ status: 'ERROR', message: 'Lost connection to extraction tracker.' });
+        setIsExtracting(false);
       });
 
-      return extractedPayload;
     } catch (error) {
-      console.error('Extraction failed:', error);
-
-      const errorState = {
+      console.error('Extraction init failed:', error);
+      setExtractionResult({
         status: 'ERROR',
         message: error.message || 'Failed to communicate with the extraction server.',
-      };
-
-      setExtractionResult(errorState);
-      throw error;
-    } finally {
+      });
       setIsExtracting(false);
     }
   }, [selectedPdfFile, configSchemas]);
@@ -138,12 +133,7 @@ console.log(
     let injectedCount = 0;
 
     Object.entries(extractionResult.payload).forEach(([docKey, extractionData]) => {
-      const frontendDocMap = {
-        profit_and_loss: 'pnl',
-        balance_sheet: 'bs',
-        cash_flow: 'cashflow',
-      };
-
+      const frontendDocMap = { profit_and_loss: 'pnl', balance_sheet: 'bs', cash_flow: 'cashflow' };
       const activeDocKey = frontendDocMap[docKey] || 'pnl';
 
       if (extractionData && extractionData.data) {
@@ -151,13 +141,7 @@ console.log(
           if (typeof items === 'object' && items !== null) {
             Object.entries(items).forEach(([itemKey, numericVal]) => {
               if (typeof numericVal === 'number' || !isNaN(parseFloat(numericVal))) {
-                onInjectExtractedPayload(
-                  activeDocKey,
-                  sectionKey,
-                  itemKey,
-                  parseFloat(numericVal),
-                  safeYear
-                );
+                onInjectExtractedPayload(activeDocKey, sectionKey, itemKey, parseFloat(numericVal), safeYear);
                 injectedCount += 1;
               }
             });
@@ -169,30 +153,30 @@ console.log(
     setPdfDrawerOpen(false);
     setExtractionResult(null);
     setSelectedPdfFile(null);
-
     return injectedCount;
   }, [extractionResult, onInjectExtractedPayload]);
 
-  const togglePdfDrawer = useCallback(() => {
-    setPdfDrawerOpen(prev => !prev);
-  }, []);
+  const togglePdfDrawer = useCallback(() => setPdfDrawerOpen(prev => !prev), []);
 
   const resetExtractionState = useCallback(() => {
     setSelectedPdfFile(null);
     setExtractionResult(null);
     setIsExtracting(false);
+    if (activeListenerRef.current) {
+      activeListenerRef.current();
+      activeListenerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup listener on component unmount
+  useEffect(() => {
+    return () => {
+      if (activeListenerRef.current) activeListenerRef.current();
+    };
   }, []);
 
   return {
-    pdfDrawerOpen,
-    selectedPdfFile,
-    isExtracting,
-    extractionResult,
-    targetEndpoint,
-    setSelectedPdfFile,
-    executePdfExtraction,
-    applyExtractedPayload,
-    togglePdfDrawer,
-    resetExtractionState,
+    pdfDrawerOpen, selectedPdfFile, isExtracting, extractionResult, targetEndpoint,
+    setSelectedPdfFile, executePdfExtraction, applyExtractedPayload, togglePdfDrawer, resetExtractionState,
   };
 }
