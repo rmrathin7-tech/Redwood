@@ -18,7 +18,7 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
   const activeListenerRef = useRef(null);
 
   // Pointing to our new Local FastAPI Server!
-  const targetEndpoint = 'http://127.0.0.1:8000/api/v1/extract';
+  const targetEndpoint = 'https://fsa-engine-production-1088344936506.us-central1.run.app/api/v1/extract';
 
 const buildExtractionSchema = (coaNodes = []) => {
   const schema = {};
