@@ -21,6 +21,10 @@ import FCSettings from './pages/fc/FCSettings.jsx';
 
 // BSA (Bank Statement Analysis) - ADDED HERE
 import BSAWorkspace from './pages/bsa/BSAWorkspace.jsx';
+
+// Profiling Module
+import ProfilingWorkspace from './pages/profiling/ProfilingWorkspace.jsx';
+
 import SRLHub from './pages/srl/SRLHub.jsx';
 import SRLSettings from './pages/srl/SRLSettings.jsx';
 import PublicSRLView from './pages/srl/PublicSRLView.jsx';
@@ -46,6 +50,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
         {/* BSA Route - ADDED HERE */}
         <Route path="/bsa" element={<BSAWorkspace />} />
+
+        {/* Profiling Route */}
+        <Route path="/profiling" element={<ProfilingWorkspace />} />
 
         {/* SRL Routes */}
         <Route path="/srl-hub" element={<SRLHub />} />

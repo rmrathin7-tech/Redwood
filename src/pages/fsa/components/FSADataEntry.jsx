@@ -35,7 +35,7 @@ import {
 import { usePDFExtraction } from './PDFExtractionHook.jsx';
 import { applyLiveIndianFormat, formatIN, formatValue } from '../utils/fsaFormatters.js';
 import { buildFinancialModel } from '../core/fsaEngine.js';
-
+import ReviewExtractionModal from './ReviewExtractionModal.jsx';
 export default function FSADataEntry({ 
   projectData, 
   configSchemas, 
@@ -59,9 +59,7 @@ export default function FSADataEntry({
   
   // ── SAAS BULK EXTRACTION INJECTOR & REVIEW STATES ──
   const [reviewPayload, setReviewPayload] = useState(null); 
-  const [conflictYears, setConflictYears] = useState(null);
-  const [itemMappings, setItemMappings] = useState({});
-  const [rowStatuses, setRowStatuses] = useState({}); // { [rowId]: 'reviewed' | 'deleted' | 'pending' }
+   
   const [viewMode, setViewMode] = useState('split'); // 'split', 'pdf-only', 'data-only'
   
   // ── FIX: MEMOIZE PDF BLOB URL TO PREVENT IFRAME REFRESHING ──
@@ -335,14 +333,14 @@ export default function FSADataEntry({
 
   const getInputValue = (docKey, secKey, itemKey, year) => {
     const safeKey = itemKey.replace(/\./g, '');
-    const val = projectData?.financialData?.[docKey]?.[secKey]?.[year]?.[safeKey] || projectData?.data?.[docKey]?.[secKey]?.[year]?.[safeKey];
+    const val = projectData?.[docKey]?.[secKey]?.[year]?.[safeKey];
     return val !== undefined && val !== null ? val : 0;
   };
 
   const getParentSum = (docKey, secKey, parentName, year) => {
     let sum = 0;
     const safeParentPrefix = parentName.replace(/\./g, '') + '||';
-    const yearData = projectData?.financialData?.[docKey]?.[secKey]?.[year] || projectData?.data?.[docKey]?.[secKey]?.[year] || {};
+    const yearData = projectData?.[docKey]?.[secKey]?.[year] || {};
     Object.keys(yearData).forEach(k => {
       if (k.startsWith(safeParentPrefix)) sum += parseFloat(yearData[k]) || 0;
     });
@@ -419,149 +417,54 @@ export default function FSADataEntry({
         console.error("Parse error:", err);
         alert("Invalid JSON format.");
       }
-    };
+};
     reader.readAsText(file);
     event.target.value = null; 
   };
 
-
-  // ── 6. NEW SAAS BULK EXTRACTION INJECTOR & REVIEW STATES ──
+  // ── 6. NEW SAAS BULK EXTRACTION INJECTOR & REVIEW MODAL CONTROLLER ──
   const handleBulkInjection = (payload) => {
     if (!payload || Object.keys(payload).length === 0) {
       alert("No extracted data found in the payload.");
       return;
     }
-
-    // 1. Check for Conflicts
-    const extractedYears = new Set();
-    Object.values(payload).forEach(stmt => {
-      Object.keys(stmt?.data || {}).forEach(yr => {
-        const cleanYr = yr.replace(/\D/g, '').slice(0, 4);
-        if (cleanYr.length === 4) extractedYears.add(cleanYr);
-      });
-    });
-
-    const conflicts = Array.from(extractedYears).filter(y => activeYearsList.includes(y));
-    
-    if (conflicts.length > 0) {
-      setConflictYears(conflicts);
-      setReviewPayload(payload);
-    } else {
-      initializeMappings(payload);
-      setReviewPayload(payload);
-    }
+    setReviewPayload(payload);
   };
 
-  const handleConflictDecision = (decisionMap) => {
-    // In a full implementation, you'd filter out skipped years here.
-    // For now, we proceed to mapping phase and overwrite conflicts on save.
-    initializeMappings(reviewPayload);
-    setConflictYears(null);
-  };
-
-  const initializeMappings = (payload) => {
-    const initialMappings = {};
-    const initialStatuses = {};
-    
-    // Pre-populate mappings based on exact matches
-    Object.keys(payload).forEach(stmtType => {
-      const frontendDocMap = { 'profit_and_loss': 'pnl', 'balance_sheet': 'bs', 'cash_flow': 'cashflow' };
-      const docKey = frontendDocMap[stmtType] || 'pnl';
-      
-      Object.values(payload[stmtType]?.data || {}).forEach(yearData => {
-        Object.entries(yearData).forEach(([extractedSec, items]) => {
-          Object.keys(items).forEach(extractedItem => {
-            const rowId = `${stmtType}_${extractedSec}_${extractedItem}`;
-            
-            // Fuzzy match logic to find best schema fit
-            const schemaSections = configSchemas?.chartOfAccounts?.shared?.[docKey] || [];
-            let bestSecMatch = schemaSections[0]?.key || extractedSec;
-            
-            initialMappings[rowId] = {
-              section: bestSecMatch,
-              item: extractedItem // Default to creating a custom item if no exact match
-            };
-            initialStatuses[rowId] = 'pending';
-          });
-        });
-      });
-    });
-
-    setItemMappings(initialMappings);
-    setRowStatuses(initialStatuses);
-  };
-
-  // ── FIX: ALLOW INLINE EDITING OF DATA IN REVIEW MODAL ──
-  const handleReviewEdit = (stmtType, secKey, itemKey, cleanYearToFind, newValue) => {
-    setReviewPayload(prev => {
-      if (!prev) return prev;
-      const next = JSON.parse(JSON.stringify(prev));
-      const stmtData = next[stmtType]?.data;
-      if (!stmtData) return prev;
-
-      for (const origYear of Object.keys(stmtData)) {
-        if (origYear.replace(/\D/g, '').slice(0, 4) === cleanYearToFind) {
-          if (stmtData[origYear]?.[secKey]?.[itemKey] !== undefined) {
-            stmtData[origYear][secKey][itemKey] = newValue;
-          }
-          break;
-        }
-      }
-      return next;
-    });
-  };
-
-  const confirmAndInject = async () => {
-    // Check if any rows are still pending
-    const unreviewed = Object.values(rowStatuses).filter(s => s === 'pending').length;
-    if (unreviewed > 0) {
-      if (!window.confirm(`⚠️ You have ${unreviewed} unreviewed items.\n\nAre you sure you want to save and inject them into the matrix?`)) return;
-    }
-
+  const handleConfirmExtraction = async (cleanedData) => {
     try {
-      const updatedData = { ...(projectData?.financialData || projectData?.data || {}) };
+      const updatedData = { ...(projectData || {}) };
       const newItemsMap = JSON.parse(JSON.stringify(activeItemsMap || {}));
       let yearsSet = new Set(activeYearsList || []);
-      
-      Object.keys(reviewPayload).forEach(stmtType => {
-        const frontendDocMap = { 'profit_and_loss': 'pnl', 'balance_sheet': 'bs', 'cash_flow': 'cashflow' };
-        const targetDocKey = frontendDocMap[stmtType] || 'pnl';
-        
-        Object.entries(reviewPayload[stmtType]?.data || {}).forEach(([extractedYear, yearData]) => {
-          const cleanYear = extractedYear.replace(/\D/g, '').slice(0, 4);
-          if (cleanYear.length !== 4) return;
-          yearsSet.add(cleanYear);
-          
-          Object.entries(yearData).forEach(([extractedSec, items]) => {
-            Object.entries(items).forEach(([extractedItem, val]) => {
-              const rowId = `${stmtType}_${extractedSec}_${extractedItem}`;
-              
-              if (rowStatuses[rowId] === 'deleted') return; // Skip deleted rows
 
-              const mapping = itemMappings[rowId];
-              const sectionKey = mapping?.section || extractedSec;
-              const finalItemKey = mapping?.item || extractedItem;
-              const parsedVal = parseFloat(val);
+      // 1. Merge Years
+      cleanedData.yearsList.forEach(y => yearsSet.add(y));
 
-              if (!isNaN(parsedVal)) {
-                if (!updatedData[targetDocKey]) updatedData[targetDocKey] = {};
-                if (!updatedData[targetDocKey][sectionKey]) updatedData[targetDocKey][sectionKey] = {};
-                if (!updatedData[targetDocKey][sectionKey][cleanYear]) updatedData[targetDocKey][sectionKey][cleanYear] = {};
-                
-                const safeKey = finalItemKey.replace(/\./g, '');
-                updatedData[targetDocKey][sectionKey][cleanYear][safeKey] = parsedVal;
-                
-                if (!newItemsMap[targetDocKey]) newItemsMap[targetDocKey] = {};
-                if (!newItemsMap[targetDocKey][sectionKey]) newItemsMap[targetDocKey][sectionKey] = [];
-                if (!newItemsMap[targetDocKey][sectionKey].includes(finalItemKey)) {
-                    newItemsMap[targetDocKey][sectionKey].push(finalItemKey);
-                }
-              }
+      // 2. Merge Financial Data Values
+      Object.keys(cleanedData.financialData).forEach(docKey => {
+        if (!updatedData[docKey]) updatedData[docKey] = {};
+        Object.keys(cleanedData.financialData[docKey]).forEach(secKey => {
+          if (!updatedData[docKey][secKey]) updatedData[docKey][secKey] = {};
+          Object.keys(cleanedData.financialData[docKey][secKey]).forEach(year => {
+            if (!updatedData[docKey][secKey][year]) updatedData[docKey][secKey][year] = {};
+            Object.keys(cleanedData.financialData[docKey][secKey][year]).forEach(itemKey => {
+              updatedData[docKey][secKey][year][itemKey] = cleanedData.financialData[docKey][secKey][year][itemKey];
             });
           });
         });
       });
 
+      // 3. Merge Active Line Items for UI Visibility
+      Object.keys(cleanedData.activeItemsMap).forEach(docKey => {
+        if (!newItemsMap[docKey]) newItemsMap[docKey] = {};
+        Object.keys(cleanedData.activeItemsMap[docKey]).forEach(secKey => {
+          if (!newItemsMap[docKey][secKey]) newItemsMap[docKey][secKey] = [];
+          const mergedItems = new Set([...newItemsMap[docKey][secKey], ...cleanedData.activeItemsMap[docKey][secKey]]);
+          newItemsMap[docKey][secKey] = Array.from(mergedItems);
+        });
+      });
+
+      // 4. Save perfectly formatted data to Firestore
       const projectRef = doc(db, 'projects', projectId, 'fsa', fsaId);
       await setDoc(projectRef, { 
         financialData: updatedData,
@@ -569,6 +472,7 @@ export default function FSADataEntry({
         activeItemsMap: newItemsMap
       }, { merge: true });
 
+      // 5. Close Modals
       setReviewPayload(null);
       if (pdfCtx.pdfDrawerOpen) pdfCtx.togglePdfDrawer();
       pdfCtx.resetExtractionState();
@@ -577,214 +481,6 @@ export default function FSADataEntry({
       console.error("Injection Error:", error);
       alert("Failed to inject data.");
     }
-  };
-
-  const renderReviewModal = () => {
-    if (!reviewPayload) return null;
-
-    // IF CONFLICT: Render Conflict UI First
-    if (conflictYears) {
-      return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="fade-in-up" style={{ width: 500, background: 'var(--bg-primary)', padding: 32, borderRadius: 16, border: '1px solid var(--border-strong)' }}>
-            <h3 style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 16px 0' }}><AlertCircle /> Data Conflict Detected</h3>
-            <p style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              The extracted document contains data for years that already exist in your matrix ({conflictYears.join(', ')}). 
-              Proceeding will overwrite those specific years with the newly extracted values.
-            </p>
-            <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'flex-end' }}>
-               <button onClick={() => setReviewPayload(null)} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer' }}>Cancel Import</button>
-               <button onClick={() => handleConflictDecision({})} style={{ padding: '8px 16px', background: '#f59e0b', border: 'none', color: '#000', borderRadius: 6, fontWeight: 600, cursor: 'pointer' }}>Force Overwrite All</button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex' }}>
-        
-        {/* LEFT PANE: PDF Viewer (Hide if Data-Only) */}
-        {pdfBlobUrl && viewMode !== 'data-only' && (
-          <div style={{ width: viewMode === 'pdf-only' ? '100%' : '42%', borderRight: '1px solid var(--border-strong)', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', transition: 'width 0.3s' }}>
-            <div style={{ padding: '12px 16px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>📄 Extracted Document</span>
-              <button onClick={() => setViewMode(viewMode === 'split' ? 'pdf-only' : 'split')} style={{ padding: '4px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer' }}>
-                {viewMode === 'split' ? '⛶ Expand PDF' : '◩ Split View'}
-              </button>
-            </div>
-            <iframe src={pdfBlobUrl} style={{ flex: 1, width: '100%', border: 'none' }} title="PDF Review" />
-          </div>
-        )}
-
-        {/* RIGHT PANE: Data Mapper (Hide if PDF-Only) */}
-        {viewMode !== 'pdf-only' && (
-          <div style={{ flex: 1, padding: 36, background: 'var(--bg-primary)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-              <div>
-                <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}><Sparkles color="var(--accent-color)" /> AI Schema Mapping Review</h2>
-                <p style={{ color: 'var(--text-muted)', margin: '8px 0 0 0' }}>Verify, edit, and map extracted line items into your chart of accounts.</p>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
-                {pdfBlobUrl && <button onClick={() => setViewMode(viewMode === 'split' ? 'data-only' : 'split')} style={{ padding: '6px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-primary)', borderRadius: 6, cursor: 'pointer' }}>
-                  {viewMode === 'split' ? '⛶ Expand Data' : '◩ Split View'}
-                </button>}
-              </div>
-            </div>
-
-            {/* MAPPING TABLE */}
-            <div style={{ flex: 1 }}>
-              {Object.keys(reviewPayload).map(stmtType => {
-                const stmtData = reviewPayload[stmtType]?.data || {};
-                if (Object.keys(stmtData).length === 0) return null;
-
-                const frontendDocMap = { 'profit_and_loss': 'pnl', 'balance_sheet': 'bs', 'cash_flow': 'cashflow' };
-                const docKey = frontendDocMap[stmtType] || 'pnl';
-                const schemaNodes = configSchemas?.chartOfAccounts?.shared?.[docKey] || [];
-
-                // Reformat (Year -> Section -> Item) into (Section -> Item -> Year) for UI
-                const uiTable = {};
-                const extractedYears = new Set();
-                Object.entries(stmtData).forEach(([year, sections]) => {
-                  const cleanYear = year.replace(/\D/g, '').slice(0, 4);
-                  extractedYears.add(cleanYear);
-                  Object.entries(sections || {}).forEach(([sec, items]) => {
-                    if (!uiTable[sec]) uiTable[sec] = {};
-                    Object.entries(items || {}).forEach(([itm, val]) => {
-                      if (!uiTable[sec][itm]) uiTable[sec][itm] = {};
-                      uiTable[sec][itm][cleanYear] = val;
-                    });
-                  });
-                });
-
-                return (
-                  <div key={stmtType} style={{ marginBottom: 32 }}>
-                    <h3 style={{ background: 'var(--bg-tertiary)', padding: '16px', margin: 0, borderTopLeftRadius: 8, borderTopRightRadius: 8, border: '1px solid var(--border-subtle)', textTransform: 'uppercase', fontSize: 14 }}>
-                      📄 {stmtType.replace(/_/g, ' ')}
-                    </h3>
-                    
-                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderTop: 'none' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>Extracted Line Item ➔ Target Schema</th>
-                          {Array.from(extractedYears).sort().map(y => (
-                            <th key={y} style={{ padding: '12px 16px', textAlign: 'right', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{y}</th>
-                          ))}
-                          <th style={{ padding: '12px 16px', textAlign: 'center', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(uiTable).map(([secKey, items]) => (
-                          <React.Fragment key={secKey}>
-                            <tr>
-                              <td colSpan={Array.from(extractedYears).length + 2} style={{ padding: '8px 16px', background: 'var(--bg-hover)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 700 }}>
-                                📁 Extracted Group: {secKey}
-                              </td>
-                            </tr>
-                            
-                            {Object.entries(items).map(([itemKey, yearVals]) => {
-                              const rowId = `${stmtType}_${secKey}_${itemKey}`;
-                              const status = rowStatuses[rowId];
-                              const isDeleted = status === 'deleted';
-                              const isReviewed = status === 'reviewed';
-
-                              return (
-                                <tr key={rowId} style={{ opacity: isDeleted ? 0.3 : 1, background: isReviewed ? 'rgba(16,185,129,0.05)' : 'transparent', borderBottom: '1px solid var(--border-subtle)', transition: 'all 0.2s' }}>
-                                  <td style={{ padding: '16px', width: '40%' }}>
-                                    <div style={{ fontWeight: 600, marginBottom: 8, color: isDeleted ? '#ef4444' : 'var(--text-primary)' }}>↳ {itemKey}</div>
-                                    <select 
-                                      disabled={isDeleted}
-                                      value={itemMappings[rowId]?.item || '__NEW__'}
-                                      onChange={(e) => setItemMappings(prev => ({ ...prev, [rowId]: { ...prev[rowId], item: e.target.value } }))}
-                                      className="styled-select"
-                                    >
-                                      <option value="__NEW__" style={{ color: '#ef4444' }}>+ Create Custom Item: "{itemKey}"</option>
-                                      {schemaNodes.filter(n => n.type === 'section').map(secNode => (
-                                        <optgroup key={secNode.key} label={`📁 ${secNode.title || secNode.key}`}>
-                                          {(secNode.items || []).map(schemaItem => {
-                                            const label = typeof schemaItem === 'string' ? schemaItem : schemaItem.label || schemaItem.dataKey;
-                                            return <option key={label} value={label}>↳ Map to: {label}</option>
-                                          })}
-                                        </optgroup>
-                                      ))}
-                                    </select>
-                                  </td>
-                                  
-                                  {Array.from(extractedYears).sort().map(y => (
-                                    <td key={y} style={{ padding: '16px', textAlign: 'right' }}>
-                                      <input
-                                          type="text"
-                                          disabled={isDeleted}
-                                          className="glow-input"
-                                          style={{ minWidth: '80px', width: '100%', fontSize: '13px' }}
-                                          defaultValue={yearVals[y] !== undefined ? formatIN(yearVals[y], 2) : ''}
-                                          onFocus={e => {
-                                              const val = e.target.value.replace(/,/g, '');
-                                              if (parseFloat(val) === 0 || val === '') e.target.value = '';
-                                              else e.target.select();
-                                          }}
-                                          onBlur={(e) => {
-                                              let rawVal = e.target.value.replace(/,/g, '').trim();
-                                              if (!rawVal || rawVal === '') rawVal = '0';
-                                              const numericValue = parseFloat(rawVal);
-                                              if (!isNaN(numericValue)) {
-                                                  e.target.value = formatIN(numericValue, 2);
-                                                  handleReviewEdit(stmtType, secKey, itemKey, y, numericValue);
-                                              }
-                                          }}
-                                      />
-                                    </td>
-                                  ))}
-                                  
-                                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                                    {isDeleted ? (
-                                      <button onClick={() => setRowStatuses(prev => ({...prev, [rowId]: 'pending'}))} style={{ padding: '6px 12px', background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 20, fontSize: 11, cursor: 'pointer' }}>Undo Delete</button>
-                                    ) : (
-                                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                                        <button 
-                                          onClick={() => setRowStatuses(prev => ({...prev, [rowId]: isReviewed ? 'pending' : 'reviewed'}))}
-                                          style={{ padding: '6px 12px', background: isReviewed ? 'rgba(16,185,129,0.1)' : 'var(--bg-hover)', border: isReviewed ? '1px solid #10b981' : '1px solid var(--border-strong)', color: isReviewed ? '#10b981' : 'var(--text-primary)', borderRadius: 20, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                                        >
-                                          {isReviewed ? <CheckCircle2 size={14}/> : <div style={{width:12, height:12, borderRadius:'50%', border:'1px solid currentColor'}}/>}
-                                          {isReviewed ? 'Reviewed' : 'Review'}
-                                        </button>
-                                        {isReviewed && (
-                                          <button onClick={() => setRowStatuses(prev => ({...prev, [rowId]: 'deleted'}))} style={{ padding: '6px 10px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 20, cursor: 'pointer' }} title="Delete this line">
-                                            <Trash2 size={12} />
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* ACTION FOOTER */}
-            <div style={{ marginTop: 'auto', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AlertCircle size={14} /> Values mapped to existing fields will overwrite current inputs.
-              </span>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={() => setReviewPayload(null)} style={{ padding: '12px 24px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer' }}>Cancel Extraction</button>
-                <button onClick={confirmAndInject} style={{ padding: '12px 24px', borderRadius: 8, background: 'var(--accent-color)', border: 'none', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CheckCircle2 size={18} /> Confirm & Save to Matrix
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
   };
 
   if (loadingMetadata) {
@@ -1438,7 +1134,8 @@ export default function FSADataEntry({
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 24 }}>
                         <button 
-                          onClick={() => handleBulkInjection(pdfCtx.extractionResult.payload)} 
+                          onClick={() => handleBulkInjection(pdfCtx.extractionResult.payload?.extracted_data)}
+ 
                           style={{ width: '100%', background: 'var(--accent-color)', color: '#fff', border: 'none', padding: 16, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
                         >
                           <Wand2 size={18} /> Review & Map Extracted Data
@@ -1485,8 +1182,20 @@ export default function FSADataEntry({
         </div>
       )}
 
-      {/* ── NEW: DATA REVIEW MODAL (MIDDLE STEP) ── */}
-      {renderReviewModal()}
+      {/* ── NEW: SMART DATA REVIEW MODAL ── */}
+      {reviewPayload && (
+        <ReviewExtractionModal
+          payload={reviewPayload}
+          configSchemas={configSchemas}
+          activeEntityType={activeEntityType}
+          activeYearsList={activeYearsList}
+          pdfBlobUrl={pdfBlobUrl}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          onCancel={() => setReviewPayload(null)}
+          onConfirm={handleConfirmExtraction}
+        />
+      )}
 
     </div>
   );

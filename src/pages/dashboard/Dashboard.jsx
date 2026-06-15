@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Search, LayoutDashboard, Users, Sun, Moon, LogOut,
   Plus, FolderOpen, Archive, Trash2, RefreshCw, AlertTriangle,
-  Copy, ExternalLink, BarChart2, Activity, X, Target
+  Copy, ExternalLink, BarChart2, Activity, X, Target, Briefcase
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase.js';
@@ -779,7 +779,13 @@ export default function Dashboard() {
           >
             <Activity size={15} /> Logs
           </button>
-
+<button 
+            className="glass-btn" 
+            onClick={() => navigate('/profiling')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', fontFamily: 'inherit' }}
+          >
+            <Briefcase size={15} /> Profiling Hub
+          </button>
           <button 
             className="glass-btn" 
             onClick={() => navigate('/srl-hub')}

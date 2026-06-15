@@ -20,22 +20,31 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
   // Pointing to our new Local FastAPI Server!
   const targetEndpoint = 'http://127.0.0.1:8000/api/v1/extract';
 
-  const buildExtractionSchema = (coaNodes = []) => {
-    const schema = {};
-    coaNodes.forEach(node => {
-      if (node.type === 'section') {
-        schema[node.key] = [];
-        if (Array.isArray(node.items)) {
-          schema[node.key] = node.items.map(item => {
-            if (typeof item === 'string') return item;
-            if (typeof item === 'object') return item.label || item.dataKey || item.key || '';
-            return '';
-          }).filter(Boolean);
-        }
+const buildExtractionSchema = (coaNodes = []) => {
+  const schema = {};
+  coaNodes.forEach(node => {
+    if (node.type === 'section') {
+      schema[node.key] = [];
+      if (Array.isArray(node.items)) {
+        schema[node.key] = node.items.map(item => {
+          if (typeof item === 'string') return item;
+          if (typeof item === 'object') return item.label || item.dataKey || item.key || '';
+          return '';
+        }).filter(Boolean);
       }
-    });
-    return schema;
-  };
+    }
+    // ADD: capture dynamic equity node
+    if (node.dynamic && node.key === 'equity_placeholder') {
+      schema['equity'] = [
+        'share_capital',
+        'reserves_and_surplus',
+        'money_received_against_share_warrants',
+        'share_application_money_pending_allotment'
+      ];
+    }
+  });
+  return schema;
+};
 
   const executePdfExtraction = useCallback(async () => {
     if (!selectedPdfFile) {
@@ -126,51 +135,7 @@ export function usePDFExtraction(onInjectExtractedPayload, configSchemas) {
     }
   }, [selectedPdfFile, configSchemas]);
 
-const applyExtractedPayload = useCallback((targetYearStr) => {
-    if (!extractionResult?.payload || !onInjectExtractedPayload) return 0;
-
-    const safeYear = targetYearStr || formatFinancialYear(new Date().getFullYear());
-    let injectedCount = 0;
-
-    // The backend payload structure has keys like 'profit_and_loss', 'balance_sheet'
-    Object.entries(extractionResult.payload).forEach(([docKey, extractionData]) => {
-      const frontendDocMap = { profit_and_loss: 'pnl', balance_sheet: 'bs', cash_flow: 'cashflow' };
-      const activeDocKey = frontendDocMap[docKey] || 'pnl';
-
-      // 1. Handle potential 'data' wrapper from legacy structure
-      let dataToProcess = extractionData.data ? extractionData.data : extractionData;
-
-      if (dataToProcess && typeof dataToProcess === 'object') {
-        
-        // 2. CHECK FOR YEAR LAYER: Does the AI output have "2025" or "2024" as top-level keys?
-        const firstKey = Object.keys(dataToProcess)[0];
-        if (firstKey && !isNaN(parseInt(firstKey)) && firstKey.length === 4) {
-          // It is grouped by year! Find the requested year, otherwise default to the most recent one
-          const yearMatch = Object.keys(dataToProcess).find(k => k.includes(safeYear) || safeYear.includes(k));
-          dataToProcess = yearMatch ? dataToProcess[yearMatch] : dataToProcess[firstKey];
-        }
-
-        // 3. Now loop through the clean, flattened sections (e.g., 'revenue', 'directcosts')
-        if (dataToProcess && typeof dataToProcess === 'object') {
-           Object.entries(dataToProcess).forEach(([sectionKey, items]) => {
-            if (typeof items === 'object' && items !== null) {
-              Object.entries(items).forEach(([itemKey, numericVal]) => {
-                if (typeof numericVal === 'number' || !isNaN(parseFloat(numericVal))) {
-                  onInjectExtractedPayload(activeDocKey, sectionKey, itemKey, parseFloat(numericVal), safeYear);
-                  injectedCount += 1;
-                }
-              });
-            }
-          });
-        }
-      }
-    });
-
-    setPdfDrawerOpen(false);
-    setExtractionResult(null);
-    setSelectedPdfFile(null);
-    return injectedCount;
-  }, [extractionResult, onInjectExtractedPayload]);  
+   
   const togglePdfDrawer = useCallback(() => setPdfDrawerOpen(prev => !prev), []);
 
   const resetExtractionState = useCallback(() => {
@@ -192,6 +157,6 @@ const applyExtractedPayload = useCallback((targetYearStr) => {
 
   return {
     pdfDrawerOpen, selectedPdfFile, isExtracting, extractionResult, targetEndpoint,
-    setSelectedPdfFile, executePdfExtraction, applyExtractedPayload, togglePdfDrawer, resetExtractionState,
+    setSelectedPdfFile, executePdfExtraction, togglePdfDrawer, resetExtractionState,
   };
 }

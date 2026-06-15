@@ -5,7 +5,7 @@ import {
   Plus, FileText, BarChart3, Network, Building2,
   CheckCircle2, MessageSquare, Trash2, Edit3, Globe,
   ShieldAlert, Sparkles, RefreshCw, Kanban,
-  CornerDownRight, Clock, Link, Target
+  CornerDownRight, Clock, Link, Target, Briefcase
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { 
@@ -113,6 +113,7 @@ export default function ModuleHub() {
   const [fcList, setFcList] = useState([]);
   const [bsaList, setBsaList] = useState([]);
   const [srlList, setSrlList] = useState([]);
+  const [profilingList, setProfilingList] = useState([]);
   const [updates, setUpdates] = useState([]);
   
   // Progress Feed states
@@ -215,6 +216,10 @@ export default function ModuleHub() {
     unsubs.push(onSnapshot(query(collection(db, 'srl-assessments'), where('linkedProjectId', '==', projectId)), snap => {
       setSrlList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }));
+    // Profiling
+    unsubs.push(onSnapshot(collection(db, 'projects', projectId, 'profiling'), snap => {
+      setProfilingList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }));
     // Updates
     unsubs.push(onSnapshot(query(collection(db, 'projects', projectId, 'updates'), orderBy('createdAt', 'desc')), snap => {
       setUpdates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -241,8 +246,8 @@ export default function ModuleHub() {
   };
 
   const getItemTitle = (id, type) => {
-    const list = type === 'im' ? imList : type === 'fsa' ? fsaList : type === 'fc' ? fcList : type === 'bsa' ? bsaList : type === 'srl' ? srlList : protocols;
-    return list.find(i => i.id === id)?.title || (type === 'srl' ? list.find(i => i.id === id)?.companyName : 'Unknown Document');
+    const list = type === 'im' ? imList : type === 'fsa' ? fsaList : type === 'fc' ? fcList : type === 'bsa' ? bsaList : type === 'profiling' ? profilingList : type === 'srl' ? srlList : protocols;
+    return list.find(i => i.id === id)?.title || ((type === 'srl' || type === 'profiling') ? list.find(i => i.id === id)?.companyName : 'Unknown Document');
   };
 
   // ── CREATION HANDLERS ──
@@ -300,6 +305,7 @@ export default function ModuleHub() {
       if (type === 'fsa') await updateDoc(doc(db, 'projects', projectId, 'fsa', id), payload);
       if (type === 'bsa') await updateDoc(doc(db, 'projects', projectId, 'bsa', id), payload);
       if (type === 'srl') await updateDoc(doc(db, 'srl-assessments', id), payload);
+      if (type === 'profiling') await updateDoc(doc(db, 'projects', projectId, 'profiling', id), payload);
       if (type === 'protocol') await deleteDoc(doc(db, 'projects', projectId, 'protocols', id)); // Protocols remain hard delete
       
       await logAction(type === 'protocol' ? 'DELETED' : 'ARCHIVED', type, getItemTitle(id, type));
@@ -316,6 +322,7 @@ export default function ModuleHub() {
       if (type === 'fsa') await updateDoc(doc(db, 'projects', projectId, 'fsa', id), payload);
       if (type === 'bsa') await updateDoc(doc(db, 'projects', projectId, 'bsa', id), payload);
       if (type === 'srl') await updateDoc(doc(db, 'srl-assessments', id), payload);
+      if (type === 'profiling') await updateDoc(doc(db, 'projects', projectId, 'profiling', id), payload);
       
       await logAction('RESTORED', type, getItemTitle(id, type));
     } catch (err) { console.error(err); }
@@ -330,6 +337,7 @@ export default function ModuleHub() {
       if (type === 'fsa') await deleteDoc(doc(db, 'projects', projectId, 'fsa', id));
       if (type === 'bsa') await deleteDoc(doc(db, 'projects', projectId, 'bsa', id));
       if (type === 'srl') await deleteDoc(doc(db, 'srl-assessments', id));
+      if (type === 'profiling') await deleteDoc(doc(db, 'projects', projectId, 'profiling', id));
       
       await logAction('PURGED', type, title);
     } catch (err) { console.error(err); }
@@ -600,6 +608,7 @@ export default function ModuleHub() {
                 key={item.id} style={{...cardBase, animation: `fadeIn 0.4s ${i * 0.05}s both`}}
                 onClick={() => {
                   if (type === 'srl') navigate('/srl-hub');
+                  else if (type === 'profiling') navigate(`/profiling?project=${projectId}&name=${encodeURIComponent(projectName)}`);
                   else navigate(`/${type === 'fsa' ? 'fsa' : type === 'fc' ? 'fc' : type === 'bsa' ? 'bsa' : 'im'}?project=${projectId}&${type}=${item.id}&name=${encodeURIComponent(projectName)}`);
                 }}
               >
@@ -775,6 +784,7 @@ export default function ModuleHub() {
             <button className="glass-btn" onClick={() => setActiveModal('fsa')} style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? '#fff' : '#000', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, padding: '10px 20px', borderRadius: '12px', fontWeight: '600' }}><BarChart3 size={16} color="#22c55e" /> + FSA</button>
             <button className="glass-btn" onClick={() => setActiveModal('fc')} style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? '#fff' : '#000', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, padding: '10px 20px', borderRadius: '12px', fontWeight: '600' }}><CheckCircle2 size={16} color="#f59e0b" /> + FC</button>
             <button className="glass-btn" onClick={() => setActiveModal('bsa')} style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? '#fff' : '#000', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, padding: '10px 20px', borderRadius: '12px', fontWeight: '600' }}><Building2 size={16} color="#a855f7" /> + BSA</button>
+            <button className="glass-btn" onClick={() => navigate(`/profiling?project=${projectId}&name=${encodeURIComponent(projectName)}`)} style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? '#fff' : '#000', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, padding: '10px 20px', borderRadius: '12px', fontWeight: '600' }}><Briefcase size={16} color="#ec4899" /> Profiling Hub</button>
             <button className="glass-btn" onClick={() => navigate('/srl-hub')} style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? '#fff' : '#000', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, padding: '10px 20px', borderRadius: '12px', fontWeight: '600' }}><Target size={16} color="#3b82f6" /> SRL Hub</button>
           </div>
         </div>
@@ -867,6 +877,7 @@ export default function ModuleHub() {
           {renderGrid('Financial Analysis', <BarChart3 size={24} color="#22c55e" strokeWidth={1.5} />, fsaList, 'fsa')}
           {renderGrid('First Connect', <CheckCircle2 size={24} color="#f59e0b" strokeWidth={1.5} />, fcList, 'fc')}
           {renderGrid('Bank Statements', <Building2 size={24} color="#a855f7" strokeWidth={1.5} />, bsaList, 'bsa')}
+          {renderGrid('Company Profiling', <Briefcase size={24} color="#ec4899" strokeWidth={1.5} />, profilingList, 'profiling')}
         </div>
 
         {/* ── ARCHIVED DOSSIERS ── */}
