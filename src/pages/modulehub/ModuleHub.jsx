@@ -274,7 +274,10 @@ export default function ModuleHub() {
     if (!modalInput.trim() || !user) return;
     try {
       await addDoc(collection(db, 'projects', projectId, 'fsa'), {
-        title: modalInput.trim(), domain: fsaData.domain, entityType: fsaData.entityType,
+        title: modalInput.trim(), 
+        name: modalInput.trim(), // ── FIX: Added so FSALinkBlock can read it ──
+        domain: fsaData.domain, 
+        entityType: fsaData.entityType,
         data: {}, years: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(), createdBy: user.uid
       });
       await logAction('CREATED', 'FSA', modalInput.trim());

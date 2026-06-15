@@ -12,7 +12,7 @@ import FSALinkBlock from './FSALinkBlock';
 const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
 
 export default function BlockRegistry({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames, activeSection
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames, activeSection, projectId
 }) {
   if (!block || !block.type) return null;
 
@@ -45,7 +45,8 @@ export default function BlockRegistry({
   }
 
   // ── Data blocks ───────────────────────────────────────────────────────────
-  const commonProps = { block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames };
+  // Added projectId to commonProps so it filters down securely to FSALinkBlock
+  const commonProps = { block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames, projectId };
 
   switch (block.type) {
     case 'quill':

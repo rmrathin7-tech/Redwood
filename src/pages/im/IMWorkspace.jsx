@@ -1086,7 +1086,7 @@ const toggleSectionExclusion = async (id, isExcluding) => {
                         transition: 'opacity 0.25s ease, transform 0.25s ease',
                       }}
                     >
-                      <BlockRegistry
+<BlockRegistry
                         block={{ ...block, label: customNames[block.id] || block.label }}
                         value={getValue(block.dataPath)}
                         onChange={(path, value) => handleDataChange(path, value, block.id)}
@@ -1096,9 +1096,10 @@ const toggleSectionExclusion = async (id, isExcluding) => {
                         isDark={isDark}
                         excludedSections={excludedSections}
                         customNames={customNames}
-                        activeSection={activeSection} // <-- PASS THIS DOWN
+                        activeSection={activeSection}
+                        projectId={projectId}
                       />
-                    </div>
+                      </div>
                   );
                 })}
             </div>

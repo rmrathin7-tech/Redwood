@@ -408,6 +408,20 @@ printWin.focus();
 
       {/* ── STYLES FOR THEME-AWARE REPORTS ── */}
       <style dangerouslySetInnerHTML={{__html: `
+        /* ── SAAS DROPDOWN ARROW FIX ── */
+        select {
+          appearance: none !important;
+          -webkit-appearance: none !important;
+          padding-right: 20px !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+          background-repeat: no-repeat !important;
+          background-position: right center !important;
+        }
+        select option {
+          background-color: var(--bg-tertiary);
+          color: var(--text-primary);
+        }
+
         .fsa-statement-wrapper {
           overflow-x: auto;
           border-radius: 12px;
