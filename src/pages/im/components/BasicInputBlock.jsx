@@ -48,7 +48,7 @@ const renderHighlightedText = (val, comments, isDark, placeholder) => {
 };
 
 // ── HYBRID STANDARD INPUT COMPONENT ──────────────────────────────────────────
-const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholder, style, comments, isDark, disabled }) => {
+const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholder, style, comments, isDark, disabled, displayFormatter }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
 
@@ -78,22 +78,9 @@ const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholde
       />
     );
   }
-
   return (
-    <div
-      onClick={handleViewClick}
-      style={{
-        ...style,
-        cursor: disabled ? 'not-allowed' : 'text',
-        minHeight: style.padding ? undefined : '42px',
-        display: 'flex',
-        alignItems: 'center',
-        overflow: 'hidden',
-        whiteSpace: 'nowrap',
-        textOverflow: 'ellipsis'
-      }}
-    >
-      {renderHighlightedText(val, comments, isDark, placeholder)}
+    <div onClick={handleViewClick} style={{ ...style, cursor: disabled ? 'not-allowed' : 'text', minHeight: style.padding ? undefined : '42px', display: 'flex', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+      {renderHighlightedText(displayFormatter ? displayFormatter(val) : val, comments, isDark, placeholder)}
     </div>
   );
 };
@@ -591,8 +578,14 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       );
     }
 
-    // 9. DATE
+  // 9. DATE
     if (block.type === 'date') {
+      const formatDateDisplay = (val) => {
+        if (!val) return '';
+        const [y, m, d] = val.split('-');
+        if (!y || !m || !d) return val;
+        return `${m}/${d}/${y}`;
+      };
       return (
         <HybridInput
           type="date"
@@ -605,6 +598,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
           style={{ ...inputStyle, colorScheme: isDark ? 'dark' : 'light' }}
           comments={blockComments}
           isDark={isDark}
+          displayFormatter={formatDateDisplay}
         />
       );
     }

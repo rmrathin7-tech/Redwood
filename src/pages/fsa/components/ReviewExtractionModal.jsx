@@ -146,6 +146,9 @@ export default function ReviewExtractionModal({
     const newItemsMap = {};
     const yearsSet = new Set();
 
+// fsa/components/ReviewExtractionModal.jsx
+// REPLACE the handleSave function's inner loop with this:
+
     Object.keys(extractedData).forEach(stmtType => {
       const frontendDocMap = { 'profit_and_loss': 'pnl', 'balance_sheet': 'bs', 'cash_flow': 'cashflow' };
       const docKey = frontendDocMap[stmtType] || 'pnl';
@@ -165,17 +168,34 @@ export default function ReviewExtractionModal({
           if (!newItemsMap[docKey][targetSection]) newItemsMap[docKey][targetSection] = [];
           if (!newItemsMap[docKey][targetSection].includes(targetItem)) newItemsMap[docKey][targetSection].push(targetItem);
 
+          // ── FIX 1: RESOLVE STRICT DATAKEYS FOR DYNAMIC EQUITY ──
+          let safeKey = targetItem.replace(/\./g, '');
+          if (targetSection === 'equity') {
+              const eqSchema = configSchemas?.entityTypes?.[activeEntityType]?.equitySchema?.[0];
+              const eqItem = eqSchema?.items?.find(i => i.label === targetItem);
+              if (eqItem && eqItem.dataKey) {
+                  safeKey = eqItem.dataKey; // Force schema key alignment
+              } else {
+                  safeKey = targetItem.toLowerCase().replace(/[^a-z0-9]/g, '');
+              }
+          }
+
           Object.entries(yearVals).forEach(([year, val]) => {
             yearsSet.add(year);
             if (!formattedPayload[docKey][targetSection][year]) formattedPayload[docKey][targetSection][year] = {};
             
-            const safeKey = targetItem.replace(/\./g, '');
-            formattedPayload[docKey][targetSection][year][safeKey] = parseFloat(val) || 0;
+            const numericVal = parseFloat(val) || 0;
+            
+            // ── FIX 2: AGGREGATE VALUES IF MULTIPLE ITEMS ROUTE TO THE SAME DESTINATION ──
+            if (formattedPayload[docKey][targetSection][year][safeKey] !== undefined) {
+                formattedPayload[docKey][targetSection][year][safeKey] += numericVal;
+            } else {
+                formattedPayload[docKey][targetSection][year][safeKey] = numericVal;
+            }
           });
         });
       });
     });
-
     onConfirm({
       financialData: formattedPayload,
       activeItemsMap: newItemsMap,

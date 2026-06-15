@@ -164,7 +164,7 @@ export default function FSADataEntry({
           if (clearedData[docKey][secKey][targetYear]) delete clearedData[docKey][secKey][targetYear];
         });
       });
-      setDoc(docRef, { activeYearsList: updatedYears, financialData: clearedData }, { merge: true }).catch(console.error);
+      updateDoc(docRef, { activeYearsList: updatedYears, financialData: clearedData }).catch(console.error);
     }
   };
 
@@ -228,7 +228,7 @@ export default function FSADataEntry({
       });
 
       if (dataModified) {
-        setDoc(docRef, { financialData: clearedData }, { merge: true }).catch(console.error);
+        updateDoc(docRef, { financialData: clearedData }).catch(console.error);
       }
     }
   };
@@ -260,7 +260,7 @@ export default function FSADataEntry({
         });
       });
 
-      setDoc(docRef, { activeItemsMap: updatedMap, financialData: clearedData }, { merge: true }).catch(console.error);
+      updateDoc(docRef, { activeItemsMap: updatedMap, financialData: clearedData }).catch(console.error);
     }
   };
 
@@ -323,7 +323,7 @@ export default function FSADataEntry({
         }
       });
 
-      setDoc(docRef, { activeItemsMap: updatedMap, financialData: modifiedData }, { merge: true }).catch(console.error);
+      updateDoc(docRef, { activeItemsMap: updatedMap, financialData: modifiedData }).catch(console.error);
     }
   };
 
@@ -347,9 +347,15 @@ export default function FSADataEntry({
     return sum;
   };
 
-  const handleInputBlur = (e, docKey, secKey, rawItemKey, year) => {
+const handleInputBlur = (e, docKey, secKey, rawItemKey, year) => {
     const safeKey = rawItemKey.replace(/\./g, '');
     let rawVal = e.target.value.replace(/,/g, '').trim();
+    
+    // ── THE FIX: ACCOUNTANT-PROOF BRACKETED NEGATIVES ──
+    if (rawVal.startsWith('(') && rawVal.endsWith(')')) {
+        rawVal = '-' + rawVal.slice(1, -1);
+    }
+    
     if (!rawVal || rawVal === '') rawVal = '0';
     
     const numericValue = parseFloat(rawVal);
@@ -448,7 +454,12 @@ export default function FSADataEntry({
           Object.keys(cleanedData.financialData[docKey][secKey]).forEach(year => {
             if (!updatedData[docKey][secKey][year]) updatedData[docKey][secKey][year] = {};
             Object.keys(cleanedData.financialData[docKey][secKey][year]).forEach(itemKey => {
-              updatedData[docKey][secKey][year][itemKey] = cleanedData.financialData[docKey][secKey][year][itemKey];
+              
+              // ── FIX 3: ADD INCOMING DATA TO EXISTING DATA ──
+              const existingValue = updatedData[docKey][secKey][year][itemKey] || 0;
+              const incomingValue = cleanedData.financialData[docKey][secKey][year][itemKey] || 0;
+              updatedData[docKey][secKey][year][itemKey] = existingValue + incomingValue;
+              
             });
           });
         });
@@ -836,7 +847,7 @@ export default function FSADataEntry({
                                     <input 
                                       type="text"
                                       className="glow-input"
-                                      key={`eq-${activeDocKey}-${node.key}-${itemKey}-${year}`}
+                                      key={`eq-${activeDocKey}-${node.key}-${itemKey}-${year}-${rawVal}`}
                                       defaultValue={rawVal ? formatIN(rawVal, 2) : '0.00'}
                                       onInput={applyLiveIndianFormat}
                                       onFocus={e => {
@@ -962,7 +973,7 @@ export default function FSADataEntry({
                                   <input 
                                     type="text"
                                     className="glow-input"
-                                    key={`${activeDocKey}-${node.key}-${data.dataKey}-${year}`} 
+                                    key={`${activeDocKey}-${node.key}-${data.dataKey}-${year}-${rawVal}`} 
                                     defaultValue={rawVal ? formatIN(rawVal, 2) : '0.00'}
                                     onInput={data.subs.length === 0 ? applyLiveIndianFormat : undefined}
                                     onFocus={e => {
@@ -1009,7 +1020,7 @@ export default function FSADataEntry({
                                           type="text"
                                           className="glow-input"
                                           style={{ padding: '6px 10px', fontSize: 13 }}
-                                          key={`sub-${activeDocKey}-${node.key}-${sub.fullValue}-${year}`}
+                                          key={`sub-${activeDocKey}-${node.key}-${sub.fullValue}-${year}-${rawVal}`}
                                           defaultValue={rawVal ? formatIN(rawVal, 2) : '0.00'}
                                           onInput={applyLiveIndianFormat}
                                           onFocus={e => {
