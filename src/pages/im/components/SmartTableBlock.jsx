@@ -264,6 +264,13 @@ const HybridInput = ({ val, onChange, disabled, placeholder, cellInputStyle, foc
     }
     
     let text = String(val);
+
+    // ── FIX: REFORMAT RAW ISO DATE TO DD/MM/YYYY FOR VIEW MODE ──
+    if (iType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      const [yyyy, mm, dd] = text.split('-');
+      text = `${dd}/${mm}/${yyyy}`;
+    }
+
     if (!comments || comments.length === 0) return <span>{text}</span>;
 
     let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
