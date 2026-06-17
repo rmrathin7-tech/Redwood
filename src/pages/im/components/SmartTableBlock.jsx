@@ -190,12 +190,6 @@ const renderHighlightedText = () => {
     }
     
     let text = String(val);
-
-    if (iType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(text)) {
-      const [yyyy, mm, dd] = text.split('-');
-      text = `${dd}/${mm}/${yyyy}`;
-    }
-
     let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     
     // Highlight Comments
@@ -1408,7 +1402,7 @@ const [, setForceRender] = useState(0);
     return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} comments={blockComments} />;
   }, [t, isDark, focusHandlers, blockComments]);
 
-  const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtectedRow = false, tableInstanceId = 'main', contextRows = records) => {
+const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtectedRow = false, tableInstanceId = 'main', contextRows = records) => {
     const cellPlaceholder = cell.placeholder || '';
     const usePlaceholderGuide = !!cell.showPlaceholderAsGuide && !!cellPlaceholder;
     const guideKey = `${tableInstanceId}_${rIdx}_${cell.id}`;
@@ -1431,10 +1425,41 @@ const [, setForceRender] = useState(0);
       </div>
     ) : null;
 
+    // ── UNIVERSAL SEARCH MATCH DETECTOR ──
+    let hasMatch = false;
+    if (window.imActiveSearchTerm) {
+      const term = window.imActiveSearchTerm.toLowerCase();
+      if (cell.cellType === 'fixed' && cell.text && String(cell.text).toLowerCase().includes(term)) hasMatch = true;
+      else if (cell.cellType === 'computed') {
+        const cVal = evaluateFormula(cell.formula, rIdx, contextRows);
+        if (String(cVal).toLowerCase().includes(term)) hasMatch = true;
+      }
+      else if (typeof val === 'string' && val.toLowerCase().includes(term)) hasMatch = true;
+      else if (typeof val === 'number' && String(val).toLowerCase().includes(term)) hasMatch = true;
+      else if (Array.isArray(val) && val.some(v => String(v).toLowerCase().includes(term))) hasMatch = true;
+      else if (val && typeof val === 'object' && !Array.isArray(val)) {
+        if (val.selected && String(val.selected).toLowerCase().includes(term)) hasMatch = true;
+        if (val.richtext && String(val.richtext).toLowerCase().includes(term)) hasMatch = true;
+        if (val.inputs && val.inputs.some(v => String(v).toLowerCase().includes(term))) hasMatch = true;
+      }
+    }
+
+    const cellWrapperStyle = {
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: 6, 
+      padding: '4px 6px', 
+      height: '100%',
+      backgroundColor: hasMatch ? 'rgba(59,130,246,0.15)' : 'transparent',
+      border: hasMatch ? '1px solid #3b82f6' : '1px solid transparent',
+      borderRadius: '4px',
+      transition: 'background-color 0.2s, border 0.2s'
+    };
+
     switch (cell.cellType) {
       case 'fixed':
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px', height: '100%' }}>
+          <div style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', color: t.fixedText, fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center' }}>{cell.text || ''}</div>
@@ -1442,7 +1467,7 @@ const [, setForceRender] = useState(0);
         );
       case 'computed':
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px', height: '100%' }}>
+          <div style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', color: t.computedText, fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace', display: 'flex', alignItems: 'center' }}>{evaluateFormula(cell.formula, rIdx, contextRows)}</div>
@@ -1454,7 +1479,7 @@ const [, setForceRender] = useState(0);
         const inputs = Array.isArray(val) ? val : [];
         let inputIdx = 0;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' }}>
+          <div style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', lineHeight: 1.8 }}>
@@ -1481,7 +1506,7 @@ const [, setForceRender] = useState(0);
         const handleSelect = (e) => onValChange({ ...valObj, selected: e.target.value, inputs: [], richtext: '' });
 
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px' }}>
+          <div style={{ ...cellWrapperStyle, gap: 8, padding: '8px 10px' }}>
             {guideToggle}
             {guidePanel}
             <select
@@ -1543,7 +1568,7 @@ const [, setForceRender] = useState(0);
         const iType = cell.inputType || 'text';
         if (iType === 'quill') {
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' }}>
+            <div style={cellWrapperStyle}>
               {guideToggle}
               {guidePanel}
               <TableQuillEditor val={val} onChange={newVal => onValChange(newVal)} disabled={isProtectedRow || !!lockedBy} placeholder={usePlaceholderGuide ? '' : cellPlaceholder} block={block} t={t} focusHandlers={focusHandlers} isDark={isDark} />
@@ -1552,7 +1577,7 @@ const [, setForceRender] = useState(0);
         }
         if (iType === 'textarea') {
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px' }}>
+            <div style={cellWrapperStyle}>
               {guideToggle}
               {guidePanel}
               <HybridTextarea 
@@ -1570,18 +1595,14 @@ const [, setForceRender] = useState(0);
         }
         if (iType === 'select') {
           const customKey  = `${tableInstanceId}_${rIdx}_${cell.id}`;
-          
-          // ── THE FIX: Check if it starts with __custom__ instead of an exact match
           const isCustom   = typeof val === 'string' && val.startsWith('__custom__');
-          
-          // ── THE FIX: Extract the typed text so it stays in the box during re-renders
           const customText = isCustom && val.includes(':') 
             ? val.substring(val.indexOf(':') + 1) 
             : (customValues[customKey] || '');
             
           const optionStyle = { background: isDark ? '#1f2937' : '#ffffff', color: t.text };
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px 6px' }}>
+            <div style={{ ...cellWrapperStyle, gap: '4px' }}>
               {guideToggle}
               {guidePanel}
               <select value={isCustom ? '__custom__' : val}
@@ -1613,7 +1634,7 @@ const [, setForceRender] = useState(0);
         const showPrefix = iType === 'currency';
         const showSuffix = iType === 'percentage';
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px', height: '100%' }}>
+          <div style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <HybridInput
@@ -1634,7 +1655,6 @@ const [, setForceRender] = useState(0);
       }
     }
   }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, blockComments]);
-
   const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
