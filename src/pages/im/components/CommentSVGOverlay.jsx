@@ -52,6 +52,7 @@ export default function CommentSVGOverlay() {
       }
 
       // 3. FALLBACK: If the exact highlight mark is gone, point to the parent block instead
+      let isFallback = false;
       if (!sourceNode) {
         if (fullscreenShell) {
           sourceNode = fullscreenShell.querySelector(`[data-block-path="${activeLine.dataPath}"]`);
@@ -59,6 +60,22 @@ export default function CommentSVGOverlay() {
         if (!sourceNode) {
           sourceNode = document.querySelector(`[data-block-path="${activeLine.dataPath}"]`);
         }
+        if (sourceNode) isFallback = true;
+      }
+
+      // 4. SMART TABLE ACTIVE INPUT RECOVERY
+      // If we fell back to the giant parent block, check if the user is actively typing in a specific table cell.
+      if (isFallback && activeLine && activeLine.dataPath) {
+         // Check if our search/cell tracker knows exactly which cell is active
+         if (window.imActiveSearchDataPath && window.imActiveSearchDataPath.startsWith(activeLine.dataPath)) {
+            const activeCellId = `cell-${window.imActiveSearchDataPath.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+            const activeCell = document.getElementById(activeCellId);
+            if (activeCell) sourceNode = activeCell;
+         } else {
+            // Fallback: look for ANY actively focused input inside the table block
+            const focusedInput = sourceNode.querySelector('input:focus, select:focus, textarea:focus');
+            if (focusedInput) sourceNode = focusedInput;
+         }
       }
 
       // Dynamic Z-Index elevation:
