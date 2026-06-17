@@ -571,6 +571,13 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     const handler = (e) => {
       const { sectionId, dataPath, commentId } = e.detail;
       
+      // Safely resolve the section key whether sectionId is the id or the key
+      let targetSectionKey = sectionId;
+      if (sectionId && sectionId !== 'global') {
+        const targetSec = flatSections.find(s => s.id === sectionId || s.key === sectionId);
+        if (targetSec) targetSectionKey = targetSec.key;
+      }
+
       const executeJump = () => {
         // 1. Try to find the exact highlighted word span across the DOM
         const exactSpan = document.querySelector(`[data-comment-id="${commentId}"]`);
@@ -593,8 +600,8 @@ const toggleSectionExclusion = async (id, isExcluding) => {
       };
 
       // If the comment belongs to a different section, switch to it first
-      if (sectionId && sectionId !== 'global' && sectionId !== activeSection) {
-        handleSectionClick(sectionId);
+      if (targetSectionKey && targetSectionKey !== 'global' && targetSectionKey !== activeSection) {
+        handleSectionClick(targetSectionKey);
         
         // Wait 800ms for the section transition and block stagger to finish rendering
         setTimeout(executeJump, 800);
@@ -606,7 +613,7 @@ const toggleSectionExclusion = async (id, isExcluding) => {
   
     window.addEventListener('im-jump-to-comment', handler);
     return () => window.removeEventListener('im-jump-to-comment', handler);
-  }, [activeSection, handleSectionClick]);
+  }, [activeSection, handleSectionClick, flatSections]);
 
   // ── GLOBAL SEARCH JUMP & HIGHLIGHT ──
   useEffect(() => {
