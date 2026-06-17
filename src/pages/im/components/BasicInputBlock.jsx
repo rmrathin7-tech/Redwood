@@ -191,6 +191,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
   const [localValue, setLocalValue] = useState(value ?? '');
   const [isFocused, setIsFocused] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [fullscreenImg, setFullscreenImg] = useState(null); // <-- Added for fullscreen view
   const [uploadedFiles, setUploadedFiles] = useState(Array.isArray(value) ? value : []);
   const placeholderText = block.placeholder || block.desc || '';
   const usePlaceholderGuide = !!block.showPlaceholderAsGuide && !!placeholderText;
@@ -416,7 +417,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (block.type === 'image') {
       const imgWidth = block.imageWidth || '100%';
       const imgHeight = block.imageHeight || '180px';
-      const imgFit = block.objectFit || 'cover';
+      const imgFit = block.objectFit || 'contain'; // <-- Changed to contain to prevent cropping
       const showCaption = block.allowCaption !== false;
       return (
         <div>
@@ -442,7 +443,8 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                   <img
                     src={f.url}
                     alt={f.caption || f.name || 'Uploaded image'}
-                    style={{ display: 'block', width: '100%', height: imgHeight, objectFit: imgFit }}
+                    onClick={() => setFullscreenImg(f.url)}
+                    style={{ display: 'block', width: '100%', height: imgHeight, objectFit: imgFit, cursor: 'zoom-in', background: t.surface }}
                     onError={e => { e.currentTarget.style.background = t.surface; e.currentTarget.style.minHeight = imgHeight; }}
                   />
                   <button onClick={() => removeFile(i)}
@@ -696,6 +698,20 @@ return (
           </div>
         )}
       </div>
+
+      {/* Fullscreen Image Overlay */}
+      {fullscreenImg && (
+        <div 
+          style={{ position: 'fixed', inset: 0, zIndex: 999999, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+          onClick={() => setFullscreenImg(null)}
+        >
+          <img src={fullscreenImg} alt="Fullscreen" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }} />
+          <button style={{ position: 'absolute', top: 24, right: 24, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '8px', borderRadius: '50%', cursor: 'pointer', display: 'flex' }}>
+            <X size={24} />
+          </button>
+        </div>
+      )}
+
     </BlockWrapper>
   );
 }
