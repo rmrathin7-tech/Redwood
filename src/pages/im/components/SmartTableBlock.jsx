@@ -204,12 +204,13 @@ const renderHighlightedText = () => {
       });
     }
 
-    // Highlight Global Search Matches (Blue)
+    // Highlight Global Search Matches (High Contrast)
     if (window.imActiveSearchTerm) {
        const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
        const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
        const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+       // High-contrast solid blue highlight so it pops out from the faint blue cell background
+       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
     }
 
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
@@ -298,12 +299,13 @@ const renderHighlightedText = () => {
       });
     }
 
-    // Highlight Global Search Matches (Blue)
+    // Highlight Global Search Matches (High Contrast)
     if (window.imActiveSearchTerm) {
        const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
        const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
        const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+       // High-contrast solid blue highlight so it pops out from the faint blue cell background
+       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
     }
 
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
@@ -382,12 +384,13 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
       });
     }
 
-    // Highlight Global Search Matches (Blue)
+    // Highlight Global Search Matches (High Contrast)
     if (window.imActiveSearchTerm) {
        const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
        const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
        const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+       // High-contrast solid blue highlight so it pops out from the faint blue cell background
+       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
     }
 
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
@@ -430,13 +433,36 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
   );
 };
 
+// ── ADDED: SEARCH HIGHLIGHT BLOT FOR INLINE QUILL ───────────────────────────────
+if (!Quill.imports['formats/searchMatch']) {
+  const Inline = Quill.import('blots/inline');
+  class SearchMatchBlot extends Inline {
+    static create(value) {
+      const node = super.create();
+      node.className = 'im-search-highlight-quill';
+      node.style.backgroundColor = '#2563eb';
+      node.style.color = '#ffffff';
+      node.style.padding = '0 4px';
+      node.style.borderRadius = '3px';
+      node.style.fontWeight = '700';
+      node.style.boxShadow = '0 1px 3px rgba(0,0,0,0.3)';
+      return node;
+    }
+    static formats(node) { return true; }
+  }
+  SearchMatchBlot.blotName = 'searchMatch';
+  SearchMatchBlot.tagName = 'mark';
+  Quill.register(SearchMatchBlot, true);
+}
+
 // ── INLINE QUILL CELL EDITOR ─────────────────────────────────────────────────
-const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focusHandlers, isDark }) => {
+const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focusHandlers, isDark, cellDataPath }) => {
   const editorRef      = useRef(null);
   const quillInstance  = useRef(null);
   const typingTimeout  = useRef(null);
-  const pendingCommentRange = useRef(null); // <-- Tracks exact selection
+  const pendingCommentRange = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [, setForceSearchRender] = useState(0);
 
   const latestOnChange = useRef(onChange);
   const latestFocusHandlers = useRef(focusHandlers);
@@ -444,6 +470,12 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     latestOnChange.current = onChange;
     latestFocusHandlers.current = focusHandlers;
   });
+
+  // Safeguard to prevent saving the blue highlight into Firestore
+  const cleanSearchHighlights = (html) => {
+    if (!html) return html;
+    return html.replace(/<mark class="im-search-highlight-quill"[^>]*>(.*?)<\/mark>/gi, '$1');
+  };
 
   useEffect(() => {
     if (!editorRef.current || quillInstance.current) return;
@@ -491,7 +523,8 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
       if (source !== 'user') return;
       clearTimeout(typingTimeout.current);
       typingTimeout.current = setTimeout(() => {
-        latestOnChange.current(quillInstance.current.root.innerHTML);
+        const html = cleanSearchHighlights(quillInstance.current.root.innerHTML);
+        latestOnChange.current(html);
       }, 500);
     });
 
@@ -501,7 +534,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     });
 
     quillInstance.current.root.addEventListener('blur', () => {
-      const html = quillInstance.current.root.innerHTML;
+      const html = cleanSearchHighlights(quillInstance.current.root.innerHTML);
       clearTimeout(typingTimeout.current);
       latestOnChange.current(html);
       setTimeout(() => {
@@ -510,26 +543,22 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
       }, 300);
     });
 
-    // ── TRACK EXACT SELECTION TO PREVENT MULTI-CELL RACE CONDITIONS ──
     quillInstance.current.on('selection-change', (range) => {
       if (range && range.length > 0) {
         pendingCommentRange.current = range;
       } else {
-        setTimeout(() => { pendingCommentRange.current = null; }, 400); // Buffer for external clicks
+        setTimeout(() => { pendingCommentRange.current = null; }, 400); 
       }
     });
 
-    // ── EVENT LISTENERS FOR SVG & HIGHLIGHTS ──
-    const persistHtml = () => latestOnChange.current(quillInstance.current.root.innerHTML);
+    const persistHtml = () => latestOnChange.current(cleanSearchHighlights(quillInstance.current.root.innerHTML));
 
     const handleCreateComment = (e) => {
       const detail = e.detail || {};
       if (detail.dataPath !== block.dataPath) return;
-      
-      // PRECISION CREATION: Only the exact cell that was highlighted gets formatted!
       if (pendingCommentRange.current) {
         quillInstance.current.formatText(pendingCommentRange.current.index, pendingCommentRange.current.length, 'comment', { id: detail.commentId, status: 'open' }, 'silent');
-        setTimeout(persistHtml, 50); // 50ms DOM settlement delay before saving
+        setTimeout(persistHtml, 50); 
         pendingCommentRange.current = null;
       }
     };
@@ -586,9 +615,22 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── DYNAMIC SEARCH HIGHLIGHT LISTENER ──
+  useEffect(() => {
+    const handleSearch = () => setForceSearchRender(p => p + 1);
+    window.addEventListener('im-search-jump', handleSearch);
+    window.addEventListener('im-clear-search', handleSearch);
+    return () => {
+      window.removeEventListener('im-search-jump', handleSearch);
+      window.removeEventListener('im-clear-search', handleSearch);
+    };
+  }, []);
+
   useEffect(() => {
     if (!quillInstance.current || isFocused) return;
-    if (val !== quillInstance.current.root.innerHTML) {
+    const currentHtml = cleanSearchHighlights(quillInstance.current.root.innerHTML);
+    const incomingHtml = cleanSearchHighlights(val || '');
+    if (incomingHtml !== currentHtml) {
       const sel = quillInstance.current.getSelection();
       quillInstance.current.root.innerHTML = val || '';
       if (sel) quillInstance.current.setSelection(sel);
@@ -600,8 +642,30 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     disabled ? quillInstance.current.disable() : quillInstance.current.enable();
   }, [disabled]);
 
+  // ── APPLY NATIVE SEARCH HIGHLIGHTS VIA QUILL API ──
+  useEffect(() => {
+     if (!quillInstance.current) return;
+     const quill = quillInstance.current;
+     const term = window.imActiveSearchTerm;
+     const isMatch = window.imActiveSearchDataPath === cellDataPath;
+
+     // 1. Clear existing highlights
+     const textLength = quill.getLength();
+     quill.formatText(0, textLength, 'searchMatch', false, 'silent');
+
+     // 2. Apply new highlights dynamically
+     if (term && isMatch) {
+        const text = quill.getText();
+        const regex = new RegExp(escapeRegex(term), 'gi');
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+           quill.formatText(match.index, match[0].length, 'searchMatch', true, 'silent');
+        }
+     }
+  }); // Runs reliably on every forced render
+
   return (
-    <div className="table-quill-wrapper" style={{ minWidth: '160px', padding: '4px' }}>
+    <div className="table-quill-wrapper" style={{ minWidth: '160px', padding: '4px', position: 'relative' }}>
       <style>{`
         .table-quill-wrapper .ql-toolbar.ql-snow { background: ${isDark ? '#161b22' : '#f9fafb'} !important; border-color: ${t.border} !important; border-radius: 6px 6px 0 0; padding: 4px 6px; }
         .table-quill-wrapper .ql-container.ql-snow { background: transparent !important; border-color: ${t.border} !important; border-radius: 0 0 6px 6px; min-height: 80px; }
@@ -785,20 +849,21 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
   }, [block?.dataPath]);
 const [, setForceRender] = useState(0);
 
-  useEffect(() => {
+useEffect(() => {
     const handleSearchJump = (e) => {
-      const { dataPath, matchText, blockId } = e.detail || {};
-      if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
-        window.imActiveSearchTerm = matchText;
-        setForceRender(prev => prev + 1); // Force cells to re-render and highlight
-      } else {
-        window.imActiveSearchTerm = null;
-        setForceRender(prev => prev + 1);
-      }
+      // Do NOT clear the globals here. Another block might be the target, 
+      // and clearing it creates a race condition that wipes out highlights!
+      // IMSearchWidget updates window.imActiveSearchTerm directly.
+      // We just force a re-render so all cells evaluate the new global search states.
+      setForceRender(prev => prev + 1);
     };
     
-    // Clear highlight on escape
-    const clearSearch = () => { window.imActiveSearchTerm = null; setForceRender(prev => prev + 1); };
+    // Clear highlight only on escape or closing widget
+    const clearSearch = () => { 
+      window.imActiveSearchTerm = null; 
+      window.imActiveSearchDataPath = null; 
+      setForceRender(prev => prev + 1); 
+    };
 
     window.addEventListener('im-search-jump', handleSearchJump);
     window.addEventListener('im-clear-search', clearSearch);
@@ -806,7 +871,7 @@ const [, setForceRender] = useState(0);
       window.removeEventListener('im-search-jump', handleSearchJump);
       window.removeEventListener('im-clear-search', clearSearch);
     };
-  }, [block.dataPath, block.id]);
+  }, []);
   const t = {
     bg:           isDark ? '#04060a'                : '#f8fafc',
     surface:      isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
@@ -1425,41 +1490,23 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
       </div>
     ) : null;
 
-    // ── UNIVERSAL SEARCH MATCH DETECTOR ──
-    let hasMatch = false;
-    if (window.imActiveSearchTerm) {
-      const term = window.imActiveSearchTerm.toLowerCase();
-      if (cell.cellType === 'fixed' && cell.text && String(cell.text).toLowerCase().includes(term)) hasMatch = true;
-      else if (cell.cellType === 'computed') {
-        const cVal = evaluateFormula(cell.formula, rIdx, contextRows);
-        if (String(cVal).toLowerCase().includes(term)) hasMatch = true;
-      }
-      else if (typeof val === 'string' && val.toLowerCase().includes(term)) hasMatch = true;
-      else if (typeof val === 'number' && String(val).toLowerCase().includes(term)) hasMatch = true;
-      else if (Array.isArray(val) && val.some(v => String(v).toLowerCase().includes(term))) hasMatch = true;
-      else if (val && typeof val === 'object' && !Array.isArray(val)) {
-        if (val.selected && String(val.selected).toLowerCase().includes(term)) hasMatch = true;
-        if (val.richtext && String(val.richtext).toLowerCase().includes(term)) hasMatch = true;
-        if (val.inputs && val.inputs.some(v => String(v).toLowerCase().includes(term))) hasMatch = true;
-      }
-    }
+    // ── ISOLATED SEARCH MATCH DETECTOR ──
+    const cellIdSuffix = `${rIdx}.${cell.id}`;
+    const cellDataPath = `${block.dataPath}.rows.${cellIdSuffix}`;
+    const cellIdString = `cell-${cellDataPath.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+    const hasMatch = window.imActiveSearchDataPath === cellDataPath;
 
     const cellWrapperStyle = {
-      display: 'flex', 
-      flexDirection: 'column', 
-      gap: 6, 
-      padding: '4px 6px', 
-      height: '100%',
-      backgroundColor: hasMatch ? 'rgba(59,130,246,0.15)' : 'transparent',
+      display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 6px', height: '100%',
+      backgroundColor: hasMatch ? 'rgba(59,130,246,0.25)' : 'transparent',
       border: hasMatch ? '1px solid #3b82f6' : '1px solid transparent',
-      borderRadius: '4px',
-      transition: 'background-color 0.2s, border 0.2s'
+      borderRadius: '4px', transition: 'background-color 0.2s, border 0.2s'
     };
 
     switch (cell.cellType) {
       case 'fixed':
         return (
-          <div style={cellWrapperStyle}>
+          <div id={cellIdString} style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', color: t.fixedText, fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center' }}>{cell.text || ''}</div>
@@ -1467,7 +1514,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         );
       case 'computed':
         return (
-          <div style={cellWrapperStyle}>
+          <div id={cellIdString} style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', color: t.computedText, fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace', display: 'flex', alignItems: 'center' }}>{evaluateFormula(cell.formula, rIdx, contextRows)}</div>
@@ -1479,7 +1526,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         const inputs = Array.isArray(val) ? val : [];
         let inputIdx = 0;
         return (
-          <div style={cellWrapperStyle}>
+          <div id={cellIdString} style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <div style={{ padding: '8px 10px', lineHeight: 1.8 }}>
@@ -1506,7 +1553,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         const handleSelect = (e) => onValChange({ ...valObj, selected: e.target.value, inputs: [], richtext: '' });
 
         return (
-          <div style={{ ...cellWrapperStyle, gap: 8, padding: '8px 10px' }}>
+          <div id={cellIdString} style={{ ...cellWrapperStyle, gap: 8, padding: '8px 10px' }}>
             {guideToggle}
             {guidePanel}
             <select
@@ -1542,6 +1589,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                     t={t}
                     focusHandlers={focusHandlers}
                     isDark={isDark}
+                    cellDataPath={cellDataPath}
                   />
                 ) : (
                   <div style={{ lineHeight: 1.8, paddingLeft: 6, borderLeft: `2px solid ${t.border}` }}>
@@ -1568,16 +1616,16 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         const iType = cell.inputType || 'text';
         if (iType === 'quill') {
           return (
-            <div style={cellWrapperStyle}>
+            <div id={cellIdString} style={cellWrapperStyle}>
               {guideToggle}
               {guidePanel}
-              <TableQuillEditor val={val} onChange={newVal => onValChange(newVal)} disabled={isProtectedRow || !!lockedBy} placeholder={usePlaceholderGuide ? '' : cellPlaceholder} block={block} t={t} focusHandlers={focusHandlers} isDark={isDark} />
+              <TableQuillEditor val={val} onChange={newVal => onValChange(newVal)} disabled={isProtectedRow || !!lockedBy} placeholder={usePlaceholderGuide ? '' : cellPlaceholder} block={block} t={t} focusHandlers={focusHandlers} isDark={isDark} cellDataPath={cellDataPath} />
             </div>
           );
         }
         if (iType === 'textarea') {
           return (
-            <div style={cellWrapperStyle}>
+            <div id={cellIdString} style={cellWrapperStyle}>
               {guideToggle}
               {guidePanel}
               <HybridTextarea 
@@ -1602,7 +1650,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
             
           const optionStyle = { background: isDark ? '#1f2937' : '#ffffff', color: t.text };
           return (
-            <div style={{ ...cellWrapperStyle, gap: '4px' }}>
+            <div id={cellIdString} style={{ ...cellWrapperStyle, gap: '4px' }}>
               {guideToggle}
               {guidePanel}
               <select value={isCustom ? '__custom__' : val}
@@ -1634,7 +1682,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         const showPrefix = iType === 'currency';
         const showSuffix = iType === 'percentage';
         return (
-          <div style={cellWrapperStyle}>
+          <div id={cellIdString} style={cellWrapperStyle}>
             {guideToggle}
             {guidePanel}
             <HybridInput
@@ -1654,8 +1702,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, blockComments]);
-  const colTotals = useMemo(() => {
+  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, blockComments]);  const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
     
@@ -1776,7 +1823,10 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                   <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, width: '52px', textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '2px' }}>
                       {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▲</button>}
-                      {!isProtectedRow && block.allowAddRows !== false && !lockedBy && <button onClick={() => deleteRow(rIdx)} title="Delete Row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
+                      
+                      {/* FIX: Force Delete Button to show for overflow rows created by Paste */}
+                      {!isProtectedRow && !lockedBy && (block.allowAddRows !== false || rIdx >= runtimeSchemaRows.length) && <button onClick={() => deleteRow(rIdx)} title="Delete Row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
+                      
                       {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▼</button>}
                     </div>
                   </td>

@@ -386,18 +386,23 @@ const toggleSectionExclusion = async (id, isExcluding) => {
 
   const handleDataChange = useCallback(async (dataPath, value, blockId) => {
     if (!dataPath || !imId) return;
-    
-    activeEditPaths.current.add(dataPath); // Protect this exact path from Firebase snapshots
-    
+    activeEditPaths.current.add(dataPath);
+
+    let topLevelKey = dataPath.split('.')[0];
+    let newBlockData = null;
+
     setImData(prev => {
-      const next = { ...prev };
+      const next = JSON.parse(JSON.stringify(prev)); // Deep clone preserves array structures safely
       const keys = dataPath.split('.');
       let cur = next;
       for (let i = 0; i < keys.length - 1; i++) {
-        if (typeof cur[keys[i]] !== 'object' || cur[keys[i]] === null) cur[keys[i]] = {};
+        if (cur[keys[i]] === undefined || cur[keys[i]] === null || typeof cur[keys[i]] !== 'object') {
+          cur[keys[i]] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+        }
         cur = cur[keys[i]];
       }
       cur[keys[keys.length - 1]] = value;
+      newBlockData = next[topLevelKey];
       return next;
     });
     
@@ -405,20 +410,18 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     clearTimeout(saveTimers.current[dataPath]);
     saveTimers.current[dataPath] = setTimeout(async () => {
       try {
+        // FIX: Update the ENTIRE block object in Firestore. This prevents array wiping.
         await updateDoc(doc(db, 'investment-memos', imId), {
-          [`data.${dataPath}`]: value,
+          [`data.${topLevelKey}`]: newBlockData,
           updatedAt: serverTimestamp(),
         });
-        
-        activeEditPaths.current.delete(dataPath); // Remove protection once safely in database
+        activeEditPaths.current.delete(dataPath);
         setSaveStatus('saved');
-        if (blockId) {
-          window.dispatchEvent(new CustomEvent('im-block-saved', { detail: { blockId } }));
-        }
+        if (blockId) window.dispatchEvent(new CustomEvent('im-block-saved', { detail: { blockId } }));
         clearTimeout(savedTimers.current.main);
         savedTimers.current.main = setTimeout(() => setSaveStatus('idle'), 3000);
       } catch (err) {
-        console.error('[IMWorkspace] Save failed:', dataPath, err);
+        console.error('[IMWorkspace] Save failed:', err);
         setSaveStatus('error');
       }
     }, 700);
@@ -428,34 +431,38 @@ const toggleSectionExclusion = async (id, isExcluding) => {
   const handleBatchDataChange = async (updates) => {
     if (!imId) return;
     
-    // 1. Optimistic UI Update for instant feedback
+    const topLevelKeysToUpdate = new Set();
+    let finalNextState = null;
+
     setImData(prev => {
-      const next = { ...prev };
+      const next = JSON.parse(JSON.stringify(prev));
       Object.entries(updates).forEach(([dataPath, value]) => {
         const keys = dataPath.split('.');
+        topLevelKeysToUpdate.add(keys[0]);
         let cur = next;
         for (let i = 0; i < keys.length - 1; i++) {
-          if (typeof cur[keys[i]] !== 'object' || cur[keys[i]] === null) cur[keys[i]] = {};
+          if (cur[keys[i]] === undefined || cur[keys[i]] === null || typeof cur[keys[i]] !== 'object') {
+            cur[keys[i]] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+          }
           cur = cur[keys[i]];
         }
         cur[keys[keys.length - 1]] = value;
       });
+      finalNextState = next;
       return next;
     });
 
     setSaveStatus('saving');
-    
     try {
-      // 2. Prepare atomic payload for Firestore
-      const dbUpdates = {};
-      Object.entries(updates).forEach(([dataPath, value]) => {
-        dbUpdates[`data.${dataPath}`] = value;
+      const dbUpdates = { updatedAt: serverTimestamp() };
+      // FIX: Apply updates block-by-block to prevent data corruption
+      topLevelKeysToUpdate.forEach(key => {
+        if (finalNextState[key] !== undefined) {
+          dbUpdates[`data.${key}`] = finalNextState[key];
+        }
       });
-      dbUpdates.updatedAt = serverTimestamp();
 
-      // 3. Commit massive write
       await updateDoc(doc(db, 'investment-memos', imId), dbUpdates);
-      
       setSaveStatus('saved');
       clearTimeout(savedTimers.current.main);
       savedTimers.current.main = setTimeout(() => setSaveStatus('idle'), 3000);
@@ -618,22 +625,29 @@ const toggleSectionExclusion = async (id, isExcluding) => {
   // ── GLOBAL SEARCH JUMP & HIGHLIGHT ──
   useEffect(() => {
     const handler = (e) => {
-      const { sectionId, blockId } = e.detail;
+      const { sectionId, blockId, dataPath } = e.detail; // Track the exact path
       
       const executeJump = () => {
-        // Find the wrapper element for the target block
-        const blockWrapper = document.getElementById(`block-${blockId}`);
-        if (blockWrapper) {
-          // Force the browser viewport to center perfectly on the block
-          blockWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          
-          // Visual highlight pulse
-          const originalBg = blockWrapper.style.backgroundColor;
-          blockWrapper.style.transition = 'background-color 0.4s ease';
-          blockWrapper.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'; // Blue highlight
-          setTimeout(() => {
-            blockWrapper.style.backgroundColor = originalBg;
-          }, 1200);
+        // 1. Try to find the EXACT cell first
+        const safeDataPath = dataPath ? dataPath.replace(/[^a-zA-Z0-9-]/g, '-') : '';
+        const exactCell = document.getElementById(`cell-${safeDataPath}`);
+        
+        if (exactCell) {
+          exactCell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const originalBg = exactCell.style.backgroundColor;
+          exactCell.style.transition = 'background-color 0.4s ease';
+          exactCell.style.backgroundColor = 'rgba(59, 130, 246, 0.4)'; // Direct Blue pulse on cell
+          setTimeout(() => { exactCell.style.backgroundColor = originalBg; }, 1200);
+        } else {
+          // 2. Fallback to the whole block if cell isn't found
+          const blockWrapper = document.getElementById(`block-${blockId}`);
+          if (blockWrapper) {
+            blockWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const originalBg = blockWrapper.style.backgroundColor;
+            blockWrapper.style.transition = 'background-color 0.4s ease';
+            blockWrapper.style.backgroundColor = 'rgba(59, 130, 246, 0.25)';
+            setTimeout(() => { blockWrapper.style.backgroundColor = originalBg; }, 1200);
+          }
         }
       };
 

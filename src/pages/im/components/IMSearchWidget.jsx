@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, ChevronUp, ChevronDown, Replace, ReplaceAll, MapPin } from 'lucide-react';
+import { Search, X, ChevronUp, ChevronDown, Replace, ReplaceAll, MapPin, GripHorizontal } from 'lucide-react';
 
 const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -72,7 +72,14 @@ export default function IMSearchWidget({
   const [replaceTerm, setReplaceTerm] = useState('');
   const [matches, setMatches] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  
+  // Drag State
+  const [position, setPosition] = useState({ x: window.innerWidth - 360, y: 60 });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+
   const inputRef = useRef(null);
+  const prevSearchTerm = useRef('');
 
   const T = {
     bg: isDark ? '#1e2431' : '#ffffff',
@@ -83,7 +90,7 @@ export default function IMSearchWidget({
     inputBg: isDark ? '#0d1117' : '#f8fafc',
   };
 
-  // JUMP DISPATCHER: Safely prepares global state and fires event
+// JUMP DISPATCHER: Safely prepares global state and fires event
   const dispatchJump = (matchList, matchIndex) => {
     if (matchList.length > 0 && matchList[matchIndex]) {
        const match = matchList[matchIndex];
@@ -96,8 +103,9 @@ export default function IMSearchWidget({
          isStatic: match.isStatic
        };
        
-       window.imActiveSearchTerm = match.matchText; // Make the blue highlight global instantly
-       window.imPendingSearchJump = detail; // Store globally so blocks mounting from tab-switches don't miss it
+       window.imActiveSearchTerm = match.matchText; 
+       window.imActiveSearchDataPath = match.path; // Track the exact cell globally
+       window.imPendingSearchJump = detail; 
        window.dispatchEvent(new CustomEvent('im-search-jump', { detail }));
     }
   };
@@ -106,6 +114,11 @@ export default function IMSearchWidget({
     if (!searchTerm.trim()) {
       setMatches([]);
       setCurrentIndex(0);
+      prevSearchTerm.current = '';
+      // FIX: Ensure global highlights vanish the millisecond the box is emptied
+      window.imActiveSearchTerm = null;
+      window.imActiveSearchDataPath = null;
+      window.dispatchEvent(new CustomEvent('im-clear-search'));
       return;
     }
 
@@ -143,15 +156,21 @@ export default function IMSearchWidget({
 
     setMatches(results);
     
-    // When matches update, reset index and safely dispatch the first jump
-    if (results.length > 0) {
-      setCurrentIndex(0);
-      dispatchJump(results, 0);
+    // Memory Tracker: ONLY reset to 1 if the user actively typed a different search word.
+    // Prevents violent jumping if the data simply autosaved in the background.
+    if (searchTerm !== prevSearchTerm.current) {
+      prevSearchTerm.current = searchTerm;
+      if (results.length > 0) {
+        setCurrentIndex(0);
+        dispatchJump(results, 0);
+      } else {
+        setCurrentIndex(0);
+      }
     } else {
-      setCurrentIndex(0);
+      // Background data changed, keep the user on their current search index!
+      setCurrentIndex(prev => Math.min(prev, Math.max(0, results.length - 1)));
     }
   }, [searchTerm, imData, schema, customNames, sectionNumberMap]);
-
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const handleNext = () => {
@@ -202,20 +221,74 @@ export default function IMSearchWidget({
     if (Object.keys(updates).length > 0) onBatchReplace(updates);
   };
 
+// ── DRAG HANDLERS ──
+  const handlePointerDown = (e) => {
+    isDragging.current = true;
+    dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+    document.body.style.userSelect = 'none'; // Prevent text highlighting while dragging
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isDragging.current) return;
+    
+    // Calculate new position while clamping to screen boundaries
+    let newX = e.clientX - dragStart.current.x;
+    let newY = e.clientY - dragStart.current.y;
+    
+    const maxX = window.innerWidth - 340; // 340 is widget width
+    const maxY = window.innerHeight - 50; 
+    
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+    
+    setPosition({ x: newX, y: newY });
+  };
+
+  const handlePointerUp = () => {
+    isDragging.current = false;
+    document.body.style.userSelect = '';
+  };
+
+  useEffect(() => {
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
   return (
     <div style={{
-      position: 'fixed', top: 60, right: 20, zIndex: 2147483647, width: 340, 
+      position: 'fixed', left: position.x, top: position.y, zIndex: 2147483647, width: 340, 
       background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, 
       boxShadow: '0 10px 40px rgba(0,0,0,0.5)', overflow: 'hidden', fontFamily: 'inherit'
     }}>
-      <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.text, fontSize: 13, fontWeight: 700 }}>
-          <Search size={14} style={{ color: T.accent }}/> Search Engine
+      {/* DRAG HANDLE BAR */}
+      <div 
+        onPointerDown={handlePointerDown}
+        style={{ 
+          padding: '8px 14px', borderBottom: `1px solid ${T.border}`, display: 'flex', 
+          justifyContent: 'space-between', alignItems: 'center', cursor: 'grab', 
+          backgroundColor: isDark ? '#1e293b' : '#f8fafc' 
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.text, fontSize: 13, fontWeight: 700, pointerEvents: 'none' }}>
+          <GripHorizontal size={14} style={{ color: T.textMuted }}/> Search Engine
         </div>
-        <button onClick={() => {
-  window.dispatchEvent(new CustomEvent('im-clear-search'));
-  onClose();
-}} style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer' }}><X size={16} /></button>
+        <button 
+          onPointerDown={(e) => e.stopPropagation()} // Prevent dragging when clicking close
+          onClick={() => {
+            // FIX: Ensure complete eradication of global search state before closing
+            window.imActiveSearchTerm = null;
+            window.imActiveSearchDataPath = null;
+            window.dispatchEvent(new CustomEvent('im-clear-search'));
+            onClose();
+          }} 
+          style={{ background: 'none', border: 'none', color: T.textMuted, cursor: 'pointer', display: 'flex' }}
+        >
+          <X size={16} />
+        </button>
       </div>
 
       <div style={{ padding: '12px 14px' }}>
