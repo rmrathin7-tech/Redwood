@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
-import ChartBlock from './ChartBlock'; // FIX: Bring in your actual Live Chart component
+import ChartBlock from './ChartBlock'; 
 
-// BULLETPROOF ARRAY ENFORCER (Fixes Firebase Object-Array conversion crashes)
+// BULLETPROOF ARRAY ENFORCER
 const ensureArray = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -15,7 +16,7 @@ const ensureArray = (data) => {
   return [data]; 
 };
 
-// FORMULA ENGINE (Ported from SmartTableBlock to calculate Math on the fly for Print)
+// FORMULA ENGINE
 const evaluateFormula = (formula, rIdx, activeRecords, runtimeSchemaRows) => {
   if (!formula) return '';
   let s = formula;
@@ -51,28 +52,26 @@ const evaluateFormula = (formula, rIdx, activeRecords, runtimeSchemaRows) => {
   } catch { return ''; }
 };
 
-// STRIP HIGHLIGHTS ENGINE: Forcefully rips out baked-in comment/search background styles before printing
-// FIX: Moved this OUTSIDE of evaluateFormula so the rest of the file can use it!
+// STRIP HIGHLIGHTS ENGINE
 const stripPrintHighlights = (html) => {
   if (!html || typeof html !== 'string') return html;
   let clean = html;
-  // Scub out yellow/amber comment backgrounds
   clean = clean.replace(/background-color:\s*(?:#fbbf24|#f59e0b|rgba?\(251,\s*191,\s*36[^)]*\)|rgba?\(245,\s*158,\s*11[^)]*\))\s*;?/gi, '');
-  // Scrub out blue search backgrounds
   clean = clean.replace(/background-color:\s*(?:#2563eb|rgba?\(37,\s*99,\s*235[^)]*\))\s*;?/gi, '');
-  // Clean up any stray classes
   clean = clean.replace(/class="[^"]*(im-comment-highlight|im-search-highlight-quill)[^"]*"/gi, '');
   return clean;
 };
 
 export default function IMPrintPreview({ schema, imData, excludedSections, customNames = {}, projectName, onClose }) {
   
-  // 1. Calculate Visible Schema (Respect Exclusions)
+  // FIX: Setup a mount state so the React Portal safely attaches to the DOM
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const visibleSchema = useMemo(() => {
     return ensureArray(schema).filter(s => !ensureArray(excludedSections).includes(s.id));
   }, [schema, excludedSections]);
 
-  // 2. Dynamic Numbering Engine
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
@@ -89,11 +88,9 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
   const cleanTitle = (text) => text ? text.replace(/^([0-9]+\.)+\s*/, '') : '';
 
-  // 3. Data Retrieval Helper (NOW SUPPORTS RELATIVE PATHS FOR REPEATING SETS)
   const getValue = (path, contextData = null, parentDataPath = null) => {
     if (contextData !== null) {
       let relativePath = path;
-      // Strip the parent's base path so we can look up the relative key inside the repeating array object
       if (parentDataPath && path.startsWith(`${parentDataPath}.`)) {
         const regex = new RegExp(`^${parentDataPath}\\.`);
         relativePath = path.replace(regex, '');
@@ -104,7 +101,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     return path.split('.').reduce((obj, key) => obj?.[key], imData);
   };
 
-  // 4. SMART TABLE PARSER (Exactly matches Workspace Database Mapping)
   const renderTableInstance = (block, instanceData, isRepeated = false, instanceIdx = 0) => {
     let dbRows = [];
     let runtimeSchemaRows = ensureArray(block.rows);
@@ -123,7 +119,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     const numRows = Math.max(dbRows.length, runtimeSchemaRows.length, block.baseRowCount || 1);
     const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
 
-    // Calculate Column Totals if enabled
     const colTotals = (!block.showColumnTotals && !block.hasTotalsRow) ? null : (() => {
       const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}` }));
       return allCells.map(cell => {
@@ -138,7 +133,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     return (
       <div key={`table_${isRepeated ? 'rep' : 'main'}_${instanceIdx}`} style={{ overflowX: 'auto', marginBottom: '24px', pageBreakInside: 'avoid' }}>
         
-        {/* Subheadings and Repeated Headers */}
         {isRepeated && <div style={{ fontSize: '12px', fontWeight: 800, color: '#ef4444', marginBottom: '8px', textTransform: 'uppercase' }}>Copy {instanceIdx} {instanceData?.instanceName ? `- ${instanceData.instanceName}` : ''}</div>}
         {!isRepeated && block.enableTableSubheading && instanceData?.tableSubheadingRichText && (
           <div className="ql-editor" style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic', padding: 0 }} dangerouslySetInnerHTML={{ __html: instanceData.tableSubheadingRichText }} />
@@ -174,7 +168,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
                         }
                       }
 
-                      // EXACT VALUE MAPPING
                       const rawVal = rec[cell.id];
                       let displayValue = rawVal ?? '-';
 
@@ -213,7 +206,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
               );
             })}
 
-            {/* Totals Row */}
             {colTotals && (
               <tr style={{ background: '#fee2e2' }}>
                 {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '8px 10px', textAlign: 'center', color: '#dc2626', fontWeight: 800 }}>∑</td>}
@@ -228,7 +220,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     );
   };
 
-  // 5. Ultimate Block Compiler Engine
   const compileBlock = (block, contextData = null, parentDataPath = null) => {
     if (!block || ensureArray(excludedSections).includes(block.id)) return null;
     if (block.type === 'instruction') return null;
@@ -256,7 +247,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           <div className="ql-editor" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, padding: 0 }} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(val || '<span style="color:#94a3b8">-</span>') }} />
         )}
 
-        {/* Render Main Table and Any User-Repeated Tables */}
         {block.type === 'table' && (
           <>
             {renderTableInstance(block, val, false, 0)}
@@ -374,7 +364,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           </div>
         )}
 
-        {/* FIX: Mount your actual Live Chart component instead of a table. Pass isPrintMode=true so it hides the UI tabs. */}
         {block.type === 'chart' && (
           <div className="print-chart-container" style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
             <ChartBlock 
@@ -382,7 +371,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
               value={val} 
               isDark={false} 
               isPrintMode={true} 
-              onChange={() => {}} // Safe dummy function so it doesn't crash on read-only
+              onChange={() => {}}
             />
           </div>
         )}
@@ -399,8 +388,10 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
   const parentSections = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
 
-  return (
-    <div className="im-print-wrapper" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#cbd5e1', display: 'flex', flexDirection: 'column' }}>
+  // FIX: Stored component inside a variable so we can safely inject it into the Portal
+  // WARNING: Do NOT put inline styles like 'overflowY' or 'flex' on these wrappers, it causes Chromium to print blank boxes!
+  const printPreviewContent = (
+    <div className="im-print-wrapper">
       
       <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -412,9 +403,9 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '40px 0' }} className="print-canvas">
+      <div className="print-canvas">
         
-        <div id="print-document" style={{ width: '210mm', minHeight: '297mm', margin: '0 auto', background: '#ffffff', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', padding: '25mm 20mm' }}>
+        <div id="print-document">
           
           <div style={{ height: '240mm', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderBottom: '2px solid #e2e8f0', pageBreakAfter: 'always' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a', letterSpacing: '4px', margin: '0 0 40px 0' }}>REDWOOD <span style={{color: '#ef4444'}}>PARTNERS</span></h1>
@@ -500,93 +491,101 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
       </div>
 
       <style>{`
-        /* FIX: Inject Native Quill Styles for Print */
+        /* --- NATIVE QUILL COMPONENT FIXES --- */
         .ql-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; }
         .ql-editor table td, .ql-editor table th { border: 1px solid #cbd5e1 !important; padding: 6px 8px; }
         .ql-editor ul, .ql-editor ol { padding-left: 20px; margin: 8px 0; }
         .ql-editor li { margin-bottom: 4px; }
         .ql-editor p { margin: 0 0 8px 0; }
         
-        /* FIX: Forcefully strip comments and search highlights on print (Bulletproof) */
-        [data-comment-id], 
-        [data-comment-id] *,
-        .im-comment-highlight, 
-        .im-comment-highlight *,
-        mark.im-comment-highlight, 
-        mark.im-search-highlight-quill, 
-        .im-search-highlight-quill,
-        .im-search-highlight-quill * {
-          background: transparent !important;
-          background-color: transparent !important;
-          border: none !important;
-          color: inherit !important;
-          text-decoration: none !important;
-          box-shadow: none !important;
+        [data-comment-id], [data-comment-id] *, .im-comment-highlight, .im-comment-highlight *,
+        mark.im-comment-highlight, mark.im-search-highlight-quill, .im-search-highlight-quill, .im-search-highlight-quill * {
+          background: transparent !important; background-color: transparent !important;
+          border: none !important; color: inherit !important;
+          text-decoration: none !important; box-shadow: none !important;
         }
 
+        /* --- 🖥️ SCREEN VIEW (Safely holds the layout rules away from the print engine) --- */
+        @media screen {
+          .im-print-wrapper {
+            position: fixed; inset: 0; z-index: 9999;
+            background: #cbd5e1; display: flex; flex-direction: column;
+          }
+          .print-canvas {
+            flex: 1; overflow-y: auto; padding: 40px 0;
+          }
+          #print-document {
+            width: 210mm; min-height: 297mm; margin: 0 auto;
+            background: #ffffff; box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 25mm 20mm;
+          }
+        }
+
+        /* --- 🖨️ PRINT VIEW (The Absolute Bulletproof Reset) --- */
         @media print {
-          html, body, #root {
+          /* 1. ANNIHILATE THE MAIN APP: Target absolutely everything that is NOT our portal */
+          body > *:not(.im-print-wrapper) {
+            display: none !important;
+          }
+          .no-print { 
+            display: none !important; 
+          }
+
+          /* 2. RESET THE DOCUMENT FLOW */
+          html, body {
+            display: block !important;
+            position: relative !important;
             height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
             overflow: visible !important;
             background: white !important;
             margin: 0 !important;
             padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
-          aside, header, main, .no-print {
+          /* 3. ALLOW COMPONENTS TO EXPAND NATURALLY */
+          .im-print-wrapper, .print-canvas, #print-document {
+            display: block !important;
+            position: relative !important;
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+
+          /* Keep standard A4 spacing */
+          #print-document {
+             padding: 15mm !important; 
+          }
+
+          /* 4. STRIP BACKGROUND HIGHLIGHTS & TABS */
+          .ql-editor span, .ql-editor mark {
+            background-color: transparent !important;
+            background: transparent !important;
+          }
+          .print-chart-container button,
+          .print-chart-container [role="tablist"],
+          .print-chart-container .chart-tabs {
             display: none !important;
           }
 
-          /* FIX: Release the fixed wrapper so the browser can measure all pages */
-          .im-print-wrapper {
-            position: static !important;
-            display: block !important;
-            height: auto !important;
-            overflow: visible !important;
-            background: white !important;
-          }
-
-          /* FIX: Ensure the canvas scrolls out to its full physical height */
-          .print-canvas {
-            overflow: visible !important;
-            height: auto !important;
-            display: block !important;
-            padding: 0 !important;
-          }
-
-          #print-mount-point {
-            position: static !important;
-            display: block !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-
-          #print-document {
-            box-shadow: none !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-        /* THE ULTIMATE CSS HAMMER: Strip all inline backgrounds from rich text on print */
-        .ql-editor span, .ql-editor mark {
-          background-color: transparent !important;
-          background: transparent !important;
-        }
-        
-        /* FIX: Hide the toggle tabs (Data Table / Live Chart) when printing */
-        .print-chart-container button,
-        .print-chart-container [role="tablist"],
-        .print-chart-container .chart-tabs {
-          display: none !important;
-        }
-          @page {
-            size: A4;
-            margin: 15mm;
-          }
+          @page { size: A4; margin: 0; }
         }
       `}</style>
     </div>
   );
+
+  // FIX: Teleport the entire clean HTML directly onto the <body> tag
+  if (!mounted) return null;
+  return createPortal(printPreviewContent, document.body);
 }
