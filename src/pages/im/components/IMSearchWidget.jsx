@@ -252,9 +252,17 @@ export default function IMSearchWidget({
   useEffect(() => {
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    
+    // The 'return' function here acts as the component's dying breath.
+    // It runs exactly once when the widget is closed or destroyed for ANY reason.
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      
+      // GUARANTEE GLOBAL HIGHLIGHTS ARE WIPED OUT ON CLOSE
+      window.imActiveSearchTerm = null;
+      window.imActiveSearchDataPath = null;
+      window.dispatchEvent(new CustomEvent('im-clear-search'));
     };
   }, []);
 
