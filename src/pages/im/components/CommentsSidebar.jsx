@@ -15,8 +15,12 @@ const COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
 const avatarColor = (uid) => COLORS[(uid?.charCodeAt(0) || 0) % COLORS.length];
 
 function relativeTime(ts) {
-  if (!ts) return '';
+  // Prevent NaN if Firestore hasn't returned the timestamp yet
+  if (!ts || (!ts.toMillis && !ts.seconds && typeof ts !== 'string' && typeof ts !== 'number')) return 'just now';
+  
   const ms = ts?.toMillis ? ts.toMillis() : new Date(ts).getTime();
+  if (isNaN(ms)) return 'just now'; // Fallback for invalid dates
+  
   const diff = Date.now() - ms;
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
@@ -184,7 +188,13 @@ export default function CommentsSidebar({
 
   // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
   useEffect(() => {
+    let isCreating = false; // Debounce lock to prevent ghost duplicates
+
     const onCreate = async (e) => {
+      if (isCreating) return; // Prevent double-firing
+      isCreating = true;
+      setTimeout(() => { isCreating = false; }, 500); // Release lock after 500ms
+
       const { commentId, dataPath, quote, contextLabel, sectionId, offsetStart, offsetEnd, blockId } = e.detail;
       if (!imId || !user) return;
       await addDoc(collection(db, 'im-comments'), {
@@ -195,8 +205,8 @@ export default function CommentsSidebar({
         dataPath: dataPath || 'global',
         contextLabel: contextLabel || 'General',
         quote: quote ? quote.slice(0, 200) : 'General Comment',
-        offsetStart: offsetStart ?? null, // Capture exact start for hybrid text mapping
-        offsetEnd: offsetEnd ?? null,     // Capture exact end for hybrid text mapping
+        offsetStart: offsetStart ?? null, 
+        offsetEnd: offsetEnd ?? null,     
         status: 'open',
         createdBy: { uid: user.uid, email: user.email },
         createdAt: serverTimestamp(),
@@ -204,7 +214,7 @@ export default function CommentsSidebar({
         firstComment: '',
       });
       setActiveId(commentId);
-      setShowResolved(false); // <-- FIX: Automatically switch to Open tab
+      setShowResolved(false);
     };
 
     const onOpen = (e) => {
@@ -314,13 +324,23 @@ export default function CommentsSidebar({
 
   const handleDelete = useCallback(async (commentId) => {
     if (!window.confirm('Delete this comment thread?')) return;
+    
+    // Optimistically remove it from the UI immediately to hide ghosts
+    setComments(prev => prev.filter(c => c.id !== commentId));
+    setActiveId(null);
+
     const d = await findDoc(commentId);
-    if (!d) return;
-    await deleteDoc(d.ref);
+    if (d) {
+      try {
+        await deleteDoc(d.ref);
+      } catch (err) {
+        console.error("Failed to delete comment from Firestore:", err);
+      }
+    }
+    
     window.dispatchEvent(new CustomEvent('im-comment-status-update', {
       detail: { commentId, status: 'deleted' },
     }));
-    setActiveId(null);
   }, [findDoc]);
 
   const handleDeleteReply = useCallback(async (commentId, replyId) => {
@@ -511,7 +531,7 @@ export default function CommentsSidebar({
         )}
 
         {/* Open comments */}
-        {openComments.map(comment => (
+        {Array.from(new Map(openComments.map(item => [item.id, item])).values()).map(comment => (
           <CommentCard
             key={comment.id}
             comment={comment}
@@ -566,7 +586,7 @@ export default function CommentsSidebar({
                 : <ChevronDown size={13} style={{ marginLeft: 'auto' }} />}
             </button>
 
-            {showResolved && resolvedComments.map(comment => (
+            {showResolved && Array.from(new Map(resolvedComments.map(item => [item.id, item])).values()).map(comment => (
               <CommentCard
                 key={comment.id}
                 comment={comment}
