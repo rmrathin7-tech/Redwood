@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { X, Printer } from 'lucide-react';
+import ChartBlock from './ChartBlock'; // FIX: Bring in your actual Live Chart component
 
 // BULLETPROOF ARRAY ENFORCER (Fixes Firebase Object-Array conversion crashes)
 const ensureArray = (data) => {
@@ -48,6 +49,20 @@ const evaluateFormula = (formula, rIdx, activeRecords, runtimeSchemaRows) => {
     const result = new Function(`'use strict'; return (${clean})`)();
     return Number.isFinite(result) ? result.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
   } catch { return ''; }
+};
+
+// STRIP HIGHLIGHTS ENGINE: Forcefully rips out baked-in comment/search background styles before printing
+// FIX: Moved this OUTSIDE of evaluateFormula so the rest of the file can use it!
+const stripPrintHighlights = (html) => {
+  if (!html || typeof html !== 'string') return html;
+  let clean = html;
+  // Scub out yellow/amber comment backgrounds
+  clean = clean.replace(/background-color:\s*(?:#fbbf24|#f59e0b|rgba?\(251,\s*191,\s*36[^)]*\)|rgba?\(245,\s*158,\s*11[^)]*\))\s*;?/gi, '');
+  // Scrub out blue search backgrounds
+  clean = clean.replace(/background-color:\s*(?:#2563eb|rgba?\(37,\s*99,\s*235[^)]*\))\s*;?/gi, '');
+  // Clean up any stray classes
+  clean = clean.replace(/class="[^"]*(im-comment-highlight|im-search-highlight-quill)[^"]*"/gi, '');
+  return clean;
 };
 
 export default function IMPrintPreview({ schema, imData, excludedSections, customNames = {}, projectName, onClose }) {
@@ -126,7 +141,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
         {/* Subheadings and Repeated Headers */}
         {isRepeated && <div style={{ fontSize: '12px', fontWeight: 800, color: '#ef4444', marginBottom: '8px', textTransform: 'uppercase' }}>Copy {instanceIdx} {instanceData?.instanceName ? `- ${instanceData.instanceName}` : ''}</div>}
         {!isRepeated && block.enableTableSubheading && instanceData?.tableSubheadingRichText && (
-          <div style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: instanceData.tableSubheadingRichText }} />
+          <div className="ql-editor" style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic', padding: 0 }} dangerouslySetInnerHTML={{ __html: instanceData.tableSubheadingRichText }} />
         )}
         
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0' }}>
@@ -169,15 +184,14 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
                       } 
                       else if (cell.cellType === 'smart-select') {
                         if (rawVal && typeof rawVal === 'object') {
-                          // Handle Fill-in-the-blanks inside select
                           displayValue = rawVal.selected ? `${rawVal.selected} ${rawVal.inputs?.length ? `- ${rawVal.inputs.join(' ')}` : ''}` : '-';
-                          if (rawVal.richtext) displayValue = <div dangerouslySetInnerHTML={{ __html: rawVal.richtext }} />;
+                          if (rawVal.richtext) displayValue = <div className="ql-editor" style={{padding: 0}} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(rawVal.richtext) }} />;
                         } else {
                           displayValue = rawVal || '-';
                         }
                       } 
                       else if (cell.cellType === 'mixed') displayValue = Array.isArray(rawVal) ? rawVal.join(', ') : (rawVal || '-');
-                      else if (cell.inputType === 'quill') displayValue = <div dangerouslySetInnerHTML={{ __html: rawVal || '-' }} />;
+                      else if (cell.inputType === 'quill') displayValue = <div className="ql-editor" style={{padding: 0}} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(rawVal || '-') }} />;
                       else if (typeof rawVal === 'string' && rawVal.startsWith('__custom__:')) displayValue = rawVal.replace('__custom__:', '');
 
                       const isTotalOrFixed = cell.cellType === 'fixed' || cell.cellType === 'computed';
@@ -227,7 +241,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
       <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
         
         {blockLabel && !['fixed-text', 'instruction'].includes(block.type) && (
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{cleanTitle(blockLabel)}</h4>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{blockLabel}</h4>
         )}
         
         {block.type === 'fixed-text' && <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>}
@@ -239,7 +253,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
         )}
 
         {block.type === 'quill' && (
-          <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: val || '<span style="color:#94a3b8">-</span>' }} />
+          <div className="ql-editor" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, padding: 0 }} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(val || '<span style="color:#94a3b8">-</span>') }} />
         )}
 
         {/* Render Main Table and Any User-Repeated Tables */}
@@ -275,7 +289,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
                   style={{ 
                     width: '100%', 
                     height: 'auto', 
-                    maxHeight: '700px', /* Prevents massively tall vertical images from breaking the page */
+                    maxHeight: '700px',
                     objectFit: 'contain', 
                     borderRadius: '8px', 
                     border: '1px solid #e2e8f0', 
@@ -303,9 +317,8 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           </div>
         )}
 
-        {/* Note how parentDataPath is passed into the conditional blocks to maintain nested context mapping */}
         {block.type === 'conditional-switch' && (() => {
-          const selectedBranchId = val?.selectedBranch;
+          const selectedBranchId = val?.activeBranch;
           if (!selectedBranchId) return null;
           
           const branch = ensureArray(block.branches).find(b => b.id === selectedBranchId);
@@ -315,16 +328,17 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
             b => !ensureArray(excludedSections).includes(b.id)
           );
 
+          const branchData = val[selectedBranchId] || {};
+
           return (
             <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
               <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
-              {visibleBranchBlocks.map(b => compileBlock(b, contextData, parentDataPath))}
+              {visibleBranchBlocks.map(b => compileBlock(b, branchData, null))}
             </div>
           );
         })()}
 
         {block.type === 'repeating-block-set' && (() => {
-          // EXTRACT INSTANCES ARRAY FROM THE VAL PAYLOAD
           const instances = val?.instances ? ensureArray(val.instances) : (Array.isArray(val) ? val : []);
 
           return (
@@ -332,7 +346,6 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
               {instances.map((instanceData, i) => (
                 <div key={instanceData._setId || i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc', pageBreakInside: 'avoid' }}>
                   
-                  {/* --- FIX IS HERE: USE CUSTOM NAME IF IT EXISTS --- */}
                   <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>
                     {instanceData.name ? instanceData.name : `Set #${i + 1}`}
                   </div>
@@ -361,32 +374,18 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           </div>
         )}
 
-        {block.type === 'chart' && (() => {
-          const chartRows = val?.rows ? ensureArray(val.rows) : ensureArray(block.rowLabels);
-          return (
-            <div style={{ marginTop: '12px' }}>
-              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontStyle: 'italic' }}>Chart Data Representation</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-                <thead>
-                  <tr>
-                    <th style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{block.xAxisLabel || 'Category'}</th>
-                    {ensureArray(block.series).map((s, i) => <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px', background: '#f8fafc', textAlign: 'left' }}>{s}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {chartRows.map((row, rIdx) => (
-                    <tr key={rIdx}>
-                      <td style={{ border: '1px solid #e2e8f0', padding: '8px', fontWeight: 600 }}>{row.label || row || `Row ${rIdx+1}`}</td>
-                      {ensureArray(block.series).map((s, cIdx) => (
-                        <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px', color: '#334155' }}>{row.values?.[cIdx] ?? val?.[`${rIdx}_${cIdx}`] ?? '-'}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        })()}
+        {/* FIX: Mount your actual Live Chart component instead of a table. Pass isPrintMode=true so it hides the UI tabs. */}
+        {block.type === 'chart' && (
+          <div className="print-chart-container" style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
+            <ChartBlock 
+              block={{...block, label: blockLabel}} 
+              value={val} 
+              isDark={false} 
+              isPrintMode={true} 
+              onChange={() => {}} // Safe dummy function so it doesn't crash on read-only
+            />
+          </div>
+        )}
 
         {block.type === 'mixed' && (
           <div style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.6, background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
@@ -401,7 +400,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
   const parentSections = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#cbd5e1', display: 'flex', flexDirection: 'column' }}>
+    <div className="im-print-wrapper" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#cbd5e1', display: 'flex', flexDirection: 'column' }}>
       
       <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -501,6 +500,30 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
       </div>
 
       <style>{`
+        /* FIX: Inject Native Quill Styles for Print */
+        .ql-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        .ql-editor table td, .ql-editor table th { border: 1px solid #cbd5e1 !important; padding: 6px 8px; }
+        .ql-editor ul, .ql-editor ol { padding-left: 20px; margin: 8px 0; }
+        .ql-editor li { margin-bottom: 4px; }
+        .ql-editor p { margin: 0 0 8px 0; }
+        
+        /* FIX: Forcefully strip comments and search highlights on print (Bulletproof) */
+        [data-comment-id], 
+        [data-comment-id] *,
+        .im-comment-highlight, 
+        .im-comment-highlight *,
+        mark.im-comment-highlight, 
+        mark.im-search-highlight-quill, 
+        .im-search-highlight-quill,
+        .im-search-highlight-quill * {
+          background: transparent !important;
+          background-color: transparent !important;
+          border: none !important;
+          color: inherit !important;
+          text-decoration: none !important;
+          box-shadow: none !important;
+        }
+
         @media print {
           html, body, #root {
             height: auto !important;
@@ -512,6 +535,23 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
           aside, header, main, .no-print {
             display: none !important;
+          }
+
+          /* FIX: Release the fixed wrapper so the browser can measure all pages */
+          .im-print-wrapper {
+            position: static !important;
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+          }
+
+          /* FIX: Ensure the canvas scrolls out to its full physical height */
+          .print-canvas {
+            overflow: visible !important;
+            height: auto !important;
+            display: block !important;
+            padding: 0 !important;
           }
 
           #print-mount-point {
@@ -529,12 +569,18 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
             margin: 0 !important;
             padding: 0 !important;
           }
-
-          .print-canvas {
-            overflow: visible !important;
-            padding: 0 !important;
-          }
-
+        /* THE ULTIMATE CSS HAMMER: Strip all inline backgrounds from rich text on print */
+        .ql-editor span, .ql-editor mark {
+          background-color: transparent !important;
+          background: transparent !important;
+        }
+        
+        /* FIX: Hide the toggle tabs (Data Table / Live Chart) when printing */
+        .print-chart-container button,
+        .print-chart-container [role="tablist"],
+        .print-chart-container .chart-tabs {
+          display: none !important;
+        }
           @page {
             size: A4;
             margin: 15mm;
