@@ -266,11 +266,28 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
         )}
 
         {block.type === 'image' && (
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '16px' }}>
             {ensureArray(val).map((img, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <img src={img.url || img} alt="" style={{ maxWidth: block.imageWidth || '300px', height: block.imageHeight || 'auto', objectFit: block.objectFit || 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }} />
-                {img.caption && <span style={{ fontSize: '11px', color: '#64748b' }}>{img.caption}</span>}
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', pageBreakInside: 'avoid' }}>
+                <img 
+                  src={img.url || img} 
+                  alt="" 
+                  style={{ 
+                    width: '100%', 
+                    height: 'auto', 
+                    maxHeight: '700px', /* Prevents massively tall vertical images from breaking the page */
+                    objectFit: 'contain', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e2e8f0', 
+                    backgroundColor: '#f8fafc',
+                    display: 'block'
+                  }} 
+                />
+                {img.caption && (
+                  <span style={{ fontSize: '12px', color: '#64748b', textAlign: 'center', fontWeight: 600 }}>
+                    {img.caption}
+                  </span>
+                )}
               </div>
             ))}
             {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>No images uploaded</div>}
