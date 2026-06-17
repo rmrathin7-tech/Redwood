@@ -332,10 +332,15 @@ export default function CommentsSidebar({
 
 // Filter by Tab state, Assignee, and Creator
   const visibleComments = comments.filter(c => {
-    if (excludedSections.includes(c.sectionId)) return false;
+    // Find the true section key in case sectionId is saved as the ID instead of Key
+    let cSectionKey = c.sectionId;
+    const matchedSec = flatSections.find(s => s.id === c.sectionId || s.key === c.sectionId);
+    if (matchedSec) cSectionKey = matchedSec.key;
+
+    if (excludedSections.includes(c.sectionId) || (matchedSec && excludedSections.includes(matchedSec.id))) return false;
     if (c.blockId && excludedSections.includes(c.blockId)) return false;
 
-    if (activeTab !== 'all' && c.sectionId !== activeSection) return false;
+    if (activeTab !== 'all' && cSectionKey !== activeSection) return false;
     if (assigneeFilter === 'me' && c.assignee?.uid !== user?.uid) return false;
     if (assigneeFilter !== 'all' && assigneeFilter !== 'me' && c.assignee?.uid !== assigneeFilter) return false;
     if (creatorFilter === 'me' && c.createdBy?.uid !== user?.uid) return false;
