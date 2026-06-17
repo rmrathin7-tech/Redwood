@@ -212,6 +212,26 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     return () => unsub();
   }, [block?.dataPath]);
 
+  // ── FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ──────────────────────
+// ── FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ──────────────────────
+  const [, setForceSearchRender] = useState(0);
+  useEffect(() => {
+    const handleSearchJump = () => setForceSearchRender(p => p + 1);
+    const handleSearchClear = () => {
+       // FORCE reset of local cache
+       window.imActiveSearchTerm = null;
+       setForceSearchRender(p => p + 1);
+    };
+    
+    window.addEventListener('im-search-jump', handleSearchJump);
+    window.addEventListener('im-clear-search', handleSearchClear);
+    
+    return () => {
+      window.removeEventListener('im-search-jump', handleSearchJump);
+      window.removeEventListener('im-clear-search', handleSearchClear);
+    };
+  }, []);
+
   // ── THEME TOKENS ────────────────────────────────────────────────────────
   const t = {
     bg: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',

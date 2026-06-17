@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
+import { toPng } from 'html-to-image'; // FIX: Bring in the image snapshot tool
 import ChartBlock from './ChartBlock'; 
 
 // BULLETPROOF ARRAY ENFORCER
@@ -66,6 +67,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
   
   // FIX: Setup a mount state so the React Portal safely attaches to the DOM
   const [mounted, setMounted] = useState(false);
+  const [isExporting, setIsExporting] = useState(false); // FIX: Add loading state for Word Export
   useEffect(() => setMounted(true), []);
 
   const visibleSchema = useMemo(() => {
@@ -141,7 +143,8 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0' }}>
           <thead>
             <tr>
-              {block.showSno && <th style={{ border: '1px solid #cbd5e1', padding: '8px 10px', background: '#f8fafc', textAlign: 'center', width: '40px', color: '#0f172a' }}>#</th>}
+              {/* FIX: Added whiteSpace: 'nowrap' and minWidth to prevent Word from squishing double digits */}
+              {block.showSno && <th style={{ border: '1px solid #cbd5e1', padding: '8px 10px', background: '#f8fafc', textAlign: 'center', width: '50px', minWidth: '50px', whiteSpace: 'nowrap', color: '#0f172a' }}>#</th>}
               {headers.map((h, i) => (
                 <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px 10px', background: '#f8fafc', textAlign: 'left', fontWeight: 700, color: '#0f172a' }}>{h}</th>
               ))}
@@ -154,7 +157,8 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
               return (
                 <tr key={rIdx}>
-                  {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '8px 10px', textAlign: 'center', color: '#64748b', fontWeight: 600 }}>{rIdx + 1}</td>}
+                  {/* FIX: Added whiteSpace: 'nowrap' to the actual number cells */}
+                  {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '8px 10px', textAlign: 'center', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>{rIdx + 1}</td>}
                   
                   {hasSchema ? (
                     schemaRow?.cells?.map((cell, cIdx) => {
@@ -388,6 +392,101 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
   const parentSections = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
 
+  // --- MAGIC WORD EXPORTER WITH CHART SCREENSHOTS ---
+  const exportToWord = async () => {
+    setIsExporting(true); // Trigger the loading UI on the button
+    try {
+      // 1. Grab the live print container
+      const printElement = document.getElementById('print-document');
+      if (!printElement) return;
+
+      // 2. Clone the DOM so we don't accidentally destroy the live screen preview
+      const clonedDoc = printElement.cloneNode(true);
+      
+      // 3. Find all charts in both the original screen and the background clone
+      const originalCharts = printElement.querySelectorAll('.print-chart-container');
+      const clonedCharts = clonedDoc.querySelectorAll('.print-chart-container');
+
+      // 4. Convert every live chart into a high-res PNG image
+      for (let i = 0; i < originalCharts.length; i++) {
+        const dataUrl = await toPng(originalCharts[i], { 
+          backgroundColor: '#ffffff',
+          pixelRatio: 2 // Crisp high-res setting for Word
+        });
+        
+        // Swap out the complex React/SVG chart in the clone with our static PNG image
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.style.width = '100%';
+        img.style.maxWidth = '600px';
+        img.style.height = 'auto';
+        img.style.marginTop = '20px';
+        img.style.marginBottom = '20px';
+        
+        clonedCharts[i].innerHTML = ''; 
+        clonedCharts[i].appendChild(img);
+      }
+
+      // 5. Inject Microsoft Word-specific CSS styles
+      const styles = `
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 11pt; color: #0f172a; }
+          /* FIX: Added table-layout: fixed to force Word to respect our column widths */
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; table-layout: fixed; }
+          /* FIX: Added word-wrap to prevent long text from blowing out the table */
+          td, th { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+          th { background-color: #f8fafc; font-weight: bold; }
+          h1, h2, h3, h4 { color: #0f172a; margin-top: 16px; margin-bottom: 8px; }
+          .ql-editor ul, .ql-editor ol { padding-left: 20px; margin: 8px 0; }
+          .ql-editor p { margin: 0 0 8px 0; }
+          a { color: #3b82f6; text-decoration: none; }
+          img { max-width: 100%; height: auto; }
+        </style>
+      `;
+
+      // 5.5 FIX: MS Word ignores CSS page breaks. We must intercept React's page-break divs 
+      // and inject MS-specific XML page breaks so the Title and TOC separate correctly.
+      let wordHtml = clonedDoc.innerHTML;
+      wordHtml = wordHtml.replace(
+        /<div([^>]*)style="([^"]*)page-break-after:\s*always([^"]*)"([^>]*)>/gi, 
+        '<div$1style="$2page-break-after:always$3"$4><br clear="all" style="mso-special-character:line-break;page-break-before:always" />'
+      );
+
+      // 6. Wrap everything in Microsoft Office's legacy HTML/XML format
+      const html = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head>
+          <meta charset='utf-8'>
+          <title>IM Document</title>
+          ${styles}
+        </head>
+        <body>
+          ${wordHtml}
+        </body>
+        </html>
+      `;
+
+      // 7. Trigger the native browser file download
+      const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeName = (projectName || 'Redwood_IM').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      link.download = `${safeName}_export.doc`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+    } catch (error) {
+      console.error('Word export failed:', error);
+      alert('Failed to convert charts to images. Please try again.');
+    } finally {
+      setIsExporting(false); // Reset the button
+    }
+  };
+
   // FIX: Stored component inside a variable so we can safely inject it into the Portal
   // WARNING: Do NOT put inline styles like 'overflowY' or 'flex' on these wrappers, it causes Chromium to print blank boxes!
   const printPreviewContent = (
@@ -398,9 +497,22 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer', color: '#475569' }}><X size={20} /></button>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>Print Preview: {projectName}</h2>
         </div>
-        <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(239,68,68,0.2)' }}>
-          <Printer size={16} /> Print / Save as PDF
-        </button>
+        
+        {/* FIX: Added Export to Word Button with Dynamic Loading State */}
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button 
+            onClick={exportToWord} 
+            disabled={isExporting}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: isExporting ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: isExporting ? 'wait' : 'pointer', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'all 0.2s' }}
+          >
+            <span style={{ fontWeight: 900, fontSize: '16px' }}>W</span> 
+            {isExporting ? 'Converting Charts...' : 'Export to Word'}
+          </button>
+
+          <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(239,68,68,0.2)' }}>
+            <Printer size={16} /> Print / Save as PDF
+          </button>
+        </div>
       </div>
 
       <div className="print-canvas">

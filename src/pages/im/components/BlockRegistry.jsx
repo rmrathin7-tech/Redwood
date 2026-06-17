@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import BasicInputBlock from './BasicInputBlock';
 import RichTextBlock from './RichTextBlock';
 import SmartTableBlock from './SmartTableBlock';
@@ -11,7 +11,7 @@ import FSALinkBlock from './FSALinkBlock';
 // Layout-only block types (no data, no wrapper needed)
 const LAYOUT_TYPES = ['h3', 'h4', 'divider'];
 
-export default function BlockRegistry({
+const BlockRegistry = memo(function BlockRegistry({
   block, value, onChange, lockedBy, onFocus, onBlur, isDark, excludedSections, customNames, activeSection, projectId
 }) {
   if (!block || !block.type) return null;
@@ -89,4 +89,30 @@ export default function BlockRegistry({
     default:
       return <BasicInputBlock {...commonProps} />;
   }
-}
+}, (prev, next) => {
+  // ── TITANIUM RENDER SHIELD (Blocks Render Cascades) ──
+  
+  // 1. Check basic UI and identity props
+  if (prev.block?.id !== next.block?.id) return false;
+  if (prev.lockedBy !== next.lockedBy) return false;
+  if (prev.isDark !== next.isDark) return false;
+  if (prev.activeSection !== next.activeSection) return false;
+  if (prev.projectId !== next.projectId) return false;
+
+  // 2. Safely deep-compare the block's specific value
+  const valEqual = prev.value === next.value || JSON.stringify(prev.value) === JSON.stringify(next.value);
+  if (!valEqual) return false;
+
+  // 3. Safely deep-compare context arrays/objects
+  const exclEqual = prev.excludedSections === next.excludedSections || JSON.stringify(prev.excludedSections) === JSON.stringify(next.excludedSections);
+  if (!exclEqual) return false;
+
+  const customEqual = prev.customNames === next.customNames || JSON.stringify(prev.customNames) === JSON.stringify(next.customNames);
+  if (!customEqual) return false;
+
+  // If we reach here, the block's specific data has not changed. 
+  // We block the render cascade entirely!
+  return true;
+});
+
+export default BlockRegistry;

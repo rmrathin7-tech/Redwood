@@ -115,10 +115,18 @@ export default function IMSearchWidget({
       setMatches([]);
       setCurrentIndex(0);
       prevSearchTerm.current = '';
-      // FIX: Ensure global highlights vanish the millisecond the box is emptied
+      
+      // FIX: Force synchronous clearing of the global highlight variables immediately
       window.imActiveSearchTerm = null;
       window.imActiveSearchDataPath = null;
+      
+      // Dispatch multiple aggressive clear events to ensure all nested cells catch it
       window.dispatchEvent(new CustomEvent('im-clear-search'));
+      setTimeout(() => {
+        window.imActiveSearchTerm = null;
+        window.imActiveSearchDataPath = null;
+        window.dispatchEvent(new CustomEvent('im-clear-search'));
+      }, 50); // Fallback for heavy Quill editors
       return;
     }
 
@@ -253,8 +261,6 @@ export default function IMSearchWidget({
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
     
-    // The 'return' function here acts as the component's dying breath.
-    // It runs exactly once when the widget is closed or destroyed for ANY reason.
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
@@ -263,6 +269,13 @@ export default function IMSearchWidget({
       window.imActiveSearchTerm = null;
       window.imActiveSearchDataPath = null;
       window.dispatchEvent(new CustomEvent('im-clear-search'));
+      
+      // Secondary safety flush in case React was busy rendering a Smart Table
+      setTimeout(() => {
+         window.imActiveSearchTerm = null;
+         window.imActiveSearchDataPath = null;
+         window.dispatchEvent(new CustomEvent('im-clear-search'));
+      }, 100);
     };
   }, []);
 

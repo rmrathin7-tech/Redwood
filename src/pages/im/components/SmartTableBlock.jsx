@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { Plus, Trash2, Copy, Clipboard, Info } from 'lucide-react';
 import BlockWrapper from './BlockWrapper';
 import Quill from 'quill';
@@ -471,10 +471,15 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     latestFocusHandlers.current = focusHandlers;
   });
 
-  // Safeguard to prevent saving the blue highlight into Firestore
+// Safeguard to prevent saving the blue highlight into Firestore
   const cleanSearchHighlights = (html) => {
     if (!html) return html;
-    return html.replace(/<mark class="im-search-highlight-quill"[^>]*>(.*?)<\/mark>/gi, '$1');
+    let cleaned = html;
+    // Catch original <mark> tags or morphed <span> tags with the class
+    cleaned = cleaned.replace(/<(mark|span)[^>]*im-search-highlight-quill[^>]*>([\s\S]*?)<\/\1>/gi, '$2');
+    // Catch copied/pasted spans with the exact highlight hex/rgb color
+    cleaned = cleaned.replace(/<span[^>]*style="[^"]*(?:background-color:\s*(?:#2563eb|rgb\(37,\s*99,\s*235\)))[^>]*>([\s\S]*?)<\/span>/gi, '$1');
+    return cleaned;
   };
 
   useEffect(() => {
@@ -632,7 +637,8 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     const incomingHtml = cleanSearchHighlights(val || '');
     if (incomingHtml !== currentHtml) {
       const sel = quillInstance.current.getSelection();
-      quillInstance.current.root.innerHTML = val || '';
+      // FIX: Inject the strictly cleaned HTML instead of the raw dirty 'val'
+      quillInstance.current.root.innerHTML = incomingHtml; 
       if (sel) quillInstance.current.setSelection(sel);
     }
   }, [val, isFocused]);
@@ -653,7 +659,26 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
      const textLength = quill.getLength();
      quill.formatText(0, textLength, 'searchMatch', false, 'silent');
 
-     // 2. Apply new highlights dynamically
+// 2. If the search was cleared OR you jumped to a different cell, forcefully 
+     // sweep the DOM to destroy any orphaned tags safely without losing formatting.
+     if (!term || !isMatch) {
+        const unwrapNode = (node) => {
+            while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+            node.remove();
+        };
+
+        quill.root.querySelectorAll('.im-search-highlight-quill').forEach(unwrapNode);
+        
+        Array.from(quill.root.querySelectorAll('span')).filter(span => {
+            const bg = span.style.backgroundColor;
+            return bg === 'rgb(37, 99, 235)' || bg === '#2563eb';
+        }).forEach(unwrapNode);
+
+        quill.root.normalize();
+        if (!term) return; // Abort the rest of the effect if search is fully closed
+     }
+
+     // 3. Apply new highlights dynamically
      if (term && isMatch) {
         const text = quill.getText();
         const regex = new RegExp(escapeRegex(term), 'gi');
@@ -806,7 +831,7 @@ const RepeatTableInstance = ({
 };
 
 // ── MAIN SMART TABLE COMPONENT ────────────────────────────────────────────────
-export default function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
+const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
   const [isFocused, setIsFocused]             = useState(false);
   const isFocusedRef                          = useRef(false);
   const [customValues, setCustomValues]       = useState({});
@@ -847,22 +872,19 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     });
     return () => unsub();
   }, [block?.dataPath]);
-const [, setForceRender] = useState(0);
+  
+const [forceSearchRender, setForceSearchRender] = useState(0);
 
 useEffect(() => {
     const handleSearchJump = (e) => {
-      // Do NOT clear the globals here. Another block might be the target, 
-      // and clearing it creates a race condition that wipes out highlights!
-      // IMSearchWidget updates window.imActiveSearchTerm directly.
-      // We just force a re-render so all cells evaluate the new global search states.
-      setForceRender(prev => prev + 1);
+      setForceSearchRender(prev => prev + 1);
     };
     
     // Clear highlight only on escape or closing widget
     const clearSearch = () => { 
       window.imActiveSearchTerm = null; 
       window.imActiveSearchDataPath = null; 
-      setForceRender(prev => prev + 1); 
+      setForceSearchRender(prev => prev + 1); 
     };
 
     window.addEventListener('im-search-jump', handleSearchJump);
@@ -872,7 +894,7 @@ useEffect(() => {
       window.removeEventListener('im-clear-search', clearSearch);
     };
   }, []);
-  const t = {
+  const t = useMemo(() => ({
     bg:           isDark ? '#04060a'                : '#f8fafc',
     surface:      isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
     border:       isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb',
@@ -888,13 +910,13 @@ useEffect(() => {
     sideHeadBg:   isDark ? 'rgba(99,102,241,0.08)'  : 'rgba(99,102,241,0.06)',
     sideHeadText: isDark ? '#818cf8'                : '#4f46e5',
     accent:       '#ef4444',
-  };
+  }), [isDark]);
 
-  const cellInputStyle = {
+  const cellInputStyle = useMemo(() => ({
     background: 'transparent', border: 'none', outline: 'none',
     color: t.text, fontSize: '0.875rem', width: '100%',
     padding: '8px 10px', fontFamily: 'inherit', boxSizing: 'border-box', resize: 'none',
-  };
+  }), [t.text]);
 
   const preserveStablePayload = (arr) => (arr || []).map(r => { 
     const copy = { ...r }; 
@@ -1089,7 +1111,10 @@ useEffect(() => {
     const nextRecords = curRecords.filter((_, i) => i !== rIdx);
     setRecords(nextRecords);
     flushSave(nextRecords, null, null, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   };
 
   const insertRowBefore = useCallback((rIdx) => {
@@ -1106,7 +1131,10 @@ useEffect(() => {
     nextRecords.splice(rIdx, 0, seedEmptyRow(newSchema));
     setRecords(nextRecords);
     flushSave(nextRecords, null, null, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   }, [flushSave]);
 
   const insertRowAfter = useCallback((rIdx) => {
@@ -1123,7 +1151,10 @@ useEffect(() => {
     nextRecords.splice(rIdx + 1, 0, seedEmptyRow(newSchema));
     setRecords(nextRecords);
     flushSave(nextRecords, null, null, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   }, [flushSave]);
 
   const insertColBefore = (cIdx) => {
@@ -1162,7 +1193,10 @@ useEffect(() => {
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   };
 
   const insertColAfter = (cIdx) => {
@@ -1202,7 +1236,10 @@ useEffect(() => {
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   };
 
   const deleteCol = (cIdx) => {
@@ -1248,7 +1285,10 @@ useEffect(() => {
       setRuntimeSchemaRows(newSchema);
     }
     flushSave(nextRecords, nextHeaders, nextRepeated, newSchema);
-    setTimeout(() => { isFocusedRef.current = false; }, 4000);
+    setTimeout(() => { 
+      // FIX: Only drop the render shield if the user hasn't actively clicked into an input box!
+      if (!isFocused) isFocusedRef.current = false; 
+    }, 4000);
   };
 
   const repeatTable = () => {
@@ -1784,141 +1824,145 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto', borderRadius: '8px', border: `1px solid ${t.border}` }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: hasCustomWidths ? 'fixed' : 'auto', minWidth: '400px' }}>
-          <thead>
-            <tr>
-              {block.showSno && <th style={{ padding: '10px', background: t.headerBg, borderBottom: `1px solid ${t.border}`, fontSize: '11px', fontWeight: 800, color: t.textMuted, textAlign: 'center', width: '40px' }}>#</th>}
-              {headers.map((header, cIdx) => (
-                <th key={cIdx} style={{ padding: 0, background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < headers.length - 1 ? `1px solid ${t.border}` : 'none', width: block.colWidths?.[cIdx] || 'auto', position: 'relative' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', gap: '4px' }}>
-                    {block.allowInsertCols && !lockedBy && <button onClick={() => insertColBefore(cIdx)} title="Insert column left" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>◀</button>}
-                    {block.editableHeaders
-                      ? <input value={header} onChange={e => updateHeader(cIdx, e.target.value)} disabled={!!lockedBy} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.textMuted, fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', width: '100%', padding: '6px', fontFamily: 'inherit', textAlign: 'center' }} placeholder={`Column ${cIdx + 1}`} />
-                      : <div style={{ padding: '6px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: t.textMuted, width: '100%', textAlign: 'center' }}>{header}</div>
-                    }
-                    {block.allowInsertCols && !lockedBy && <button onClick={() => insertColAfter(cIdx)} title="Insert column right" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>▶</button>}
-                  </div>
-                  {block.allowDeleteCols !== false && !lockedBy && headers.length > 1 && (
-                    <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: '4px' }}>
-                      <button onClick={() => deleteCol(cIdx)} title="Delete column" style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '9px', opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}>
-                        <Trash2 size={10} /> Delete
-                      </button>
-                    </div>
-                  )}
-                </th>
-              ))}
-              <th style={{ width: '52px', background: t.headerBg, borderBottom: `1px solid ${t.border}` }} />
-            </tr>
-          </thead>
-          <tbody>
-            {(() => {
-              const numRows  = records.length;
-              const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
-              return records.map((rec, rIdx) => {
-                const isProtectedRow    = !!(rec?._isTotal || rec?._protected);
-                const headingsBeforeRow = sideHeadings.filter(h => h.afterRow === rIdx - 1);
+{/* THE VDOM FIREBREAK: Only redraws 500 cells if actual data changed! */}
+      {useMemo(() => {
+        const numRows  = records.length;
+        const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
 
-                const rowActionCell = (
-                  <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, width: '52px', textAlign: 'center', verticalAlign: 'middle' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '2px' }}>
-                      {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▲</button>}
-                      
-                      {/* FIX: Force Delete Button to show for overflow rows created by Paste */}
-                      {!isProtectedRow && !lockedBy && (block.allowAddRows !== false || rIdx >= runtimeSchemaRows.length) && <button onClick={() => deleteRow(rIdx)} title="Delete Row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
-                      
-                      {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▼</button>}
-                    </div>
-                  </td>
-                );
+        return (
+          <div style={{ overflowX: 'auto', borderRadius: '8px', border: `1px solid ${t.border}` }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: hasCustomWidths ? 'fixed' : 'auto', minWidth: '400px' }}>
+              <thead>
+                <tr>
+                  {block.showSno && <th style={{ padding: '10px', background: t.headerBg, borderBottom: `1px solid ${t.border}`, fontSize: '11px', fontWeight: 800, color: t.textMuted, textAlign: 'center', width: '40px' }}>#</th>}
+                  {headers.map((header, cIdx) => (
+                    <th key={cIdx} style={{ padding: 0, background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < headers.length - 1 ? `1px solid ${t.border}` : 'none', width: block.colWidths?.[cIdx] || 'auto', position: 'relative' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', gap: '4px' }}>
+                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColBefore(cIdx)} title="Insert column left" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>◀</button>}
+                        {block.editableHeaders
+                          ? <input value={header} onChange={e => updateHeader(cIdx, e.target.value)} disabled={!!lockedBy} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.textMuted, fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', width: '100%', padding: '6px', fontFamily: 'inherit', textAlign: 'center' }} placeholder={`Column ${cIdx + 1}`} />
+                          : <div style={{ padding: '6px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: t.textMuted, width: '100%', textAlign: 'center' }}>{header}</div>
+                        }
+                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColAfter(cIdx)} title="Insert column right" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>▶</button>}
+                      </div>
+                      {block.allowDeleteCols !== false && !lockedBy && headers.length > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: '4px' }}>
+                          <button onClick={() => deleteCol(cIdx)} title="Delete column" style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '9px', opacity: 0.6 }} onMouseEnter={e => e.currentTarget.style.opacity = 1} onMouseLeave={e => e.currentTarget.style.opacity = 0.6}>
+                            <Trash2 size={10} /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </th>
+                  ))}
+                  <th style={{ width: '52px', background: t.headerBg, borderBottom: `1px solid ${t.border}` }} />
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((rec, rIdx) => {
+                    const isProtectedRow    = !!(rec?._isTotal || rec?._protected);
+                    const headingsBeforeRow = sideHeadings.filter(h => h.afterRow === rIdx - 1);
 
-                const rowEl = hasSchema ? (() => {
-                  const schemaRow = runtimeSchemaRows[rIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
-                  return (
-                    <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
-                      {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
-                      {schemaRow?.cells?.map((cell, cIdx) => {
-                        if (occupied[rIdx]?.[cIdx]) return null;
-                        const cs = Math.min(Math.max(1, cell.colspan || 1), numCols - cIdx);
-                        const rs = Math.min(Math.max(1, cell.rowspan || 1), numRows - rIdx);
-                        for (let r = rIdx; r < rIdx + rs; r++) for (let c = cIdx; c < cIdx + cs; c++) { if (r < numRows && c < numCols) occupied[r][c] = true; }
-                        const isFixed    = cell.cellType === 'fixed';
-                        const isComputed = cell.cellType === 'computed';
-                        
-                        return (
-                          <td key={cell.id || cIdx} colSpan={cs} rowSpan={rs} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx + cs < numCols ? `1px solid ${t.border}` : 'none', verticalAlign: isFixed || isComputed ? 'middle' : 'top', background: isFixed ? t.fixedBg : isComputed ? t.computedBg : 'transparent' }}>
-                            {renderCellContent(cell, rec[cell.id] ?? rec[`col_${cIdx}`] ?? '', (newVal, mixedIdx) => updateCell(rIdx, cell.id, mixedIdx, newVal), rIdx, isProtectedRow)}
-                          </td>
-                        );
-                      })}
-                      {rowActionCell}
-                    </tr>
-                  );
-                })() : (
-                  <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
-                    {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
-                    {Array.from({ length: numCols }, (_, cIdx) => {
-                      const cellId = `col_${cIdx}`;
-                      const v      = rec[cellId] ?? '';
+                    const rowActionCell = (
+                      <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, width: '52px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '2px' }}>
+                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▲</button>}
+                          
+                          {!isProtectedRow && !lockedBy && (block.allowAddRows !== false || rIdx >= runtimeSchemaRows.length) && <button onClick={() => deleteRow(rIdx)} title="Delete Row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
+                          
+                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▼</button>}
+                        </div>
+                      </td>
+                    );
+
+                    const rowEl = hasSchema ? (() => {
+                      const schemaRow = runtimeSchemaRows[rIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
                       return (
-                        <td key={cIdx} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < numCols - 1 ? `1px solid ${t.border}` : 'none' }}>
-                          {isProtectedRow
-                            ? <div style={{ padding: '8px 10px', color: t.totalText, fontWeight: 700, fontSize: '0.85rem' }}>{colTotals?.[cIdx] ?? ''}</div>
-                            : <HybridInput 
-                                val={v} 
-                                onChange={newVal => updateCell(rIdx, cellId, undefined, newVal)} 
-                                disabled={!!lockedBy} 
-                                cellInputStyle={cellInputStyle} 
-                                placeholder="" 
-                                focusHandlers={focusHandlers}
-                                comments={blockComments}
-                                isDark={isDark}
-                                iType="text"
-                              />
-                          }
-                        </td>
-                      );
-                    })}
-                    {rowActionCell}
-                  </tr>
-                );
-
-                return (
-                  <React.Fragment key={rIdx}>
-                    {headingsBeforeRow.map((h, hi) => {
-                      const hIdx = sideHeadings.indexOf(h);
-                      return (
-                        <tr key={`sh_${hi}`} style={{ background: t.sideHeadBg }}>
-                          {block.showSno && <td style={{ borderBottom: `1px solid ${t.border}` }} />}
-                          <td colSpan={numCols} style={{ borderBottom: `1px solid ${t.border}`, padding: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <input value={h.label} onChange={e => updateSideHeading(hIdx, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.sideHeadText, fontSize: '0.82rem', fontWeight: 700, padding: '8px 12px', width: '100%', fontFamily: 'inherit' }} placeholder="Side heading…" />
-                              <button onClick={() => deleteSideHeading(hIdx)} style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '8px 6px', flexShrink: 0 }}><Trash2 size={12} /></button>
-                            </div>
-                          </td>
-                          <td style={{ borderBottom: `1px solid ${t.border}`, width: '52px' }} />
+                        <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
+                          {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
+                          {schemaRow?.cells?.map((cell, cIdx) => {
+                            if (occupied[rIdx]?.[cIdx]) return null;
+                            const cs = Math.min(Math.max(1, cell.colspan || 1), numCols - cIdx);
+                            const rs = Math.min(Math.max(1, cell.rowspan || 1), numRows - rIdx);
+                            for (let r = rIdx; r < rIdx + rs; r++) for (let c = cIdx; c < cIdx + cs; c++) { if (r < numRows && c < numCols) occupied[r][c] = true; }
+                            const isFixed    = cell.cellType === 'fixed';
+                            const isComputed = cell.cellType === 'computed';
+                            
+                            return (
+                              <td key={cell.id || cIdx} colSpan={cs} rowSpan={rs} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx + cs < numCols ? `1px solid ${t.border}` : 'none', verticalAlign: isFixed || isComputed ? 'middle' : 'top', background: isFixed ? t.fixedBg : isComputed ? t.computedBg : 'transparent' }}>
+                                {renderCellContent(cell, rec[cell.id] ?? rec[`col_${cIdx}`] ?? '', (newVal, mixedIdx) => updateCell(rIdx, cell.id, mixedIdx, newVal), rIdx, isProtectedRow)}
+                              </td>
+                            );
+                          })}
+                          {rowActionCell}
                         </tr>
                       );
-                    })}
-                    {rowEl}
-                  </React.Fragment>
-                );
-              });
-            })()}
+                    })() : (
+                      <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
+                        {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
+                        {Array.from({ length: numCols }, (_, cIdx) => {
+                          const cellId = `col_${cIdx}`;
+                          const v      = rec[cellId] ?? '';
+                          return (
+                            <td key={cIdx} style={{ padding: 0, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < numCols - 1 ? `1px solid ${t.border}` : 'none' }}>
+                              {isProtectedRow
+                                ? <div style={{ padding: '8px 10px', color: t.totalText, fontWeight: 700, fontSize: '0.85rem' }}>{colTotals?.[cIdx] ?? ''}</div>
+                                : <HybridInput 
+                                    val={v} 
+                                    onChange={newVal => updateCell(rIdx, cellId, undefined, newVal)} 
+                                    disabled={!!lockedBy} 
+                                    cellInputStyle={cellInputStyle} 
+                                    placeholder="" 
+                                    focusHandlers={focusHandlers}
+                                    comments={blockComments}
+                                    isDark={isDark}
+                                    iType="text"
+                                  />
+                              }
+                            </td>
+                          );
+                        })}
+                        {rowActionCell}
+                      </tr>
+                    );
 
-            {/* Totals row */}
-            {colTotals && (
-              <tr style={{ background: t.totalBg }}>
-                {block.showSno && <td style={{ padding: '8px 10px', fontSize: '11px', fontWeight: 800, color: t.totalText, textAlign: 'center' }}>∑</td>}
-                {colTotals.map((total, cIdx) => (
-                  <td key={cIdx} style={{ padding: '8px 10px', borderTop: `2px solid ${t.border}`, borderRight: cIdx < colTotals.length - 1 ? `1px solid ${t.border}` : 'none', fontSize: '0.875rem', fontWeight: 700, color: t.totalText }}>{total}</td>
-                ))}
-                <td style={{ borderTop: `2px solid ${t.border}`, width: '52px' }} />
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                    return (
+                      <React.Fragment key={rIdx}>
+                        {headingsBeforeRow.map((h, hi) => {
+                          const hIdx = sideHeadings.indexOf(h);
+                          return (
+                            <tr key={`sh_${hi}`} style={{ background: t.sideHeadBg }}>
+                              {block.showSno && <td style={{ borderBottom: `1px solid ${t.border}` }} />}
+                              <td colSpan={numCols} style={{ borderBottom: `1px solid ${t.border}`, padding: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input value={h.label} onChange={e => updateSideHeading(hIdx, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.sideHeadText, fontSize: '0.82rem', fontWeight: 700, padding: '8px 12px', width: '100%', fontFamily: 'inherit' }} placeholder="Side heading…" />
+                                  <button onClick={() => deleteSideHeading(hIdx)} style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '8px 6px', flexShrink: 0 }}><Trash2 size={12} /></button>
+                                </div>
+                              </td>
+                              <td style={{ borderBottom: `1px solid ${t.border}`, width: '52px' }} />
+                            </tr>
+                          );
+                        })}
+                        {rowEl}
+                      </React.Fragment>
+                    );
+                  })}
+
+                {/* Totals row */}
+                {colTotals && (
+                  <tr style={{ background: t.totalBg }}>
+                    {block.showSno && <td style={{ padding: '8px 10px', fontSize: '11px', fontWeight: 800, color: t.totalText, textAlign: 'center' }}>∑</td>}
+                    {colTotals.map((total, cIdx) => (
+                      <td key={cIdx} style={{ padding: '8px 10px', borderTop: `2px solid ${t.border}`, borderRight: cIdx < colTotals.length - 1 ? `1px solid ${t.border}` : 'none', fontSize: '0.875rem', fontWeight: 700, color: t.totalText }}>{total}</td>
+                    ))}
+                    <td style={{ borderTop: `2px solid ${t.border}`, width: '52px' }} />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [records, headers, sideHeadings, colTotals, runtimeSchemaRows, forceSearchRender, isDark, lockedBy, hasCustomWidths, numCols, block, blockComments, cellInputStyle, focusHandlers, t])}
 
       {/* Bottom actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
@@ -1963,4 +2007,19 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
 
     </BlockWrapper>
   );
-}
+}, (prev, next) => {
+  // ── TITANIUM RENDER SHIELD (Blocks Render Cascades) ──
+  // 1. Basic prop checks
+  if (prev.block?.id !== next.block?.id) return false;
+  if (prev.lockedBy !== next.lockedBy) return false;
+  if (prev.isDark !== next.isDark) return false;
+
+  // 2. Deep compare the specific table data payload
+  const valEqual = prev.value === next.value || JSON.stringify(prev.value) === JSON.stringify(next.value);
+  if (!valEqual) return false;
+
+  // If nothing changed in THIS table, completely block the re-render!
+  return true; 
+});
+
+export default SmartTableBlock;

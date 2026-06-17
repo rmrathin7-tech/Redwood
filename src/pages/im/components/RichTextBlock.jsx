@@ -1065,14 +1065,24 @@ quillInstance.current = new Quill(editorRef.current, {
     });
 
     quillInstance.current.root.addEventListener('focus', () => { setIsFocused(true); if (onFocus) onFocus(block.id); });
+    
+    // FIX: Debounce the blur event so clicking the toolbar (Bold, Italic, Images) 
+    // doesn't instantly drop the focus lock and ruin the cursor.
     quillInstance.current.root.addEventListener('blur',  () => {
-      setIsFocused(false); if (onBlur) onBlur(block.id);
-      clearTimeout(typingTimeout.current);
-      // ONLY push a save if you actually typed something
-      if (onChange && hasUnsavedChanges.current) {
-        onChange(block.dataPath, quillInstance.current.root.innerHTML);
-        hasUnsavedChanges.current = false;
-      }
+      setTimeout(() => {
+        // Only drop the focus lock if the user clicked completely OUTSIDE the editor wrapper
+        if (!editorRef.current?.contains(document.activeElement)) {
+          setIsFocused(false); 
+          if (onBlur) onBlur(block.id);
+          clearTimeout(typingTimeout.current);
+          
+          // ONLY push a save if you actually typed something
+          if (onChange && hasUnsavedChanges.current) {
+            onChange(block.dataPath, quillInstance.current.root.innerHTML);
+            hasUnsavedChanges.current = false;
+          }
+        }
+      }, 150);
     });
 
     const onCommentUpdate = (e) => {
@@ -1098,7 +1108,12 @@ quillInstance.current = new Quill(editorRef.current, {
   }, []);
 
 useEffect(() => {
-    if (!quillInstance.current || isFocused || isExpanded) return;
+    if (!quillInstance.current || isExpanded) return;
+    
+    // FIX: Prevent cursor jumping by completely locking out incoming DB updates 
+    // if the user is actively focused OR has pending unsaved changes.
+    if (isFocused || hasUnsavedChanges.current) return;
+
     if (value !== quillInstance.current.root.innerHTML) {
       quillInstance.current.root.innerHTML = value || '';
       // Purposely removed selection restoration here. If the editor isn't focused, 
@@ -1111,7 +1126,9 @@ useEffect(() => {
   }, [lockedBy]);
 
   return (
-    <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
+    // FIX: Add overflowAnchor to prevent the browser from snapping the scroll 
+    // position when React runs a background render cycle.
+    <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark} style={{ overflowAnchor: 'none' }}>
      
       {usePlaceholderGuide && (
         <div style={{ marginBottom: 10 }}>
@@ -1291,7 +1308,16 @@ useEffect(() => {
             <X size={10} /> Table
           </button>
         </div>
-        <div ref={editorRef} className="im-quill-canvas" style={{ color: t.text }} />
+        <div 
+           ref={editorRef} 
+           className="im-quill-canvas" 
+           style={{ 
+             color: t.text,
+             // FIX: Enforce a strict positioning context so Quill doesn't collapse during renders
+             position: 'relative',
+             contain: 'layout paint'
+           }} 
+        />
       </div>
 
   <style>{`

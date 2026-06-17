@@ -19,9 +19,18 @@ const BlockWrapper = ({ children, isDark }) => (
   </div>
 );
 
-export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
-  const [activeTab, setActiveTab] = useState('chart'); // Default to chart view
+// FIX: Added isPrintMode prop
+export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true, isPrintMode = false }) {
+  
+  // FIX: Default to 'chart' view
+  const [activeTab, setActiveTab] = useState(isPrintMode ? 'chart' : 'chart'); 
   const [isFocused, setIsFocused] = useState(false);
+
+  // FIX: Force activeTab to stay on 'chart' if we are in Print Mode, 
+  // overriding any saved database states that might try to show the data table.
+  useEffect(() => {
+    if (isPrintMode) setActiveTab('chart');
+  }, [isPrintMode]);
 
   // ── THEME TOKENS ─────────────────────────────────────────────────────────
   const t = {
@@ -411,23 +420,26 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           
-          {/* ── WORKSPACE CHART OVERRIDE ── */}
-          <select 
-            value={chartType} 
-            onChange={(e) => onChange && onChange(block.dataPath, { ...value, chartType: e.target.value })}
-            disabled={!!lockedBy}
-            style={selectStyle}
-          >
-            <option value="bar" style={optionStyle}>Bar Chart</option>
-            <option value="horizontal-bar" style={optionStyle}>Horizontal Bar</option>
-            <option value="line" style={optionStyle}>Line Chart</option>
-            <option value="area" style={optionStyle}>Area Chart</option>
-            <option value="pie" style={optionStyle}>Pie Chart</option>
-            <option value="nested-circle" style={optionStyle}>Nested Circles</option>
-          </select>
+          {/* FIX: Hide everything inside the header if we are in Print Mode */}
+          {!isPrintMode && (
+            <>
+              {/* ── WORKSPACE CHART OVERRIDE ── */}
+              <select 
+                value={chartType} 
+                onChange={(e) => onChange && onChange(block.dataPath, { ...value, chartType: e.target.value })}
+                disabled={!!lockedBy}
+                style={selectStyle}
+              >
+                <option value="bar" style={optionStyle}>Bar Chart</option>
+                <option value="horizontal-bar" style={optionStyle}>Horizontal Bar</option>
+                <option value="line" style={optionStyle}>Line Chart</option>
+                <option value="area" style={optionStyle}>Area Chart</option>
+                <option value="pie" style={optionStyle}>Pie Chart</option>
+                <option value="nested-circle" style={optionStyle}>Nested Circles</option>
+              </select>
 
-          {/* ── TAB SWITCHER ── */}
-          <div style={{ display: 'flex', background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}` }}>
+              {/* ── TAB SWITCHER ── */}
+              <div style={{ display: 'flex', background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}` }}>
             <button
               onClick={() => setActiveTab('data')}
               style={{
@@ -453,6 +465,8 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
               <BarChart3 size={14} /> Live Chart
             </button>
           </div>
+          </>
+          )} {/* FIX: Close the !isPrintMode conditional wrapper here */}
         </div>
       </div>
 

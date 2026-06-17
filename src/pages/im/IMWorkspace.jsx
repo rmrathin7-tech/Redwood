@@ -40,6 +40,8 @@ export default function IMWorkspace() {
   const [excludedSections, setExcludedSections] = useState([]); // Local IM Exclusions
   const [customNames, setCustomNames] = useState({}); // Local IM Renames
   const [imData, setImData] = useState({});
+  const imDataRef = useRef({}); // <-- Live tracker for the Save Engine
+  useEffect(() => { imDataRef.current = imData; }, [imData]);
   const [expandedTailorSections, setExpandedTailorSections] = useState({});
   const [editingTailorName, setEditingTailorName] = useState({ id: null, text: '' });
   const [activeLocks, setActiveLocks] = useState({});
@@ -410,12 +412,12 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     clearTimeout(saveTimers.current[dataPath]);
     saveTimers.current[dataPath] = setTimeout(async () => {
       try {
-        // FIX: Update the ENTIRE block object in Firestore. This prevents array wiping.
+        // FIX: Fetch the absolute latest state from the Ref to prevent Stale Closure overwrites!
+        const latestBlockData = imDataRef.current[topLevelKey];
         await updateDoc(doc(db, 'investment-memos', imId), {
-          [`data.${topLevelKey}`]: newBlockData,
+          [`data.${topLevelKey}`]: latestBlockData !== undefined ? latestBlockData : newBlockData,
           updatedAt: serverTimestamp(),
         });
-        activeEditPaths.current.delete(dataPath);
         setSaveStatus('saved');
         if (blockId) window.dispatchEvent(new CustomEvent('im-block-saved', { detail: { blockId } }));
         clearTimeout(savedTimers.current.main);
@@ -423,6 +425,10 @@ const toggleSectionExclusion = async (id, isExcluding) => {
       } catch (err) {
         console.error('[IMWorkspace] Save failed:', err);
         setSaveStatus('error');
+      } finally {
+        // FIX: Guarantee the edit lock is released so the user isn't permanently 
+        // blinded to colleague updates if a save fails due to network drop.
+        activeEditPaths.current.delete(dataPath);
       }
     }, 700);
   }, [imId]);
@@ -523,14 +529,11 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     const blocks = (activeSectionSchema.blocks || [])
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    setVisibleBlocks(new Set());
-    const timers = blocks.map((block, i) =>
-      setTimeout(() => {
-        setVisibleBlocks(prev => new Set([...prev, block.id]));
-      }, i * STAGGER_MS + 50)
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [activeSection, activeSectionSchema]);
+    
+    // FIX: Only wipe the blocks set and run the stagger timeline if the active section KEY has changed.
+    // This blocks background database syncs from restarting the animation cascade.
+    setVisibleBlocks(new Set(blocks.map(b => b.id)));
+  }, [activeSection]); // <-- Locked strictly to tab selection changes only
 
   useEffect(() => {
     const el = mainRef.current;
@@ -754,27 +757,43 @@ const toggleSectionExclusion = async (id, isExcluding) => {
 
         // 2. Restore Comments & Tasks via Firebase Batch (Ensures atomic, safe overwrites)
         if (isFullArchive) {
-          const batch = writeBatch(db);
+          const MAX_BATCH_SIZE = 450; // Safely below Firestore's 500 limit
+          let batch = writeBatch(db);
+          let opCount = 0;
+
+          const commitBatchIfFull = async () => {
+            if (opCount >= MAX_BATCH_SIZE) {
+              await batch.commit();
+              batch = writeBatch(db); // Generate a fresh batch
+              opCount = 0;
+            }
+          };
           
           if (importedObj.comments) {
-            importedObj.comments.forEach(c => {
+            for (const c of importedObj.comments) {
               const cId = c.id;
               const cData = { ...c };
               delete cData.id; // Clean payload
               batch.set(doc(db, 'im-comments', cId), cData);
-            });
+              opCount++;
+              await commitBatchIfFull();
+            }
           }
           
           if (importedObj.tasks) {
-            importedObj.tasks.forEach(t => {
+            for (const t of importedObj.tasks) {
               const tId = t.id;
               const tData = { ...t };
               delete tData.id; // Clean payload
               batch.set(doc(db, 'im-tasks', tId), tData);
-            });
+              opCount++;
+              await commitBatchIfFull();
+            }
           }
           
-          await batch.commit(); // Execute massive write safely
+          if (opCount > 0) {
+            await batch.commit(); // Push any remaining items
+          }
         }
 
         setSaveStatus('saved');
