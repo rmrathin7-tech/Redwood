@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ArrowLeft, Settings, Sun, Moon, Menu,
+  ArrowLeft, Settings, Sun, Moon, Menu, Search,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, ChevronRight, Lock, PanelLeftClose,
   MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer,
   Pencil, Check, Blocks, Upload, Download
@@ -16,8 +16,9 @@ import BlockRegistry from './components/BlockRegistry.jsx';
 import CommentsSidebar from './components/CommentsSidebar.jsx';
 import IMTaskBoard from './components/IMTaskBoard.jsx';
 import IMPrintPreview from './components/IMPrintPreview.jsx';
-import CommentSVGOverlay from './components/CommentSVGOverlay.jsx'; // <-- NEW IMPORT
-import SettingsAuthModal from './components/SettingsAuthModal.jsx'; // <-- NEW IMPORT
+import CommentSVGOverlay from './components/CommentSVGOverlay.jsx'; 
+import SettingsAuthModal from './components/SettingsAuthModal.jsx'; 
+import IMSearchWidget from './components/IMSearchWidget.jsx';
 
 // ── AVATAR COLOR POOL ──
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -57,7 +58,8 @@ export default function IMWorkspace() {
   // Tailor Template Modal State
   const [showTailorModal, setShowTailorModal] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [showSettingsAuth, setShowSettingsAuth] = useState(false); // <-- NEW MODAL STATE
+  const [showSettingsAuth, setShowSettingsAuth] = useState(false); 
+  const [showSearchWidget, setShowSearchWidget] = useState(false);
 
   // Task Board & Dynamic Columns State
   const [tasks, setTasks] = useState([]);
@@ -422,6 +424,47 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     }, 700);
   }, [imId]);
 
+  // ── BATCH DATA CHANGE (FOR REPLACE ALL) ──
+  const handleBatchDataChange = async (updates) => {
+    if (!imId) return;
+    
+    // 1. Optimistic UI Update for instant feedback
+    setImData(prev => {
+      const next = { ...prev };
+      Object.entries(updates).forEach(([dataPath, value]) => {
+        const keys = dataPath.split('.');
+        let cur = next;
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (typeof cur[keys[i]] !== 'object' || cur[keys[i]] === null) cur[keys[i]] = {};
+          cur = cur[keys[i]];
+        }
+        cur[keys[keys.length - 1]] = value;
+      });
+      return next;
+    });
+
+    setSaveStatus('saving');
+    
+    try {
+      // 2. Prepare atomic payload for Firestore
+      const dbUpdates = {};
+      Object.entries(updates).forEach(([dataPath, value]) => {
+        dbUpdates[`data.${dataPath}`] = value;
+      });
+      dbUpdates.updatedAt = serverTimestamp();
+
+      // 3. Commit massive write
+      await updateDoc(doc(db, 'investment-memos', imId), dbUpdates);
+      
+      setSaveStatus('saved');
+      clearTimeout(savedTimers.current.main);
+      savedTimers.current.main = setTimeout(() => setSaveStatus('idle'), 3000);
+    } catch (err) {
+      console.error('[IMWorkspace] Batch update failed:', err);
+      setSaveStatus('error');
+    }
+  };
+
   const handleBlockFocus = useCallback(async (blockId) => {
     if (!user) return;
     setMyLockedBlock(blockId);
@@ -564,6 +607,47 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     window.addEventListener('im-jump-to-comment', handler);
     return () => window.removeEventListener('im-jump-to-comment', handler);
   }, [activeSection, handleSectionClick]);
+
+  // ── GLOBAL SEARCH JUMP & HIGHLIGHT ──
+  useEffect(() => {
+    const handler = (e) => {
+      const { sectionId, blockId } = e.detail;
+      
+      const executeJump = () => {
+        // Find the wrapper element for the target block
+        const blockWrapper = document.getElementById(`block-${blockId}`);
+        if (blockWrapper) {
+          // Force the browser viewport to center perfectly on the block
+          blockWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Visual highlight pulse
+          const originalBg = blockWrapper.style.backgroundColor;
+          blockWrapper.style.transition = 'background-color 0.4s ease';
+          blockWrapper.style.backgroundColor = 'rgba(59, 130, 246, 0.25)'; // Blue highlight
+          setTimeout(() => {
+            blockWrapper.style.backgroundColor = originalBg;
+          }, 1200);
+        }
+      };
+
+      // If the search result is in a different section, navigate there first
+      if (sectionId) {
+        const targetSec = flatSections.find(s => s.id === sectionId);
+        if (targetSec && targetSec.key !== activeSection) {
+          handleSectionClick(targetSec.key);
+          // Wait 800ms for the section transition and block stagger to finish rendering
+          setTimeout(executeJump, 800);
+          return;
+        }
+      }
+      
+      // We are already in the right section, fire the scroll immediately
+      setTimeout(executeJump, 50); 
+    };
+  
+    window.addEventListener('im-search-jump', handler);
+    return () => window.removeEventListener('im-search-jump', handler);
+  }, [activeSection, handleSectionClick, flatSections]);
 
   const exitToHub = async () => {
     if (user) await updateDoc(doc(db, 'workspace-users', user.uid), {
@@ -890,6 +974,15 @@ const toggleSectionExclusion = async (id, isExcluding) => {
               {LockIndicator()}
               {SaveChip()}
               <div style={{ width: 1, height: 18, background: T.border, margin: '0 4px' }} />
+
+              <button
+                onClick={() => setShowSearchWidget(p => !p)}
+                data-tip="Search Document"
+                className={`im-top-btn ${showSearchWidget ? 'active' : ''}`}
+                style={{ '--hover-bg': 'rgba(59, 130, 246, 0.15)', '--hover-color': '#3b82f6', '--hover-border': 'rgba(59, 130, 246, 0.3)', '--active-bg': 'rgba(59, 130, 246, 0.2)', '--active-color': '#3b82f6', '--active-border': 'rgba(59, 130, 246, 0.5)' }}
+              >
+                <Search size={18} />
+              </button>
               
               <button
                 onClick={() => setIsTaskBoardOpen(p => !p)}
@@ -1081,9 +1174,11 @@ const toggleSectionExclusion = async (id, isExcluding) => {
                   return (
                     <div
                       key={block.id}
+                      id={`block-${block.id}`}
                       style={{
                         opacity: isVisible ? 1 : 0, transform: isVisible ? 'translateY(0)' : 'translateY(10px)',
                         transition: 'opacity 0.25s ease, transform 0.25s ease',
+                        borderRadius: '8px', // Added to make the highlight pulse look cleaner
                       }}
                     >
 <BlockRegistry
@@ -1413,6 +1508,20 @@ const toggleSectionExclusion = async (id, isExcluding) => {
           projectName={projectName} 
           isDark={isDark} 
           onClose={() => setShowSettingsAuth(false)} 
+        />
+      )}
+
+      {/* ── SEARCH & REPLACE WIDGET ── */}
+      {showSearchWidget && (
+        <IMSearchWidget 
+          imData={imData} 
+          schema={schema}
+          customNames={customNames}
+          sectionNumberMap={sectionNumberMap}
+          isDark={isDark}
+          onClose={() => setShowSearchWidget(false)}
+          onSingleReplace={(path, newVal) => handleDataChange(path, newVal, null)}
+          onBatchReplace={(updates) => handleBatchDataChange(updates)}
         />
       )}
       

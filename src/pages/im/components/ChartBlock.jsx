@@ -518,8 +518,8 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                         >
                           <option value="" style={optionStyle}>Mag.</option>
                           <option value="k" style={optionStyle}>k</option>
-                          <option value="Millions" style={optionStyle}>M</option>
-                          <option value="Billions" style={optionStyle}>B</option>
+                          <option value="Million" style={optionStyle}>M</option>
+                          <option value="Billion" style={optionStyle}>B</option>
                         </select>
                       </div>
                     </td>

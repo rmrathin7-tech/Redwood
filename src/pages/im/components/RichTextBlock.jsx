@@ -14,7 +14,39 @@ Quill.register('modules/imageResize', ImageResize);
 
 const storage = getStorage();
 const COMMENT_DOM_SETTLEMENT_DELAY_MS = 50;
+// ── BASE64 IMAGE SWEEPER ──────────────────────────────────────────────────────
+const sweepBase64Images = async (quill, dataPath) => {
+  if (!quill || !quill.root) return false;
+  const images = quill.root.querySelectorAll('img[src^="data:image/"]');
+  if (images.length === 0) return false;
 
+  let updatedAny = false;
+  for (const img of images) {
+    const b64 = img.src;
+    try {
+      // Visually indicate the upload is happening inline
+      img.style.opacity = '0.4';
+      img.style.transition = 'opacity 0.3s ease';
+
+      const res = await fetch(b64);
+      const blob = await res.blob();
+      const ext = blob.type.split('/')[1] || 'png';
+      const path = `im-quill/${dataPath}/b64-${Date.now()}-${Math.floor(Math.random()*1000)}.${ext}`;
+
+      const snap = await uploadBytes(storageRef(storage, path), blob);
+      const url = await getDownloadURL(snap.ref);
+
+      // Swap out the base64 string for the clean Firebase URL directly in the DOM
+      img.src = url; 
+      img.style.opacity = '1';
+      updatedAny = true;
+    } catch (err) {
+      console.error('Base64 sweep failed:', err);
+      img.style.opacity = '1';
+    }
+  }
+  return updatedAny;
+};
 // ── COMMENT BLOT ───────────────────────────────────────────────────────────────
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
@@ -244,14 +276,14 @@ if (!document.getElementById(STYLE_ID)) {
 // ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
 function FullscreenEditor({
   block, value, onChange, onClose, onFocus, onBlur, readOnly,
-  targetCommentId, targetCommentQuote, onQuillReady
+  targetCommentId, targetCommentQuote, searchJumpTrigger, onQuillReady
 }) {
   const paperRef   = useRef(null);
   const toolbarRef = useRef(null);
   const quillRef   = useRef(null);
   const [wc, setWc] = useState(0);
   const [saved, setSaved] = useState(true);
-
+const saveTimer = useRef(null); // <-- ADD THIS NEW REF
   // Escape closes 
   useEffect(() => {
     const h = (e) => { 
@@ -322,6 +354,7 @@ function FullscreenEditor({
     if (onQuillReady) onQuillReady(quillRef.current);
 
     // --- NEW PASTE & DROP HANDLER FOR FULLSCREEN ---
+// --- NEW PASTE & DROP HANDLER FOR FULLSCREEN ---
     const handleDirectUpload = async (file, quill) => {
       if (!file || !file.type.startsWith('image/')) return;
       try {
@@ -337,18 +370,28 @@ function FullscreenEditor({
     };
 
     quillRef.current.root.addEventListener('paste', (e) => {
-      const file = e.clipboardData?.files[0];
-      if (file && file.type.startsWith('image/')) {
-        e.preventDefault(); // Stop the base64 crash
-        handleDirectUpload(file, quillRef.current);
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
+        if (hasImage) {
+          e.preventDefault(); // Stop the base64 crash for ALL files
+          Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) handleDirectUpload(file, quillRef.current);
+          });
+        }
       }
     });
 
     quillRef.current.root.addEventListener('drop', (e) => {
-      const file = e.dataTransfer?.files[0];
-      if (file && file.type.startsWith('image/')) {
-        e.preventDefault(); // Stop the base64 crash
-        handleDirectUpload(file, quillRef.current);
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
+        if (hasImage) {
+          e.preventDefault(); // Stop the base64 crash for ALL files
+          Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) handleDirectUpload(file, quillRef.current);
+          });
+        }
       }
     });
     // -----------------------------------------------
@@ -360,10 +403,33 @@ function FullscreenEditor({
         const txt = quillRef.current.getText().trim();
         return txt ? txt.split(/\s+/).length : 0;
       });
-      if (onChange) {
-        onChange(block.dataPath, quillRef.current.root.innerHTML);
-        setTimeout(() => setSaved(true), 800);
-      }
+
+      // DEBOUNCED SAVE WITH ASYNC SWEEPER
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(async () => {
+        if (onChange && quillRef.current) {
+          // 1. Sweep for Base64 images and upload them silently
+          await sweepBase64Images(quillRef.current, block.dataPath);
+
+          let rawHtml = quillRef.current.root.innerHTML || '';
+          
+          if (rawHtml.includes('quill-image-resize-module')) {
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = rawHtml;
+              const junkOverlays = tempDiv.querySelectorAll('div[title="image-resize-module"]');
+              junkOverlays.forEach(node => node.remove());
+              rawHtml = tempDiv.innerHTML;
+          }
+
+          // 2. Failsafe: Prevent Firebase crash if an image is still processing
+          if (!rawHtml.includes('data:image/')) {
+             onChange(block.dataPath, String(rawHtml));
+             setSaved(true);
+          } else {
+             console.warn("Base64 sweep incomplete in fullscreen, skipping save to protect Firebase.");
+          }
+        }
+      }, 800);
     });
 
     quillRef.current.root.addEventListener('focus', () => { if (onFocus) onFocus(block.id); });
@@ -430,6 +496,40 @@ function FullscreenEditor({
 
     return () => clearTimeout(jumpTimer);
   }, [block.dataPath, onChange, targetCommentId, targetCommentQuote]);
+
+  // ── FIX: INTELLIGENT SEARCH HIGHLIGHT & SCROLL ────────────────────
+  useEffect(() => {
+    if (!searchJumpTrigger || !paperRef.current || !quillRef.current) return;
+
+    let attempts = 0;
+    let jumpTimer;
+
+    const executeSearchJump = () => {
+      const range = findQuoteRange(quillRef.current, searchJumpTrigger.matchText, searchJumpTrigger.occurrenceIndex);
+      
+      if (range) {
+        setTimeout(() => {
+          quillRef.current.focus();
+          quillRef.current.setSelection(range.index, range.length);
+          
+          const bounds = quillRef.current.getBounds(range.index, range.length);
+          if (bounds) {
+            const container = paperRef.current.closest('.im-fs-canvas-wrap');
+            if (container) {
+              container.scrollTo({ top: Math.max(0, bounds.top - 100), behavior: 'smooth' });
+            }
+          }
+        }, 250); 
+      } else if (attempts < 8) {
+        attempts++;
+        jumpTimer = setTimeout(executeSearchJump, 50); 
+      }
+    };
+
+    executeSearchJump();
+
+    return () => clearTimeout(jumpTimer);
+  }, [searchJumpTrigger]);
 
   const tbl = () => quillRef.current?.getModule('table');
 
@@ -634,36 +734,36 @@ function tblBtn(color = '#3b82f6') {
   };
 }
 
-// ── HELPER FUNCTIONS FOR COMMENT HIGHLIGHTING ──────────────────────────────────
 function escapeRegex(value = '') {
-  return value.replace(/[.*+?^${}()|[\]\\\\]/g, '\\\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function findQuoteRange(quill, quote) {
+// NEW INTELLIGENT QUOTE FINDER (Tracks Occurrences)
+function findQuoteRange(quill, quote, targetOccurrenceIndex = 0) {
   if (!quill || !quote) return null;
   const text = quill.getText() || '';
   const trimmedQuote = quote.trim();
   if (!trimmedQuote) return null;
 
-  // Exact match
-  const exactIndex = text.indexOf(trimmedQuote);
-  if (exactIndex !== -1) return { index: exactIndex, length: trimmedQuote.length };
-
-  // Case-insensitive match
-  const ciIndex = text.toLowerCase().indexOf(trimmedQuote.toLowerCase());
-  if (ciIndex !== -1) return { index: ciIndex, length: trimmedQuote.length };
-
-  // Normalized whitespace match
   const normalizedQuote = trimmedQuote.replace(/\s+/g, ' ');
-  if (!normalizedQuote) return null;
   const pattern = escapeRegex(normalizedQuote).replace(/\s+/g, '\\s+');
+  const regex = new RegExp(pattern, 'gi');
 
-  const wsMatch = text.match(new RegExp(pattern));
-  if (wsMatch?.[0]) return { index: wsMatch.index, length: wsMatch[0].length };
-
-  const wsCiMatch = text.match(new RegExp(pattern, 'i'));
-  if (wsCiMatch?.[0]) return { index: wsCiMatch.index, length: wsCiMatch[0].length };
-
+  let match;
+  let currentOcc = 0;
+  
+  // Iterate through all matches until we hit the exact occurrence index the Search Widget asked for
+  while ((match = regex.exec(text)) !== null) {
+      if (currentOcc === targetOccurrenceIndex) {
+          return { index: match.index, length: match[0].length };
+      }
+      currentOcc++;
+  }
+  
+  // Failsafe: if something shifted, just grab the first one
+  const fallback = text.match(new RegExp(pattern, 'i'));
+  if (fallback?.[0]) return { index: fallback.index, length: fallback[0].length };
+  
   return null;
 }
 
@@ -696,6 +796,7 @@ export default function RichTextBlock({
   const [isPrinting, setIsPrinting] = useState(false);
   const [targetCommentId, setTargetCommentId] = useState(null);
   const [targetCommentQuote, setTargetCommentQuote] = useState('');
+  const [searchJumpTrigger, setSearchJumpTrigger] = useState(null);
   
   useEffect(() => {
     if (document.getElementById('print-mount-point')?.contains(editorRef.current)) {
@@ -728,16 +829,45 @@ export default function RichTextBlock({
   // ── LISTEN FOR COMMENT JUMP EVENT ────────────────────────────────────────────
   useEffect(() => {
     const handleJump = (e) => {
-      const { dataPath, commentId, quote } = e.detail || {};
-      if (dataPath === block.dataPath) {
+      const { dataPath, commentId, quote, blockId } = e.detail || {};
+      if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
         setTargetCommentId(commentId);
         setTargetCommentQuote(quote || '');
         setIsExpanded(true);
+      } else {
+        setIsExpanded(false); // Fixes the stacking bug instantly
       }
     };
     window.addEventListener('im-jump-to-comment', handleJump);
     return () => window.removeEventListener('im-jump-to-comment', handleJump);
-  }, [block.dataPath]);
+  }, [block.dataPath, block.id]);
+
+  // ── LISTEN FOR SEARCH JUMP EVENT (WITH TAB SWITCH RECOVERY) ───────────────
+  useEffect(() => {
+    // If this block just mounted because of a tab switch, check if it was the search target
+    if (window.imPendingSearchJump) {
+      const { dataPath, matchText, occurrenceIndex, blockId } = window.imPendingSearchJump;
+      if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
+        setSearchJumpTrigger({ matchText, occurrenceIndex, timestamp: Date.now() });
+        setIsExpanded(true);
+        window.imPendingSearchJump = null; // Consume the event so it doesn't fire twice
+      }
+    }
+
+    const handleSearchJump = (e) => {
+      const { dataPath, matchText, occurrenceIndex, blockId } = e.detail || {};
+      if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
+        setSearchJumpTrigger({ matchText, occurrenceIndex, timestamp: Date.now() });
+        setIsExpanded(true);
+        window.imPendingSearchJump = null; // Clear it to prevent re-triggering
+      } else {
+        setIsExpanded(false); // Instantly close non-matching editors
+      }
+    };
+    
+    window.addEventListener('im-search-jump', handleSearchJump);
+    return () => window.removeEventListener('im-search-jump', handleSearchJump);
+  }, [block.dataPath, block.id]);
 
   // ── HANDLE EXTERNAL COMMENT CREATION ───────────────────────────────────────────
   useEffect(() => {
@@ -848,6 +978,7 @@ quillInstance.current = new Quill(editorRef.current, {
     if (value) quillInstance.current.root.innerHTML = value;
 
     // --- NEW PASTE & DROP HANDLER FOR MAIN EDITOR ---
+// --- NEW PASTE & DROP HANDLER FOR MAIN EDITOR ---
     const handleMainDirectUpload = async (file, quill) => {
       if (!file || !file.type.startsWith('image/')) return;
       try {
@@ -863,18 +994,28 @@ quillInstance.current = new Quill(editorRef.current, {
     };
 
     quillInstance.current.root.addEventListener('paste', (e) => {
-      const file = e.clipboardData?.files[0];
-      if (file && file.type.startsWith('image/')) {
-        e.preventDefault(); // Stop the base64 crash
-        handleMainDirectUpload(file, quillInstance.current);
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
+        if (hasImage) {
+          e.preventDefault(); // Stop the base64 crash for ALL files
+          Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) handleMainDirectUpload(file, quillInstance.current);
+          });
+        }
       }
     });
 
     quillInstance.current.root.addEventListener('drop', (e) => {
-      const file = e.dataTransfer?.files[0];
-      if (file && file.type.startsWith('image/')) {
-        e.preventDefault(); // Stop the base64 crash
-        handleMainDirectUpload(file, quillInstance.current);
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
+        if (hasImage) {
+          e.preventDefault(); // Stop the base64 crash for ALL files
+          Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) handleMainDirectUpload(file, quillInstance.current);
+          });
+        }
       }
     });
     // ------------------------------------------------
@@ -895,11 +1036,30 @@ quillInstance.current = new Quill(editorRef.current, {
     quillInstance.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
       hasUnsavedChanges.current = true; // Lock local state
+      
       clearTimeout(typingTimeout.current);
-      typingTimeout.current = setTimeout(() => {
-        if (onChange) {
-          onChange(block.dataPath, quillInstance.current.root.innerHTML);
-          hasUnsavedChanges.current = false; // Release lock after auto-save
+      typingTimeout.current = setTimeout(async () => {
+        if (onChange && quillInstance.current) {
+          // 1. Sweep for Base64 images and upload them silently
+          await sweepBase64Images(quillInstance.current, block.dataPath);
+
+          let rawHtml = quillInstance.current.root.innerHTML || '';
+          
+          if (rawHtml.includes('quill-image-resize-module')) {
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = rawHtml;
+              const junkOverlays = tempDiv.querySelectorAll('div[title="image-resize-module"]');
+              junkOverlays.forEach(node => node.remove());
+              rawHtml = tempDiv.innerHTML;
+          }
+
+          // 2. Failsafe: Prevent Firebase crash
+          if (!rawHtml.includes('data:image/')) {
+             onChange(block.dataPath, String(rawHtml));
+             hasUnsavedChanges.current = false; // Release lock after auto-save
+          } else {
+             console.warn("Base64 image still present, skipping save to protect Firebase.");
+          }
         }
       }, 800);
     });
@@ -937,15 +1097,14 @@ quillInstance.current = new Quill(editorRef.current, {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     if (!quillInstance.current || isFocused || isExpanded) return;
     if (value !== quillInstance.current.root.innerHTML) {
-      const sel = quillInstance.current.getSelection();
       quillInstance.current.root.innerHTML = value || '';
-      if (sel) quillInstance.current.setSelection(sel);
+      // Purposely removed selection restoration here. If the editor isn't focused, 
+      // we don't need to restore selection, which stops the addRange console error.
     }
   }, [value, isFocused, isExpanded]);
-
   useEffect(() => {
     if (!quillInstance.current) return;
     lockedBy ? quillInstance.current.disable() : quillInstance.current.enable();
@@ -1175,6 +1334,7 @@ quillInstance.current = new Quill(editorRef.current, {
           readOnly={!!lockedBy}
           targetCommentId={targetCommentId}
           targetCommentQuote={targetCommentQuote}
+          searchJumpTrigger={searchJumpTrigger}
           onQuillReady={(instance) => { fullscreenQuill.current = instance; }}
         />
       )}

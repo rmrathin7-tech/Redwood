@@ -374,7 +374,7 @@ export default function CommentsSidebar({
             animation: 'slideUp 0.2s ease-out'
           }}
           onClick={() => {
-            const commentId = `cmt_${Date.now()}`;
+            const commentId = `cmt_${crypto.randomUUID().split('-')[0]}`;
             window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
             window.dispatchEvent(new CustomEvent('im-create-comment', {
               detail: {

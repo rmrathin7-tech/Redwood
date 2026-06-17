@@ -184,20 +184,40 @@ const HybridTextarea = ({ val, onChange, disabled, placeholder, cellInputStyle, 
   const handleViewClick = () => { if (!disabled) setIsEditing(true); };
   const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
 
-  const renderHighlightedText = () => {
-    if (!val) return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
-    let text = String(val);
-    if (!comments || comments.length === 0) return <span>{text}</span>;
+const renderHighlightedText = () => {
+    if (val === undefined || val === null || val === '') {
+      return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
+    }
     
+    let text = String(val);
+
+    if (iType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      const [yyyy, mm, dd] = text.split('-');
+      text = `${dd}/${mm}/${yyyy}`;
+    }
+
     let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    comments.forEach(c => {
-      if (c.quote && c.status !== 'resolved') {
-        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedQuote})`, 'gi');
-        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-      }
-    });
+    
+    // Highlight Comments
+    if (comments && comments.length > 0) {
+      comments.forEach(c => {
+        if (c.quote && c.status !== 'resolved') {
+          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedQuote})`, 'gi');
+          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+        }
+      });
+    }
+
+    // Highlight Global Search Matches (Blue)
+    if (window.imActiveSearchTerm) {
+       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+       const regex = new RegExp(`(${escapedSearch})`, 'gi');
+       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+    }
+
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -258,31 +278,39 @@ const HybridInput = ({ val, onChange, disabled, placeholder, cellInputStyle, foc
   const handleViewClick = () => { if (!disabled) setIsEditing(true); };
   const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
 
-  const renderHighlightedText = () => {
+const renderHighlightedText = () => {
     if (val === undefined || val === null || val === '') {
       return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
     }
     
     let text = String(val);
 
-    // ── FIX: REFORMAT RAW ISO DATE TO DD/MM/YYYY FOR VIEW MODE ──
     if (iType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(text)) {
       const [yyyy, mm, dd] = text.split('-');
       text = `${dd}/${mm}/${yyyy}`;
     }
 
-    if (!comments || comments.length === 0) return <span>{text}</span>;
-
     let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     
-    comments.forEach(c => {
-      if (c.quote && c.status !== 'resolved') {
-        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedQuote})`, 'gi');
-        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-      }
-    });
+    // Highlight Comments
+    if (comments && comments.length > 0) {
+      comments.forEach(c => {
+        if (c.quote && c.status !== 'resolved') {
+          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedQuote})`, 'gi');
+          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+        }
+      });
+    }
+
+    // Highlight Global Search Matches (Blue)
+    if (window.imActiveSearchTerm) {
+       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+       const regex = new RegExp(`(${escapedSearch})`, 'gi');
+       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+    }
 
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
@@ -341,19 +369,33 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
   const handleBlur = (e) => { setIsEditing(false); if (focusHandlers?.onBlur) focusHandlers.onBlur(e); };
 
   const renderHighlightedText = () => {
-    if (!val) return <span style={{ color: t.textMuted, opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
-    let text = String(val);
-    if (!comments || comments.length === 0) return <span>{text}</span>;
+    if (val === undefined || val === null || val === '') {
+      return <span style={{ color: t.textMuted, opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
+    }
 
+    let text = String(val);
     let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    comments.forEach(c => {
-      if (c.quote && c.status !== 'resolved') {
-        const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedQuote})`, 'gi');
-        html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-      }
-    });
+
+    // Highlight Comments
+    if (comments && comments.length > 0) {
+      comments.forEach(c => {
+        if (c.quote && c.status !== 'resolved') {
+          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedQuote})`, 'gi');
+          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
+        }
+      });
+    }
+
+    // Highlight Global Search Matches (Blue)
+    if (window.imActiveSearchTerm) {
+       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+       const regex = new RegExp(`(${escapedSearch})`, 'gi');
+       html = html.replace(regex, `<span style="background-color: rgba(59,130,246,0.3); border-bottom: 2px solid #3b82f6;">$1</span>`);
+    }
+
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -747,7 +789,30 @@ export default function SmartTableBlock({ block, value, onChange, lockedBy, onFo
     });
     return () => unsub();
   }, [block?.dataPath]);
+const [, setForceRender] = useState(0);
 
+  useEffect(() => {
+    const handleSearchJump = (e) => {
+      const { dataPath, matchText, blockId } = e.detail || {};
+      if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
+        window.imActiveSearchTerm = matchText;
+        setForceRender(prev => prev + 1); // Force cells to re-render and highlight
+      } else {
+        window.imActiveSearchTerm = null;
+        setForceRender(prev => prev + 1);
+      }
+    };
+    
+    // Clear highlight on escape
+    const clearSearch = () => { window.imActiveSearchTerm = null; setForceRender(prev => prev + 1); };
+
+    window.addEventListener('im-search-jump', handleSearchJump);
+    window.addEventListener('im-clear-search', clearSearch);
+    return () => {
+      window.removeEventListener('im-search-jump', handleSearchJump);
+      window.removeEventListener('im-clear-search', clearSearch);
+    };
+  }, [block.dataPath, block.id]);
   const t = {
     bg:           isDark ? '#04060a'                : '#f8fafc',
     surface:      isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
