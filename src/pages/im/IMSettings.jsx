@@ -101,6 +101,30 @@ image: {
   'fsa-link': { desc: 'Select a Financial Statement Analysis to display a live summary dashboard.' },
 };
 
+// ── ANTI-CURSOR-JUMP ENGINE ──────────────────────────────────────────────
+// This prevents React from ripping the cursor to the end of the input when 
+// dealing with heavy schema re-renders.
+function DebouncedInput({ value, onChange, placeholder, style, readOnly }) {
+  const [localVal, setLocalVal] = useState(value || '');
+  const timerRef = useRef(null);
+
+  useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+  const handleChange = (e) => {
+    const newVal = e.target.value;
+    setLocalVal(newVal); // Instant UI update protects the cursor
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onChange(newVal), 300); // Background sync
+  };
+
+  return (
+    <input 
+      style={style} type="text" value={localVal} 
+      placeholder={placeholder} onChange={handleChange} readOnly={readOnly} 
+    />
+  );
+}
+
 export default function IMSettings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1371,9 +1395,9 @@ export default function IMSettings() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', borderBottom: `1px solid ${T.border}`, paddingBottom: '10px' }}>
                   <span style={{ fontSize: '1.8rem', fontWeight: 800, color: T.primary }}>{sectionNumberMap[activeSection.id]}.</span>
-                  <input
+                  <DebouncedInput
                     value={activeSection.heading}
-                    onChange={e => updateActiveSection({ heading: e.target.value })}
+                    onChange={val => updateActiveSection({ heading: val })}
                     style={{ background: 'transparent', border: 'none', color: T.text, fontSize: '1.8rem', fontWeight: 300, width: '100%', outline: 'none' }}
                     placeholder="Section Heading…"
                   />
@@ -1430,20 +1454,19 @@ export default function IMSettings() {
                   <div style={{ fontSize: '0.72rem', fontWeight: 800, color: T.primary, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Section Properties</div>
                   <div>
                     <label style={lbl}>Navigation Label</label>
-                    <input style={inp} type="text" value={activeSection.navLabel || ''}
-                      onChange={e => {
-                        const navLabel = e.target.value;
-                        const key = navLabel.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-                        updateActiveSection({ navLabel, key });
+                    <DebouncedInput style={inp} value={activeSection.navLabel || ''}
+                      onChange={val => {
+                        const key = val.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+                        updateActiveSection({ navLabel: val, key });
                       }} />
                   </div>
                   <div>
                     <label style={lbl}>Heading Display</label>
-                    <input style={inp} type="text" value={activeSection.heading || ''} onChange={e => updateActiveSection({ heading: e.target.value })} />
+                    <DebouncedInput style={inp} value={activeSection.heading || ''} onChange={val => updateActiveSection({ heading: val })} />
                   </div>
                   <div>
                     <label style={lbl}>Key (auto-generated)</label>
-                    <input style={{ ...inp, background: T.surface2, color: T.mutedText, fontFamily: 'monospace', fontSize: '0.75rem' }} value={activeSection.key || ''} readOnly />
+                    <DebouncedInput style={{ ...inp, background: T.surface2, color: T.mutedText, fontFamily: 'monospace', fontSize: '0.75rem' }} value={activeSection.key || ''} readOnly />
                   </div>
                 </div>
               )}
@@ -1456,11 +1479,11 @@ export default function IMSettings() {
                   </div>
                   <div>
                     <label style={lbl}>Block Label</label>
-                    <input style={inp} type="text" value={activeBlock.label || ''} onChange={e => updateActiveBlock({ label: e.target.value })} />
+                    <DebouncedInput style={inp} value={activeBlock.label || ''} onChange={val => updateActiveBlock({ label: val })} />
                   </div>
                   <div>
                     <label style={lbl}>Data Path</label>
-                    <input style={{ ...inp, fontFamily: 'monospace', fontSize: '0.75rem' }} value={activeBlock.dataPath || ''} onChange={e => updateActiveBlock({ dataPath: e.target.value })} />
+                    <DebouncedInput style={{ ...inp, fontFamily: 'monospace', fontSize: '0.75rem' }} value={activeBlock.dataPath || ''} onChange={val => updateActiveBlock({ dataPath: val })} />
                   </div>
 
                   <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: '16px', paddingBottom: '16px' }}>
@@ -1780,3 +1803,4 @@ export default function IMSettings() {
     </div>
   );
 }
+
