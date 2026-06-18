@@ -62,8 +62,10 @@ if (!Quill.imports['formats/comment']) {
     }
     static applyStyle(node, status) {
       if (status === 'resolved') {
-        node.style.backgroundColor = 'rgba(148,163,184,0.18)';
-        node.style.borderBottom = '2px solid #94a3b8';
+        // SaaS Standard: Completely hide the visual marker
+        node.style.backgroundColor = 'transparent';
+        node.style.borderBottom = 'none';
+        node.style.cursor = 'inherit';
       } else {
         node.style.backgroundColor = 'rgba(245,158,11,0.28)';
         node.style.borderBottom = '2px solid #f59e0b';
@@ -103,9 +105,11 @@ if (!document.getElementById(STYLE_ID)) {
       color: inherit !important;
     }
     mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    /* SaaS Standard: Make any lingering resolved comments completely invisible */
     mark.im-comment-highlight[data-comment-status="resolved"] {
-      background-color: rgba(148,163,184,0.18) !important;
-      border-bottom: 2px solid #94a3b8 !important;
+      background-color: transparent !important;
+      border-bottom: none !important;
+      cursor: inherit !important;
     }
     .active-comment-glow {
       background-color: rgba(245, 158, 11, 0.6) !important;
@@ -1108,18 +1112,20 @@ quillInstance.current = new Quill(editorRef.current, {
       const { commentId, status } = e.detail;
       const spans = quillInstance.current.root.querySelectorAll(`[data-comment-id="${commentId}"]`);
       spans.forEach((span) => {
-        span.setAttribute('data-comment-status', status);
-        if (status === 'resolved') {
-          span.style.backgroundColor = 'rgba(148,163,184,0.18)';
-          span.style.borderBottom = '2px solid #94a3b8';
-        } else if (status === 'deleted') {
-          span.replaceWith(document.createTextNode(span.textContent));
+        // SaaS Standard: Completely unwrap the highlight for BOTH deleted AND resolved comments
+        if (status === 'resolved' || status === 'deleted') {
+          const textNode = document.createTextNode(span.textContent);
+          span.replaceWith(textNode);
         } else {
+          span.setAttribute('data-comment-status', status);
           span.style.backgroundColor = 'rgba(245,158,11,0.28)';
           span.style.borderBottom = '2px solid #f59e0b';
         }
       });
-      if (status === 'deleted') setTimeout(() => { if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML); }, 50);
+      if (quillInstance.current) quillInstance.current.root.normalize(); // Clean up fragmented text nodes
+      if (status === 'resolved' || status === 'deleted') {
+        setTimeout(() => { if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML); }, 50);
+      }
     };
     window.addEventListener('im-comment-status-update', onCommentUpdate);
     return () => window.removeEventListener('im-comment-status-update', onCommentUpdate);

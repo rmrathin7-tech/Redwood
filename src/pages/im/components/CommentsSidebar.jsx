@@ -548,10 +548,15 @@ export default function CommentsSidebar({
                   // 1. Fire immediately to trigger the workspace tab/section switch
                   window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
                   
-                  // 2. Fire again after 150ms so the newly mounted editor catches it and expands
+                  // 2. Fire again after 350ms to ensure React has fully mounted the new section and editor
                   setTimeout(() => {
                     window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
-                  }, 150);
+                  }, 350);
+                  
+                  // 3. Fallback fire at 600ms for slower devices or heavy tables
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  }, 600);
                 }}
             onReply={() => handleReply(comment.id)}
             onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}
@@ -602,9 +607,14 @@ export default function CommentsSidebar({
                   
                   window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
                   
+                  // FIX: Increased delays to guarantee the component catches the jump event
                   setTimeout(() => {
                     window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
-                  }, 150);
+                  }, 350);
+
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('im-jump-to-comment', { detail: payload }));
+                  }, 600);
                 }}
                 onReply={() => handleReply(comment.id)}
                 onReplyChange={v => setReplyText(p => ({ ...p, [comment.id]: v }))}

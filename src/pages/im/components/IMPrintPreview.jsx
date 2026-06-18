@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Printer } from 'lucide-react';
-import { toPng } from 'html-to-image'; // FIX: Bring in the image snapshot tool
+import { X, Printer, Edit2, Check, FileText } from 'lucide-react';
+import { toPng } from 'html-to-image';
 import ChartBlock from './ChartBlock'; 
 
 // BULLETPROOF ARRAY ENFORCER
@@ -62,23 +62,72 @@ const stripPrintHighlights = (html) => {
   clean = clean.replace(/class="[^"]*(im-comment-highlight|im-search-highlight-quill)[^"]*"/gi, '');
   return clean;
 };
+function renderMixedTemplate(template, valuesArray) {
+  if (!template) return Array.isArray(valuesArray) ? valuesArray.join(', ') : valuesArray ?? '-';
+  const parts = template.split(/(\[[^\]]+\])/g);
+  let inputIdx = 0;
+  return parts.map(part => {
+    if (/^\[.+\]$/.test(part)) {
+      const val = Array.isArray(valuesArray) ? valuesArray[inputIdx] : undefined;
+      inputIdx++;
+      return val ?? '';
+    }
+    return part;
+  }).join('');
+}
+function formatPrintDate(val) {
+  if (!val || typeof val !== 'string') return val ?? '-';
+  return val.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_, y, m, d) => `${d}/${m}/${y}`);
+}
+// BRAND CONSTANTS
+const BURGUNDY = '#8B1C31';
+const FONT_FAMILY = "'Open Sans', sans-serif";
 
-export default function IMPrintPreview({ schema, imData, excludedSections, customNames = {}, projectName, onClose }) {
+export default function IMPrintPreview({ schema, imData, excludedSections, customNames = {}, projectName, onClose, logoUrl }) {
   
-  // FIX: Setup a mount state so the React Portal safely attaches to the DOM
   const [mounted, setMounted] = useState(false);
-  const [isExporting, setIsExporting] = useState(false); // FIX: Add loading state for Word Export
+  const [isExporting, setIsExporting] = useState(false);
+  const [brandName, setBrandName] = useState(projectName || 'Goodway');
+  const [isEditingEval, setIsEditingEval] = useState(false);
+  const [evalText, setEvalText] = useState(`This IM serves to project a detailed picture of the company to the Investor’s various Investment Committees, supporting meeting the investment objectives and decision-making.
+
+The IM report addresses the following scope:
+
+First Connect:
+• Conduct initial discussions to understand the background, problem statement, services provided, team strength, etc.
+• Assess the entrepreneur’s commitment to the business.
+• Make a preliminary decision on the fundability of the project.
+
+Business, Domain, and Opportunity Analysis:
+• Analyse profit and loss, costing, HR costs, margins, etc.
+• Assess the startup’s domain, competitive landscape, strength relative to competitors, and market opportunities.
+• Evaluate claims on Unique Selling Proposition (USP) and the scalability of the solution.
+• Analyse the business model, map the business plan, and reach a consensus on the need for funding in relation to the business plan.
+
+Fund Quantum Sizing:
+• Analyze capital and operational expenditures.
+• Determine the funding quantum based on business plan analysis and discussions with the promoter.
+
+The information contained in this IM is strictly confidential and is meant to serve only as an analytical document for the consideration of the Investor’s various Investment Committees, supporting preliminary decision-making with respect to in-principle investment decisions.
+
+The final investment decision will need to be made by the Investor in conjunction with the satisfactory completion of financial and legal due diligence processes by the startup.
+
+The Investor’s decision is final notwithstanding the recommendations that form part of this IM.`);
+
   useEffect(() => setMounted(true), []);
 
   const visibleSchema = useMemo(() => {
     return ensureArray(schema).filter(s => !ensureArray(excludedSections).includes(s.id));
   }, [schema, excludedSections]);
 
+  const parentSections = useMemo(() => {
+    return visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
+  }, [visibleSchema]);
+
   const sectionNumberMap = useMemo(() => {
     const map = {};
     let parentCounter = 1;
-    const parents = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
-    parents.forEach(p => {
+    parentSections.forEach(p => {
       map[p.id] = `${parentCounter}`;
       let childCounter = 1;
       const children = visibleSchema.filter(s => s.parentId === p.id).sort((a,b) => (a.order||0) - (b.order||0));
@@ -86,7 +135,7 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
       parentCounter++;
     });
     return map;
-  }, [visibleSchema]);
+  }, [visibleSchema, parentSections]);
 
   const cleanTitle = (text) => text ? text.replace(/^([0-9]+\.)+\s*/, '') : '';
 
@@ -121,33 +170,19 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     const numRows = Math.max(dbRows.length, runtimeSchemaRows.length, block.baseRowCount || 1);
     const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
 
-    const colTotals = (!block.showColumnTotals && !block.hasTotalsRow) ? null : (() => {
-      const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}` }));
-      return allCells.map(cell => {
-        const total = dbRows.reduce((sum, rec) => {
-          const v = parseFloat(String(rec[cell.id] || '').replace(/[^0-9.-]/g, ''));
-          return sum + (Number.isFinite(v) ? v : 0);
-        }, 0);
-        return total !== 0 ? total.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '';
-      });
-    })();
-
     return (
-      <div key={`table_${isRepeated ? 'rep' : 'main'}_${instanceIdx}`} style={{ overflowX: 'auto', marginBottom: '24px', pageBreakInside: 'avoid' }}>
+      <div key={`table_${isRepeated ? 'rep' : 'main'}_${instanceIdx}`} style={{ overflowX: 'auto', marginBottom: '20px', pageBreakInside: 'avoid' }}>
         
-        {isRepeated && <div style={{ fontSize: '12px', fontWeight: 800, color: '#ef4444', marginBottom: '8px', textTransform: 'uppercase' }}>Copy {instanceIdx} {instanceData?.instanceName ? `- ${instanceData.instanceName}` : ''}</div>}
+        {isRepeated && <div style={{ fontSize: '10pt', fontWeight: 'bold', color: BURGUNDY, marginBottom: '8px', textTransform: 'uppercase' }}>Copy {instanceIdx} {instanceData?.instanceName ? `- ${instanceData.instanceName}` : ''}</div>}
         {!isRepeated && block.enableTableSubheading && instanceData?.tableSubheadingRichText && (
-          <div className="ql-editor" style={{ fontSize: '13px', color: '#475569', marginBottom: '10px', fontStyle: 'italic', padding: 0 }} dangerouslySetInnerHTML={{ __html: instanceData.tableSubheadingRichText }} />
+          <div className="ql-editor" style={{ fontSize: '10pt', color: '#000000', marginBottom: '10px', fontStyle: 'italic', padding: 0 }} dangerouslySetInnerHTML={{ __html: instanceData.tableSubheadingRichText }} />
         )}
         
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0' }}>
+        <table className="im-print-table">
           <thead>
             <tr>
-              {/* FIX: Added whiteSpace: 'nowrap' and minWidth to prevent Word from squishing double digits */}
-              {block.showSno && <th style={{ border: '1px solid #cbd5e1', padding: '8px 10px', background: '#f8fafc', textAlign: 'center', width: '50px', minWidth: '50px', whiteSpace: 'nowrap', color: '#0f172a' }}>#</th>}
-              {headers.map((h, i) => (
-                <th key={i} style={{ border: '1px solid #cbd5e1', padding: '8px 10px', background: '#f8fafc', textAlign: 'left', fontWeight: 700, color: '#0f172a' }}>{h}</th>
-              ))}
+              {block.showSno && <th style={{ width: '40px', minWidth: '40px', whiteSpace: 'nowrap', textAlign: 'center' }}>#</th>}
+              {headers.map((h, i) => <th key={i}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -157,13 +192,11 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
 
               return (
                 <tr key={rIdx}>
-                  {/* FIX: Added whiteSpace: 'nowrap' to the actual number cells */}
-                  {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '8px 10px', textAlign: 'center', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>{rIdx + 1}</td>}
+                  {block.showSno && <td style={{ textAlign: 'center', whiteSpace: 'nowrap', fontWeight: 'bold' }}>{rIdx + 1}</td>}
                   
                   {hasSchema ? (
                     schemaRow?.cells?.map((cell, cIdx) => {
                       if (occupied[rIdx]?.[cIdx]) return null;
-                      
                       const cs = Math.min(Math.max(1, cell.colspan || 1), numCols - cIdx);
                       const rs = Math.min(Math.max(1, cell.rowspan || 1), numRows - rIdx);
                       for (let r = rIdx; r < rIdx + rs; r++) {
@@ -172,52 +205,37 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
                         }
                       }
 
-                      const rawVal = rec[cell.id];
-                      let displayValue = rawVal ?? '-';
+const rawVal = rec?.[cell.id];
+const normalizedVal = cell.inputType === 'date' ? formatPrintDate(rawVal) : rawVal;
+                      let displayValue = normalizedVal ?? '-';
 
-                      if (cell.cellType === 'fixed') displayValue = cell.text || '';
-                      else if (cell.cellType === 'computed') {
-                        displayValue = evaluateFormula(cell.formula, rIdx, dbRows, runtimeSchemaRows);
-                      } 
+                     if (cell.cellType === 'fixed') displayValue = formatPrintDate(cell.text) || '';
+                      else if (cell.cellType === 'computed') displayValue = evaluateFormula(cell.formula, rIdx, dbRows, runtimeSchemaRows);
                       else if (cell.cellType === 'smart-select') {
                         if (rawVal && typeof rawVal === 'object') {
                           displayValue = rawVal.selected ? `${rawVal.selected} ${rawVal.inputs?.length ? `- ${rawVal.inputs.join(' ')}` : ''}` : '-';
                           if (rawVal.richtext) displayValue = <div className="ql-editor" style={{padding: 0}} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(rawVal.richtext) }} />;
-                        } else {
-                          displayValue = rawVal || '-';
-                        }
+                        } else { displayValue = rawVal || '-'; }
                       } 
-                      else if (cell.cellType === 'mixed') displayValue = Array.isArray(rawVal) ? rawVal.join(', ') : (rawVal || '-');
+else if (cell.cellType === 'mixed')
+  displayValue = renderMixedTemplate(cell.template, rawVal)
                       else if (cell.inputType === 'quill') displayValue = <div className="ql-editor" style={{padding: 0}} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(rawVal || '-') }} />;
                       else if (typeof rawVal === 'string' && rawVal.startsWith('__custom__:')) displayValue = rawVal.replace('__custom__:', '');
 
-                      const isTotalOrFixed = cell.cellType === 'fixed' || cell.cellType === 'computed';
-                      
                       return (
-                        <td key={cIdx} colSpan={cs} rowSpan={rs} style={{ border: '1px solid #e2e8f0', padding: '8px 10px', verticalAlign: isTotalOrFixed ? 'middle' : 'top', color: isTotalOrFixed ? '#0f172a' : '#334155', fontWeight: isTotalOrFixed ? 600 : 400, background: cell.cellType === 'fixed' ? '#fef3c7' : cell.cellType === 'computed' ? '#d1fae5' : 'transparent' }}>
+                        <td key={cIdx} colSpan={cs} rowSpan={rs} style={{ background: cell.cellType === 'fixed' ? '#f8fafc' : 'transparent' }}>
                           {displayValue || '-'}
                         </td>
                       );
                     })
                   ) : (
                     Array.from({ length: numCols }).map((_, cIdx) => (
-                      <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px 10px', verticalAlign: 'top', color: '#334155' }}>
-                        {rec[`col_${cIdx}`] || '-'}
-                      </td>
+                      <td key={cIdx}>{rec[`col_${cIdx}`] || '-'}</td>
                     ))
                   )}
                 </tr>
               );
             })}
-
-            {colTotals && (
-              <tr style={{ background: '#fee2e2' }}>
-                {block.showSno && <td style={{ border: '1px solid #e2e8f0', padding: '8px 10px', textAlign: 'center', color: '#dc2626', fontWeight: 800 }}>∑</td>}
-                {colTotals.map((total, cIdx) => (
-                  <td key={cIdx} style={{ border: '1px solid #e2e8f0', padding: '8px 10px', color: '#dc2626', fontWeight: 800 }}>{total}</td>
-                ))}
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
@@ -233,379 +251,379 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
     const blockLabel = customNames[block.id] || block.label;
 
     return (
-      <div key={block.id} style={{ marginBottom: '20px', pageBreakInside: 'avoid' }}>
-        
+      <div key={block.id} style={{ marginBottom: '16px', pageBreakInside: 'avoid' }}>
         {blockLabel && !['fixed-text', 'instruction'].includes(block.type) && (
-          <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#0f172a', fontWeight: 700 }}>{blockLabel}</h4>
+          <h4 style={{ margin: '0 0 6px 0', fontSize: '11pt', color: '#000000', fontWeight: 'bold', textAlign: 'left' }}>{blockLabel}</h4>
         )}
-        
-        {block.type === 'fixed-text' && <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{block.content}</div>}
-        
-        {['text', 'textarea', 'number', 'currency', 'percentage', 'email', 'date'].includes(block.type) && (
-          <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', whiteSpace: 'pre-wrap' }}>
-            {val || '-'}
-          </div>
-        )}
-
+        {block.type === 'fixed-text' && <div style={{ fontSize: '10pt', color: '#000000', lineHeight: 1.5, whiteSpace: 'pre-wrap', textAlign: 'left' }}>{block.content}</div>}
+ {['text', 'textarea', 'number', 'currency', 'percentage', 'email', 'date'].includes(block.type) && (
+  <div style={{ fontSize: '10pt', color: '#000000', whiteSpace: 'pre-wrap', lineHeight: 1.5, textAlign: 'left' }}>
+    {block.type === 'date' && val
+      ? (() => { const [y, m, d] = val.split('-'); return `${d}/${m}/${y}`; })()
+      : val || '-'}
+  </div>
+)}
+{block.type === 'mixed' && (
+  <div style={{ fontSize: '10pt', color: '#000000', whiteSpace: 'pre-wrap', lineHeight: 1.5, textAlign: 'left' }}>
+    {renderMixedTemplate(block.template, val)}
+  </div>
+)}
         {block.type === 'quill' && (
-          <div className="ql-editor" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.6, padding: 0 }} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(val || '<span style="color:#94a3b8">-</span>') }} />
+          <div className="ql-editor" style={{ fontSize: '10pt', color: '#000000', lineHeight: 1.5, padding: 0, textAlign: 'left' }} dangerouslySetInnerHTML={{ __html: stripPrintHighlights(val || '<span style="color:#94a3b8">-</span>') }} />
         )}
-
         {block.type === 'table' && (
           <>
             {renderTableInstance(block, val, false, 0)}
             {val?.repeatedTables && ensureArray(val.repeatedTables).map((repTable, i) => renderTableInstance(block, repTable, true, i + 1))}
           </>
         )}
-
         {(block.type === 'boolean' || block.type === 'compliance') && (
-          <div style={{ fontSize: '13px', color: '#0f172a', background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'inline-block' }}>
-            {val || '-'}
-          </div>
+          <div style={{ fontSize: '10pt', color: '#000000', lineHeight: 1.5, textAlign: 'left' }}>{val || '-'}</div>
         )}
-
         {block.type === 'list' && (
-          <ul style={{ fontSize: '13px', color: '#334155', margin: 0, paddingLeft: '24px', lineHeight: 1.6 }}>
-            {ensureArray(val).map((item, i) => (
-              <li key={i} style={{ marginBottom: '6px' }}>{typeof item === 'object' ? item.value : item}</li>
-            ))}
+          <ul style={{ fontSize: '10pt', color: '#000000', margin: '4px 0', paddingLeft: '24px', lineHeight: 1.5, textAlign: 'left' }}>
+            {ensureArray(val).map((item, i) => <li key={i} style={{ marginBottom: '4px' }}>{typeof item === 'object' ? item.value : item}</li>)}
             {ensureArray(val).length === 0 && <li style={{ color: '#94a3b8', listStyleType: 'none', marginLeft: '-24px' }}>-</li>}
           </ul>
         )}
-
         {block.type === 'image' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '10px' }}>
             {ensureArray(val).map((img, i) => (
               <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', pageBreakInside: 'avoid' }}>
-                <img 
-                  src={img.url || img} 
-                  alt="" 
-                  style={{ 
-                    width: '100%', 
-                    height: 'auto', 
-                    maxHeight: '700px',
-                    objectFit: 'contain', 
-                    borderRadius: '8px', 
-                    border: '1px solid #e2e8f0', 
-                    backgroundColor: '#f8fafc',
-                    display: 'block'
-                  }} 
-                />
-                {img.caption && (
-                  <span style={{ fontSize: '12px', color: '#64748b', textAlign: 'center', fontWeight: 600 }}>
-                    {img.caption}
-                  </span>
-                )}
+                <img src={img.url || img} alt="" style={{ width: '100%', height: 'auto', maxHeight: '500px', objectFit: 'contain', border: '1px solid #e2e8f0' }} />
+                {img.caption && <span style={{ fontSize: '10pt', color: '#000000', textAlign: 'center' }}>{img.caption}</span>}
               </div>
             ))}
-            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>No images uploaded</div>}
           </div>
         )}
-
-        {block.type === 'file' && (
-          <div style={{ fontSize: '12px', color: '#3b82f6', background: '#eff6ff', padding: '10px 14px', borderRadius: '6px', border: '1px dashed #bfdbfe' }}>
-            {ensureArray(val).map((f, i) => (
-               <div key={i}>📄 {f.name || 'Attached File'}</div>
-            ))}
-            {ensureArray(val).length === 0 && <span style={{color: '#94a3b8'}}>-</span>}
-          </div>
-        )}
-
         {block.type === 'conditional-switch' && (() => {
           const selectedBranchId = val?.activeBranch;
           if (!selectedBranchId) return null;
-          
           const branch = ensureArray(block.branches).find(b => b.id === selectedBranchId);
           if (!branch || !branch.blocks) return null;
-
-          const visibleBranchBlocks = ensureArray(branch.blocks).filter(
-            b => !ensureArray(excludedSections).includes(b.id)
-          );
-
+          const visibleBranchBlocks = ensureArray(branch.blocks).filter(b => !ensureArray(excludedSections).includes(b.id));
           const branchData = val[selectedBranchId] || {};
 
           return (
-            <div style={{ paddingLeft: '16px', borderLeft: '2px solid #cbd5e1', marginTop: '12px' }}>
-              <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 700 }}>Condition: {branch.label}</div>
+            <div style={{ marginTop: '8px' }}>
               {visibleBranchBlocks.map(b => compileBlock(b, branchData, null))}
             </div>
           );
         })()}
-
         {block.type === 'repeating-block-set' && (() => {
           const instances = val?.instances ? ensureArray(val.instances) : (Array.isArray(val) ? val : []);
-
           return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
               {instances.map((instanceData, i) => (
-                <div key={instanceData._setId || i} style={{ padding: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', borderLeft: '3px solid #ef4444', background: '#f8fafc', pageBreakInside: 'avoid' }}>
-                  
-                  <div style={{ fontSize: '11px', color: '#ef4444', textTransform: 'uppercase', marginBottom: '12px', fontWeight: 800 }}>
+                <div key={instanceData._setId || i} style={{ padding: '12px', border: '1px solid #e2e8f0', borderLeft: `3px solid ${BURGUNDY}`, pageBreakInside: 'avoid' }}>
+                  <div style={{ fontSize: '10pt', color: BURGUNDY, textTransform: 'uppercase', marginBottom: '8px', fontWeight: 'bold' }}>
                     {instanceData.name ? instanceData.name : `Set #${i + 1}`}
                   </div>
-                  
                   {ensureArray(block.blocks).map(subBlock => compileBlock(subBlock, instanceData, dataKey))}
                 </div>
               ))}
-              {instances.length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
             </div>
           );
         })()}
-
-        {block.type === 'repeating-group' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
-            {ensureArray(val).map((item, i) => (
-              <div key={i} style={{ padding: '14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff' }}>
-                {ensureArray(block.template).map(field => (
-                  <div key={field.id} style={{ marginBottom: '10px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>{field.label}</div>
-                    <div style={{ fontSize: '13px', color: '#0f172a' }}>{item[field.id] || '-'}</div>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {ensureArray(val).length === 0 && <div style={{ fontSize: '13px', color: '#94a3b8' }}>-</div>}
-          </div>
-        )}
-
         {block.type === 'chart' && (
-          <div className="print-chart-container" style={{ marginTop: '20px', pageBreakInside: 'avoid' }}>
-            <ChartBlock 
-              block={{...block, label: blockLabel}} 
-              value={val} 
-              isDark={false} 
-              isPrintMode={true} 
-              onChange={() => {}}
-            />
+          <div className="print-chart-container" style={{ marginTop: '16px', pageBreakInside: 'avoid' }}>
+            <ChartBlock block={{...block, label: blockLabel}} value={val} isDark={false} isPrintMode={true} onChange={() => {}} />
           </div>
         )}
-
-        {block.type === 'mixed' && (
-          <div style={{ fontSize: '13px', color: '#0f172a', lineHeight: 1.6, background: '#f8fafc', padding: '12px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-            {val?.compiledText || val || '-'} 
-          </div>
-        )}
-
       </div>
     );
   };
 
-  const parentSections = visibleSchema.filter(s => !s.parentId).sort((a,b) => (a.order||0) - (b.order||0));
-
-  // --- MAGIC WORD EXPORTER WITH CHART SCREENSHOTS ---
   const exportToWord = async () => {
-    setIsExporting(true); // Trigger the loading UI on the button
+    setIsExporting(true);
     try {
-      // 1. Grab the live print container
-      const printElement = document.getElementById('print-document');
+      const printElement = document.getElementById('print-document-content');
       if (!printElement) return;
-
-      // 2. Clone the DOM so we don't accidentally destroy the live screen preview
       const clonedDoc = printElement.cloneNode(true);
-      
-      // 3. Find all charts in both the original screen and the background clone
       const originalCharts = printElement.querySelectorAll('.print-chart-container');
       const clonedCharts = clonedDoc.querySelectorAll('.print-chart-container');
 
-      // 4. Convert every live chart into a high-res PNG image
       for (let i = 0; i < originalCharts.length; i++) {
-        const dataUrl = await toPng(originalCharts[i], { 
-          backgroundColor: '#ffffff',
-          pixelRatio: 2 // Crisp high-res setting for Word
-        });
-        
-        // Swap out the complex React/SVG chart in the clone with our static PNG image
+        const dataUrl = await toPng(originalCharts[i], { backgroundColor: '#ffffff', pixelRatio: 2 });
         const img = document.createElement('img');
         img.src = dataUrl;
         img.style.width = '100%';
         img.style.maxWidth = '600px';
         img.style.height = 'auto';
-        img.style.marginTop = '20px';
-        img.style.marginBottom = '20px';
-        
         clonedCharts[i].innerHTML = ''; 
         clonedCharts[i].appendChild(img);
       }
 
-      // 5. Inject Microsoft Word-specific CSS styles
       const styles = `
         <style>
-          body { font-family: Arial, sans-serif; font-size: 11pt; color: #0f172a; }
-          /* FIX: Added table-layout: fixed to force Word to respect our column widths */
-          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; table-layout: fixed; }
-          /* FIX: Added word-wrap to prevent long text from blowing out the table */
-          td, th { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+          body { font-family: ${FONT_FAMILY}; font-size: 10pt; color: #000000; line-height: 1.5; text-align: left; }
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; table-layout: fixed; line-height: 1.0; }
+          td, th { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.0; color: #000000; }
           th { background-color: #f8fafc; font-weight: bold; }
-          h1, h2, h3, h4 { color: #0f172a; margin-top: 16px; margin-bottom: 8px; }
+          h1, h2 { font-size: 12pt; font-weight: bold; color: #000000; margin-top: 16px; margin-bottom: 8px; text-align: left; }
+          h3, h4 { font-size: 11pt; font-weight: bold; color: #000000; margin-top: 12px; margin-bottom: 6px; text-align: left; }
           .ql-editor ul, .ql-editor ol { padding-left: 20px; margin: 8px 0; }
           .ql-editor p { margin: 0 0 8px 0; }
-          a { color: #3b82f6; text-decoration: none; }
+          a { color: #000000; text-decoration: none; }
           img { max-width: 100%; height: auto; }
+          .toc-item { display: block; width: 100%; margin-bottom: 6px; }
         </style>
       `;
 
-      // 5.5 FIX: MS Word ignores CSS page breaks. We must intercept React's page-break divs 
-      // and inject MS-specific XML page breaks so the Title and TOC separate correctly.
       let wordHtml = clonedDoc.innerHTML;
       wordHtml = wordHtml.replace(
-        /<div([^>]*)style="([^"]*)page-break-after:\s*always([^"]*)"([^>]*)>/gi, 
-        '<div$1style="$2page-break-after:always$3"$4><br clear="all" style="mso-special-character:line-break;page-break-before:always" />'
+        /<div([^>]*)class="im-preview-page"([^>]*)>/gi, 
+        '<div$1class="im-preview-page"$2><br clear="all" style="mso-special-character:line-break;page-break-before:always" />'
       );
 
-      // 6. Wrap everything in Microsoft Office's legacy HTML/XML format
       const html = `
         <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-        <head>
-          <meta charset='utf-8'>
-          <title>IM Document</title>
-          ${styles}
-        </head>
-        <body>
-          ${wordHtml}
-        </body>
+        <head><meta charset='utf-8'><title>IM Document</title>${styles}</head>
+        <body>${wordHtml}</body>
         </html>
       `;
 
-      // 7. Trigger the native browser file download
       const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      const safeName = (projectName || 'Redwood_IM').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      link.download = `${safeName}_export.doc`;
+      link.download = `${(projectName || 'Redwood_IM').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_export.doc`;
       
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
       URL.revokeObjectURL(url);
-
     } catch (error) {
       console.error('Word export failed:', error);
-      alert('Failed to convert charts to images. Please try again.');
-    } finally {
-      setIsExporting(false); // Reset the button
-    }
+      alert('Failed to convert document. Please try again.');
+    } finally { setIsExporting(false); }
   };
 
-  // FIX: Stored component inside a variable so we can safely inject it into the Portal
-  // WARNING: Do NOT put inline styles like 'overflowY' or 'flex' on these wrappers, it causes Chromium to print blank boxes!
+  // Reusable Page Header and Footer Components
+  const PageHeader = () => (
+    <div className="doc-header" style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '10px', marginBottom: '20px', fontSize: '10pt', fontWeight: 'bold' }}>
+      <span style={{ color: '#000000' }}>INVESTMENT MEMORANDUM</span>
+      <span style={{ color: BURGUNDY }}>REDWOOD PARTNERS</span>
+    </div>
+  );
+
+  const PageFooter = ({ pageNum }) => (
+    <div className="doc-footer" style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '10px', marginTop: '20px', fontSize: '10pt', color: '#000000' }}>
+      <span style={{ flex: 1, textAlign: 'left' }}></span>
+      <span style={{ flex: 1, textAlign: 'center' }}>Confidential</span>
+      <span style={{ flex: 1, textAlign: 'right' }}>Page {pageNum}</span>
+    </div>
+  );
+
   const printPreviewContent = (
     <div className="im-print-wrapper">
+      <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
       
-      <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0 }}>
+      {/* ── TOP CONTROL BAR ── */}
+      <div className="no-print" style={{ height: '60px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', flexShrink: 0, zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer', color: '#475569' }}><X size={20} /></button>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>Print Preview: {projectName}</h2>
+          <h2 style={{ margin: 0, fontSize: '12pt', fontWeight: 'bold', color: '#000000' }}>Preview: {projectName}</h2>
         </div>
-        
-        {/* FIX: Added Export to Word Button with Dynamic Loading State */}
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button 
-            onClick={exportToWord} 
-            disabled={isExporting}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: isExporting ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: isExporting ? 'wait' : 'pointer', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'all 0.2s' }}
-          >
-            <span style={{ fontWeight: 900, fontSize: '16px' }}>W</span> 
-            {isExporting ? 'Converting Charts...' : 'Export to Word'}
+          <button onClick={exportToWord} disabled={isExporting} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: isExporting ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: isExporting ? 'wait' : 'pointer' }}>
+            <span style={{ fontWeight: 900, fontSize: '12pt' }}>W</span> {isExporting ? 'Converting...' : 'Export to Word'}
           </button>
-
-          <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(239,68,68,0.2)' }}>
-            <Printer size={16} /> Print / Save as PDF
+          <button onClick={() => window.print()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 24px', background: BURGUNDY, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+            <Printer size={16} /> Print / PDF
           </button>
         </div>
       </div>
 
-      <div className="print-canvas">
+      {/* ── DOCUMENT CANVAS ── */}
+      <div className="print-canvas" style={{ background: '#cbd5e1' }} id="print-document-content">
         
-        <div id="print-document">
+        {/* PAGE 1: COVER (Page 1) */}
+        <div className="im-preview-page cover-page" style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
           
-          <div style={{ height: '240mm', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderBottom: '2px solid #e2e8f0', pageBreakAfter: 'always' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: 900, color: '#0f172a', letterSpacing: '4px', margin: '0 0 40px 0' }}>REDWOOD <span style={{color: '#ef4444'}}>PARTNERS</span></h1>
-            <h2 style={{ fontSize: '36px', fontWeight: 800, color: '#0f172a', margin: '0 0 16px 0' }}>INVESTMENT MEMORANDUM</h2>
-            <h3 style={{ fontSize: '20px', fontWeight: 600, color: '#475569', margin: '0 0 40px 0' }}>Brand Name: {projectName}</h3>
-            <p style={{ fontSize: '14px', color: '#94a3b8', fontWeight: 600 }}>Generated on: {new Date().toLocaleDateString('en-GB')}</p>
+          {/* Absolute Top Right Logo Container */}
+          <div style={{ position: 'absolute', top: '20mm', right: '20mm', width: '150px', display: 'flex', justifyContent: 'flex-end' }}>
+            {logoUrl ? (
+              <img src={logoUrl} alt="Company Logo" style={{ maxWidth: '100%', maxHeight: '80px', objectFit: 'contain' }} />
+            ) : (
+              <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '4px', color: '#64748b', fontSize: '9pt' }}>
+                <FileText size={16} /> <span>Upload Logo in Settings</span>
+              </div>
+            )}
           </div>
 
-          <div style={{ pageBreakAfter: 'always', paddingTop: '20mm' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>EVALUATION PARAMETERS</h3>
-            <p style={{ fontSize: '12px', lineHeight: 1.6, color: '#334155', marginBottom: '16px' }}>This IM serves to project a detailed picture of the company to the Investor's various Investment Committees, supporting meeting the investment objectives and decision-making.</p>
-            <p style={{ fontSize: '12px', lineHeight: 1.6, color: '#334155', fontWeight: 700, marginBottom: '8px' }}>The IM report addresses the following scope:</p>
-            <ul style={{ fontSize: '12px', lineHeight: 1.6, color: '#334155', paddingLeft: '20px', marginBottom: '24px' }}>
-              <li>Conduct initial discussions to understand the background, problem statement, services provided.</li>
-              <li>Assess the entrepreneur's commitment to the business.</li>
-              <li>Analyse profit and loss, costing, HR costs, margins, etc.</li>
-              <li>Assess the startup's domain, competitive landscape, strength relative to competitors.</li>
-              <li>Determine the funding quantum based on business plan analysis.</li>
-            </ul>
-            <p style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
-              The information contained in this IM is strictly confidential and is meant solely for internal review.
+          {/* Perfectly Centered Content via Flexbox */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+            
+            <h1 style={{ fontSize: '12pt', fontWeight: 'bold', color: BURGUNDY, letterSpacing: '1px', margin: '0 0 8px 0' }}>
+              REDWOOD PARTNERS
+            </h1>
+            <h2 style={{ fontSize: '12pt', fontWeight: 'bold', color: '#000000', margin: '0 0 40px 0' }}>
+              INVESTMENT MEMORANDUM
+            </h2>
+            
+            <div className="no-print" style={{ marginBottom: '40px' }}>
+              <label style={{ display: 'block', fontSize: '10pt', color: '#64748b', marginBottom: '4px' }}>Edit Brand Name:</label>
+              <input 
+                type="text" 
+                value={brandName} 
+                onChange={(e) => setBrandName(e.target.value)} 
+                style={{ fontSize: '12pt', fontWeight: 'bold', textAlign: 'center', border: '1px solid #cbd5e1', padding: '8px', borderRadius: '4px', width: '300px', fontFamily: FONT_FAMILY }}
+              />
+            </div>
+            {/* Rendered Brand Name for Print */}
+            <h3 className="print-only" style={{ fontSize: '12pt', fontWeight: 'bold', color: '#000000', margin: '0 0 40px 0', display: 'none' }}>
+              {brandName}
+            </h3>
+            
+            <p style={{ fontSize: '10pt', color: '#000000' }}>
+              Date: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
           </div>
+        </div>
 
-          <div style={{ pageBreakAfter: 'always', paddingTop: '20mm' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginBottom: '24px', borderBottom: '2px solid #ef4444', paddingBottom: '8px' }}>Table of Contents</h3>
+        {/* PAGE 2: EVALUATION PARAMETERS */}
+        <div className="im-preview-page" style={{ display: 'flex', flexDirection: 'column' }}>
+          <PageHeader />
+          <div style={{ flex: 1, paddingBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '12pt', fontWeight: 'bold', color: BURGUNDY, margin: 0, textAlign: 'left' }}>INVESTMENT MEMORANDUM - EVALUATION PARAMETERS</h2>
+              <button 
+                className="no-print"
+                onClick={() => setIsEditingEval(!isEditingEval)} 
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: isEditingEval ? '#10b981' : '#f1f5f9', color: isEditingEval ? 'white' : '#475569', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '10pt', fontWeight: 'bold' }}
+              >
+                {isEditingEval ? <><Check size={14} /> Save</> : <><Edit2 size={14} /> Edit</>}
+              </button>
+            </div>
+
+            {isEditingEval ? (
+              <textarea 
+                value={evalText} 
+                onChange={e => setEvalText(e.target.value)} 
+                style={{ width: '100%', height: '500px', padding: '16px', fontFamily: FONT_FAMILY, fontSize: '10pt', lineHeight: 1.5, border: '2px solid #3b82f6', borderRadius: '8px', outline: 'none' }}
+              />
+            ) : (
+              <div style={{ fontSize: '10pt', lineHeight: 1.5, color: '#000000', whiteSpace: 'pre-wrap', textAlign: 'left' }}>
+                {evalText}
+              </div>
+            )}
+          </div>
+          <PageFooter pageNum={2} />
+        </div>
+
+        {/* PAGE 3: TABLE OF CONTENTS */}
+        <div className="im-preview-page" style={{ display: 'flex', flexDirection: 'column' }}>
+          <PageHeader />
+          <div style={{ flex: 1, paddingBottom: '20px' }}>
+            <h2 style={{ fontSize: '12pt', fontWeight: 'bold', color: '#000000', marginBottom: '24px', textAlign: 'left' }}>Table of Contents</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {parentSections.map(pSec => (
-                <div key={pSec.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
-                    <span>{sectionNumberMap[pSec.id]}. {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}</span>
+              {parentSections.map((pSec, index) => {
+                const sectionPageNum = index + 4; // Cover=1, Eval=2, TOC=3, Dynamic starts at 4
+                return (
+                  <div key={pSec.id}>
+                    <a href={`#sec-${pSec.id}`} className="toc-item">
+                      <span className="toc-title">{sectionNumberMap[pSec.id]}. {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}</span>
+                      <span className="toc-dots"></span>
+                      {/* Using calculated Page Numbers instead of "View" */}
+                      <span className="toc-page">{sectionPageNum}</span> 
+                    </a>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '24px', marginTop: '8px' }}>
+                      {visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0)).map(cSec => (
+                        <a href={`#sec-${cSec.id}`} key={cSec.id} className="toc-item sub-toc">
+                          <span className="toc-title">{sectionNumberMap[cSec.id]}. {cleanTitle(customNames[cSec.id] || cSec.heading || cSec.navLabel)}</span>
+                          <span className="toc-dots"></span>
+                          <span className="toc-page">{sectionPageNum}</span>
+                        </a>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '24px', marginTop: '8px' }}>
-                    {visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0)).map(cSec => (
-                      <div key={cSec.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-                        <span>{sectionNumberMap[cSec.id]}. {cleanTitle(customNames[cSec.id] || cSec.heading || cSec.navLabel)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
+          <PageFooter pageNum={3} />
+        </div>
 
-          <div style={{ paddingTop: '10mm' }}>
-            {parentSections.map(pSec => {
-              const children = visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0));
-              return (
-                <div key={pSec.id} style={{ marginBottom: '40px' }}>
-                  
-                  <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', pageBreakAfter: 'avoid' }}>
-                    <span style={{ color: '#ef4444', marginRight: '8px' }}>{sectionNumberMap[pSec.id]}.</span>
-                    {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}
+        {/* PAGE 4+: DYNAMIC CONTENT CHUNKS */}
+        {parentSections.map((pSec, index) => {
+          const children = visibleSchema.filter(s => s.parentId === pSec.id).sort((a,b) => (a.order||0) - (b.order||0));
+          const currentDynamicPageNum = index + 4; // Assigns a sequential page number to each major section
+
+          return (
+            <div key={pSec.id} className="im-preview-page content-page" style={{ display: 'flex', flexDirection: 'column' }}>
+              <PageHeader />
+              
+              <div style={{ flex: 1, paddingBottom: '20px' }}>
+                <div id={`sec-${pSec.id}`} style={{ marginBottom: '40px' }}>
+<h2 style={{ fontSize: '12pt', fontWeight: 'bold', color: '#2563eb', marginBottom: '16px', pageBreakAfter: 'avoid', textAlign: 'left' }}>
+  <span style={{ marginRight: '8px', color: '#2563eb' }}>{sectionNumberMap[pSec.id]}.</span>                    {cleanTitle(customNames[pSec.id] || pSec.heading || pSec.navLabel)}
                   </h2>
 
                   <div style={{ marginBottom: '24px' }}>
-                    {ensureArray(pSec.blocks)
-                      .filter(block => !ensureArray(excludedSections).includes(block.id))
-                      .sort((a,b) => (a.order||0)-(b.order||0))
-                      .map(block => compileBlock(block))}
+                    {ensureArray(pSec.blocks).filter(block => !ensureArray(excludedSections).includes(block.id)).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
                   </div>
 
                   {children.map(cSec => (
-                    <div key={cSec.id} style={{ marginBottom: '24px', paddingLeft: '16px' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1e293b', marginBottom: '12px', pageBreakAfter: 'avoid' }}>
+                    <div key={cSec.id} id={`sec-${cSec.id}`} style={{ marginBottom: '24px', paddingLeft: '12px' }}>
+                      <h3 style={{ fontSize: '11pt', fontWeight: 'bold', color: '#000000', marginBottom: '12px', pageBreakAfter: 'avoid', textAlign: 'left' }}>
                         {sectionNumberMap[cSec.id]}. {cleanTitle(customNames[cSec.id] || cSec.heading || cSec.navLabel)}
                       </h3>
                       <div>
-                        {ensureArray(cSec.blocks)
-                          .filter(block => !ensureArray(excludedSections).includes(block.id))
-                          .sort((a,b) => (a.order||0)-(b.order||0))
-                          .map(block => compileBlock(block))}
+                        {ensureArray(cSec.blocks).filter(block => !ensureArray(excludedSections).includes(block.id)).sort((a,b) => (a.order||0)-(b.order||0)).map(block => compileBlock(block))}
                       </div>
                     </div>
                   ))}
-
                 </div>
-              );
-            })}
-          </div>
+              </div>
 
-        </div>
+              <PageFooter pageNum={currentDynamicPageNum} />
+            </div>
+          );
+        })}
+
       </div>
 
       <style>{`
-        /* --- NATIVE QUILL COMPONENT FIXES --- */
-        .ql-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-        .ql-editor table td, .ql-editor table th { border: 1px solid #cbd5e1 !important; padding: 6px 8px; }
+        /* --- GLOBAL TYPOGRAPHY --- */
+        .im-print-wrapper {
+          font-family: ${FONT_FAMILY};
+          color: #000000;
+          line-height: 1.5;
+          text-align: left;
+        }
+
+        /* --- VISUAL UI PAGES (Screen View) --- */
+        @media screen {
+          .im-print-wrapper { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; background: #cbd5e1; }
+          .print-canvas { flex: 1; overflow-y: auto; padding: 40px 0; }
+          
+          .im-preview-page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 40px auto;
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            padding: 20mm;
+            box-sizing: border-box; /* Crucial to keep headers/footers inside page margins */
+          }
+          
+          /* The content page expands if dynamic data is huge, but footer is pushed to bottom */
+          .im-preview-page.content-page { height: auto; }
+        }
+
+        /* --- TOC DOTTED LEADERS & ANCHORS --- */
+        .toc-item { display: flex; align-items: baseline; text-decoration: none; color: #000000; margin-bottom: 8px; font-size: 10pt; }
+        .toc-item:hover .toc-title { color: ${BURGUNDY}; }
+        .toc-item.sub-toc { color: #000000; }
+        .toc-title { background: #fff; padding-right: 8px; font-weight: bold; }
+        .sub-toc .toc-title { font-weight: normal; }
+        .toc-dots { flex-grow: 1; border-bottom: 2px dotted #000000; margin: 0 8px; }
+        .toc-page { background: #fff; padding-left: 8px; font-size: 10pt; color: #000000; font-weight: normal; }
+
+        /* --- NATIVE TABLE & RICH TEXT FIXES (Line Spacing overrides) --- */
+        .im-print-table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 10pt; line-height: 1.0; }
+        .im-print-table td, .im-print-table th { border: 1px solid #000000 !important; padding: 8px 10px; line-height: 1.0; color: #000000; }
+        .im-print-table th { background-color: #f8fafc; font-weight: bold; text-align: left; }
+        
         .ql-editor ul, .ql-editor ol { padding-left: 20px; margin: 8px 0; }
         .ql-editor li { margin-bottom: 4px; }
         .ql-editor p { margin: 0 0 8px 0; }
@@ -617,87 +635,41 @@ export default function IMPrintPreview({ schema, imData, excludedSections, custo
           text-decoration: none !important; box-shadow: none !important;
         }
 
-        /* --- 🖥️ SCREEN VIEW (Safely holds the layout rules away from the print engine) --- */
-        @media screen {
-          .im-print-wrapper {
-            position: fixed; inset: 0; z-index: 9999;
-            background: #cbd5e1; display: flex; flex-direction: column;
-          }
-          .print-canvas {
-            flex: 1; overflow-y: auto; padding: 40px 0;
-          }
-          #print-document {
-            width: 210mm; min-height: 297mm; margin: 0 auto;
-            background: #ffffff; box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            padding: 25mm 20mm;
-          }
-        }
-
-        /* --- 🖨️ PRINT VIEW (The Absolute Bulletproof Reset) --- */
+        /* --- 🖨️ THE ULTIMATE PDF PRINT ENGINE --- */
         @media print {
-          /* 1. ANNIHILATE THE MAIN APP: Target absolutely everything that is NOT our portal */
-          body > *:not(.im-print-wrapper) {
-            display: none !important;
-          }
-          .no-print { 
-            display: none !important; 
-          }
+          /* 1. HIDE THE APP */
+          body > *:not(.im-print-wrapper) { display: none !important; }
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
 
-          /* 2. RESET THE DOCUMENT FLOW */
-          html, body {
-            display: block !important;
-            position: relative !important;
-            height: auto !important;
-            min-height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            background: white !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
+          /* 2. RESET HTML TO ALLOW NATIVE PAGINATION */
+          html, body { display: block !important; position: relative !important; height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          
+          .im-print-wrapper, .print-canvas { display: block !important; position: static !important; height: auto !important; width: 100% !important; overflow: visible !important; background: white !important; padding: 0 !important; }
 
-          /* 3. ALLOW COMPONENTS TO EXPAND NATURALLY */
-          .im-print-wrapper, .print-canvas, #print-document {
-            display: block !important;
-            position: relative !important;
-            height: auto !important;
-            min-height: auto !important;
-            max-height: none !important;
+          /* 3. FORMAT THE PAGES FOR PRINT */
+          .im-preview-page {
             width: 100% !important;
-            max-width: 100% !important;
-            overflow: visible !important;
-            background: white !important;
             margin: 0 !important;
             padding: 0 !important;
             box-shadow: none !important;
+            page-break-after: always; /* Force a hard page break after every container */
             border: none !important;
           }
+          
+          /* The content page shouldn't force a break at the end */
+          .im-preview-page.content-page { page-break-after: auto; }
 
-          /* Keep standard A4 spacing */
-          #print-document {
-             padding: 15mm !important; 
-          }
+          /* 5. STRIP UI TABS */
+          .print-chart-container button, .print-chart-container [role="tablist"], .print-chart-container .chart-tabs { display: none !important; }
 
-          /* 4. STRIP BACKGROUND HIGHLIGHTS & TABS */
-          .ql-editor span, .ql-editor mark {
-            background-color: transparent !important;
-            background: transparent !important;
-          }
-          .print-chart-container button,
-          .print-chart-container [role="tablist"],
-          .print-chart-container .chart-tabs {
-            display: none !important;
-          }
-
-          @page { size: A4; margin: 0; }
+          /* 6. SET STANDARD A4 MARGINS */
+          @page { size: A4; margin: 20mm; }
         }
       `}</style>
     </div>
   );
 
-  // FIX: Teleport the entire clean HTML directly onto the <body> tag
   if (!mounted) return null;
   return createPortal(printPreviewContent, document.body);
 }

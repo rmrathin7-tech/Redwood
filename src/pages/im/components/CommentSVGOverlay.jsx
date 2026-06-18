@@ -71,11 +71,11 @@ export default function CommentSVGOverlay() {
             const activeCellId = `cell-${window.imActiveSearchDataPath.replace(/[^a-zA-Z0-9-]/g, '-')}`;
             const activeCell = document.getElementById(activeCellId);
             if (activeCell) sourceNode = activeCell;
-         } else {
-            // Fallback: look for ANY actively focused input inside the table block
-            const focusedInput = sourceNode.querySelector('input:focus, select:focus, textarea:focus');
-            if (focusedInput) sourceNode = focusedInput;
-         }
+} else {
+                    // Fallback: look for ANY actively focused input inside the table block
+                    const focusedInput = sourceNode.querySelector('input:focus, select:focus, textarea:focus, .ql-editor:focus');
+                    if (focusedInput) sourceNode = focusedInput;
+                 }
       }
 
       // Dynamic Z-Index elevation:

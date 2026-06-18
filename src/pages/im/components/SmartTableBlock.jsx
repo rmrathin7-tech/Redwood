@@ -44,9 +44,11 @@ if (!document.getElementById(STYLE_ID_QUILL)) {
       color: inherit !important;
     }
     mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    /* SaaS Standard: Make any lingering resolved comments completely invisible */
     mark.im-comment-highlight[data-comment-status="resolved"] {
-      background-color: rgba(148,163,184,0.18) !important;
-      border-bottom: 2px solid #94a3b8 !important;
+      background-color: transparent !important;
+      border-bottom: none !important;
+      cursor: inherit !important;
     }
     .active-comment-glow {
       background-color: rgba(245, 158, 11, 0.6) !important;
@@ -71,8 +73,10 @@ if (!Quill.imports['formats/comment']) {
     }
     static applyStyle(node, status) {
       if (status === 'resolved') {
-        node.style.backgroundColor = 'rgba(148,163,184,0.18)';
-        node.style.borderBottom = '2px solid #94a3b8';
+        // SaaS Standard: Completely hide the visual marker
+        node.style.backgroundColor = 'transparent';
+        node.style.borderBottom = 'none';
+        node.style.cursor = 'inherit';
       } else {
         node.style.backgroundColor = 'rgba(245,158,11,0.28)';
         node.style.borderBottom = '2px solid #f59e0b';
@@ -84,9 +88,19 @@ if (!Quill.imports['formats/comment']) {
         status: node.getAttribute('data-comment-status') || 'open',
       };
     }
+    // FIX: Force Quill to retain the ID even when the user clicks away and the cell re-renders
+    format(name, value) {
+      if (name === 'comment' && value) {
+        this.domNode.setAttribute('data-comment-id', value.id);
+        this.domNode.setAttribute('data-comment-status', value.status || 'open');
+      } else {
+        super.format(name, value);
+      }
+    }
   }
   CommentBlot.blotName = 'comment';
   CommentBlot.tagName = 'mark';
+  CommentBlot.className = 'im-comment-highlight'; 
   Quill.register(CommentBlot, true);
 }
 
@@ -452,6 +466,7 @@ if (!Quill.imports['formats/searchMatch']) {
   }
   SearchMatchBlot.blotName = 'searchMatch';
   SearchMatchBlot.tagName = 'mark';
+  SearchMatchBlot.className = 'im-search-highlight-quill'; // FIX: Differentiate it from comments
   Quill.register(SearchMatchBlot, true);
 }
 
@@ -551,9 +566,10 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     quillInstance.current.on('selection-change', (range) => {
       if (range && range.length > 0) {
         pendingCommentRange.current = range;
-      } else {
-        setTimeout(() => { pendingCommentRange.current = null; }, 400); 
-      }
+        // FIX: Track exactly which cell was highlighted to prevent other cells from stealing the comment!
+        window.imLastFocusedQuillCell = cellDataPath; 
+      } 
+      // FIX: Removed the 400ms timeout that was wiping the range before the comment could save.
     });
 
     const persistHtml = () => latestOnChange.current(cleanSearchHighlights(quillInstance.current.root.innerHTML));
@@ -561,6 +577,10 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     const handleCreateComment = (e) => {
       const detail = e.detail || {};
       if (detail.dataPath !== block.dataPath) return;
+      
+      // FIX: ONLY apply the comment to the exact cell the user interacted with!
+      if (window.imLastFocusedQuillCell !== cellDataPath) return;
+
       if (pendingCommentRange.current) {
         quillInstance.current.formatText(pendingCommentRange.current.index, pendingCommentRange.current.length, 'comment', { id: detail.commentId, status: 'open' }, 'silent');
         setTimeout(persistHtml, 50); 
@@ -573,7 +593,10 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
       if (dataPath !== block.dataPath) return;
       
       let target = quillInstance.current.root.querySelector(`[data-comment-id="${commentId}"]`);
-      if (!target && quote) {
+      
+      // FIX: If the tag is missing, ONLY let the exact focused cell guess its location. 
+      // This stops 10 different table cells from randomly grabbing the highlight!
+      if (!target && quote && window.imLastFocusedQuillCell === cellDataPath) {
         const applied = ensureCommentHighlight(quillInstance.current, { commentId, quote, status: 'open' });
         if (applied) {
           target = quillInstance.current.root.querySelector(`[data-comment-id="${commentId}"]`);
@@ -593,18 +616,18 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
       const spans = quillInstance.current.root.querySelectorAll(`[data-comment-id="${commentId}"]`);
       if (spans.length > 0) {
         spans.forEach((span) => {
-          span.setAttribute('data-comment-status', status);
-          if (status === 'resolved') {
-            span.style.backgroundColor = 'rgba(148,163,184,0.18)';
-            span.style.borderBottom = '2px solid #94a3b8';
-          } else if (status === 'deleted') {
-            span.replaceWith(document.createTextNode(span.textContent));
+          // SaaS Standard: Completely unwrap the highlight for BOTH deleted AND resolved comments
+          if (status === 'resolved' || status === 'deleted') {
+            const textNode = document.createTextNode(span.textContent);
+            span.replaceWith(textNode);
           } else {
+            span.setAttribute('data-comment-status', status);
             span.style.backgroundColor = 'rgba(245,158,11,0.28)';
             span.style.borderBottom = '2px solid #f59e0b';
           }
         });
-        if (status === 'deleted') setTimeout(persistHtml, 50);
+        quillInstance.current.root.normalize(); // Clean up fragmented text nodes
+        if (status === 'resolved' || status === 'deleted') setTimeout(persistHtml, 50);
       }
     };
 
@@ -637,7 +660,6 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     const incomingHtml = cleanSearchHighlights(val || '');
     if (incomingHtml !== currentHtml) {
       const sel = quillInstance.current.getSelection();
-      // FIX: Inject the strictly cleaned HTML instead of the raw dirty 'val'
       quillInstance.current.root.innerHTML = incomingHtml; 
       if (sel) quillInstance.current.setSelection(sel);
     }
@@ -655,12 +677,9 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
      const term = window.imActiveSearchTerm;
      const isMatch = window.imActiveSearchDataPath === cellDataPath;
 
-     // 1. Clear existing highlights
      const textLength = quill.getLength();
      quill.formatText(0, textLength, 'searchMatch', false, 'silent');
 
-// 2. If the search was cleared OR you jumped to a different cell, forcefully 
-     // sweep the DOM to destroy any orphaned tags safely without losing formatting.
      if (!term || !isMatch) {
         const unwrapNode = (node) => {
             while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
@@ -675,10 +694,9 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
         }).forEach(unwrapNode);
 
         quill.root.normalize();
-        if (!term) return; // Abort the rest of the effect if search is fully closed
+        if (!term) return; 
      }
 
-     // 3. Apply new highlights dynamically
      if (term && isMatch) {
         const text = quill.getText();
         const regex = new RegExp(escapeRegex(term), 'gi');
@@ -687,7 +705,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
            quill.formatText(match.index, match[0].length, 'searchMatch', true, 'silent');
         }
      }
-  }); // Runs reliably on every forced render
+  }); 
 
   return (
     <div className="table-quill-wrapper" style={{ minWidth: '160px', padding: '4px', position: 'relative' }}>
@@ -873,6 +891,25 @@ const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, 
     return () => unsub();
   }, [block?.dataPath]);
   
+  // FIX: Extract all comment IDs that are perfectly baked into Quill cells.
+  // This completely stops standard text cells from rendering duplicate highlights and stealing the SVG!
+  const bakedQuillCommentIds = useMemo(() => {
+    const ids = new Set();
+    records.forEach(r => {
+       Object.values(r).forEach(val => {
+          if (typeof val === 'string' && val.includes('data-comment-id=')) {
+             const matches = val.match(/data-comment-id="([^"]+)"/g);
+             if (matches) matches.forEach(m => ids.add(m.replace('data-comment-id="', '').replace('"', '')));
+          }
+       });
+    });
+    return ids;
+  }, [records]);
+
+  const standardCellComments = useMemo(() => {
+    return blockComments.filter(c => !bakedQuillCommentIds.has(c.id));
+  }, [blockComments, bakedQuillCommentIds]);
+
 const [forceSearchRender, setForceSearchRender] = useState(0);
 
 useEffect(() => {
@@ -1504,8 +1541,8 @@ useEffect(() => {
        }
     }
 
-    return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} comments={blockComments} />;
-  }, [t, isDark, focusHandlers, blockComments]);
+    return <MixedInlineInput key={keyIdx} val={inputVal || ''} onChange={onInputChange} disabled={disabled} placeholder={placeholderText} t={t} focusHandlers={focusHandlers} comments={standardCellComments} />;
+  }, [t, isDark, focusHandlers, standardCellComments]);
 
 const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtectedRow = false, tableInstanceId = 'main', contextRows = records) => {
     const cellPlaceholder = cell.placeholder || '';
@@ -1675,7 +1712,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                 placeholder={usePlaceholderGuide ? '' : cellPlaceholder} 
                 cellInputStyle={cellInputStyle} 
                 focusHandlers={focusHandlers} 
-                comments={blockComments}
+                comments={standardCellComments}
                 isDark={isDark}
               />
             </div>
@@ -1711,7 +1748,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                   disabled={isProtectedRow || !!lockedBy}
                   cellInputStyle={{ ...cellInputStyle, padding: '4px 8px', border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem' }}
                   focusHandlers={focusHandlers}
-                  comments={blockComments}
+                  comments={standardCellComments}
                   isDark={isDark}
                   iType="text"
                 />
@@ -1732,7 +1769,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
               placeholder={usePlaceholderGuide ? '' : cellPlaceholder}
               cellInputStyle={cellInputStyle}
               focusHandlers={focusHandlers}
-              comments={blockComments}
+              comments={standardCellComments}
               isDark={isDark}
               iType={iType}
               showPrefix={showPrefix}
@@ -1742,7 +1779,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, blockComments]);  const colTotals = useMemo(() => {
+  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, standardCellComments]);  const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
     
@@ -1824,7 +1861,6 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         </div>
       </div>
 
-{/* THE VDOM FIREBREAK: Only redraws 500 cells if actual data changed! */}
       {useMemo(() => {
         const numRows  = records.length;
         const occupied = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
@@ -1913,7 +1949,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                                     cellInputStyle={cellInputStyle} 
                                     placeholder="" 
                                     focusHandlers={focusHandlers}
-                                    comments={blockComments}
+                                    comments={standardCellComments}
                                     isDark={isDark}
                                     iType="text"
                                   />
@@ -1962,7 +1998,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
           </div>
         );
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [records, headers, sideHeadings, colTotals, runtimeSchemaRows, forceSearchRender, isDark, lockedBy, hasCustomWidths, numCols, block, blockComments, cellInputStyle, focusHandlers, t])}
+      }, [records, headers, sideHeadings, colTotals, runtimeSchemaRows, forceSearchRender, isDark, lockedBy, hasCustomWidths, numCols, block, standardCellComments, cellInputStyle, focusHandlers, t])}
 
       {/* Bottom actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
@@ -1999,7 +2035,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
           isDark={isDark}
           renderCellContent={renderCellContent}
           focusHandlers={focusHandlers}
-          blockComments={blockComments}
+          blockComments={standardCellComments}
           onUpdate={(updater, newName) => handleRepeatedTableUpdate(idx, updater, newName)}
           onRemove={() => handleRepeatedTableRemove(idx)}
         />
