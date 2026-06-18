@@ -255,7 +255,7 @@ if (!document.getElementById(STYLE_ID)) {
     .ql-font-georgia  { font-family: "Georgia", serif; }
     .ql-font-courier  { font-family: "Courier New", monospace; }
 
-    .im-quill-canvas .ql-editor {
+   .im-quill-canvas .ql-editor {
       font-size: 14px; line-height: 1.7; padding: 20px 24px;
     }
     .im-quill-canvas .ql-editor table { border-collapse: collapse; width: 100%; margin: 12px 0; }
@@ -269,6 +269,25 @@ if (!document.getElementById(STYLE_ID)) {
     /* Reset paragraph flow and enforce inline images with spacing */
     .ql-editor p { display: block; }
     .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; }
+
+    /* ── MS WORD CSS CRUSHER ── */
+    /* Forces pasted charts and giant tables to stay inside the walls in both views */
+    .im-quill-canvas .ql-editor img,
+    .im-quill-canvas .ql-editor table,
+    .im-quill-canvas .ql-editor figure,
+    .im-fs-paper .ql-editor img,
+    .im-fs-paper .ql-editor table {
+       max-width: 100% !important;
+       height: auto !important;
+    }
+    
+    /* Forces wide tables to become horizontally scrollable instead of breaking the layout */
+    .im-quill-canvas .ql-editor table,
+    .im-fs-paper .ql-editor table {
+       display: block !important;
+       overflow-x: auto !important;
+       white-space: nowrap !important;
+    }
   `;
   document.head.appendChild(s);
 }
