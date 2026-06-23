@@ -14,6 +14,7 @@ Quill.register('modules/imageResize', ImageResize);
 
 const storage = getStorage();
 const COMMENT_DOM_SETTLEMENT_DELAY_MS = 50;
+
 // ── BASE64 IMAGE SWEEPER ──────────────────────────────────────────────────────
 const sweepBase64Images = async (quill, dataPath) => {
   if (!quill || !quill.root) return false;
@@ -24,7 +25,6 @@ const sweepBase64Images = async (quill, dataPath) => {
   for (const img of images) {
     const b64 = img.src;
     try {
-      // Visually indicate the upload is happening inline
       img.style.opacity = '0.4';
       img.style.transition = 'opacity 0.3s ease';
 
@@ -36,7 +36,6 @@ const sweepBase64Images = async (quill, dataPath) => {
       const snap = await uploadBytes(storageRef(storage, path), blob);
       const url = await getDownloadURL(snap.ref);
 
-      // Swap out the base64 string for the clean Firebase URL directly in the DOM
       img.src = url; 
       img.style.opacity = '1';
       updatedAny = true;
@@ -47,6 +46,7 @@ const sweepBase64Images = async (quill, dataPath) => {
   }
   return updatedAny;
 };
+
 // ── COMMENT BLOT ───────────────────────────────────────────────────────────────
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
@@ -62,7 +62,6 @@ if (!Quill.imports['formats/comment']) {
     }
     static applyStyle(node, status) {
       if (status === 'resolved') {
-        // SaaS Standard: Completely hide the visual marker
         node.style.backgroundColor = 'transparent';
         node.style.borderBottom = 'none';
         node.style.cursor = 'inherit';
@@ -105,7 +104,6 @@ if (!document.getElementById(STYLE_ID)) {
       color: inherit !important;
     }
     mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
-    /* SaaS Standard: Make any lingering resolved comments completely invisible */
     mark.im-comment-highlight[data-comment-status="resolved"] {
       background-color: transparent !important;
       border-bottom: none !important;
@@ -145,7 +143,6 @@ if (!document.getElementById(STYLE_ID)) {
       to   { opacity: 1; transform: scale(1); }
     }
 
-    /* Top bar */
     .im-fs-topbar {
       display: flex; align-items: center; gap: 12px;
       padding: 0 20px; height: 52px; flex-shrink: 0;
@@ -153,12 +150,10 @@ if (!document.getElementById(STYLE_ID)) {
       border-bottom: 1px solid rgba(255,255,255,0.06);
     }
 
-    /* Body = sidebar + canvas */
     .im-fs-body {
       flex: 1; display: flex; overflow: hidden;
     }
 
-    /* Left sidebar */
     .im-fs-sidebar {
       width: 240px; flex-shrink: 0;
       background: #161b22;
@@ -168,7 +163,6 @@ if (!document.getElementById(STYLE_ID)) {
       padding: 20px 0;
     }
 
-    /* Right canvas area */
     .im-fs-canvas-wrap {
       flex: 1; overflow-y: auto;
       background: #ffffff;
@@ -176,82 +170,42 @@ if (!document.getElementById(STYLE_ID)) {
     }
 
     .im-fs-paper {
-      width: 100%; 
-      max-width: none; 
-      margin: 0; 
-      background: transparent;
-      border-radius: 0;
-      box-shadow: none;
-      display: flex;
-      flex-direction: column;
-      flex: 1; 
+      width: 100%; max-width: none; margin: 0; 
+      background: transparent; border-radius: 0; box-shadow: none;
+      display: flex; flex-direction: column; flex: 1; 
     }
 
     .im-fs-paper .ql-toolbar.ql-snow {
-      border: none !important;
-      border-bottom: 1px solid #e5e7eb !important;
-      background: #f9fafb;
-      padding: 10px 24px;
+      border: none !important; border-bottom: 1px solid #e5e7eb !important;
+      background: #f9fafb; padding: 10px 24px;
       position: sticky; top: 0; z-index: 10;
     }
     .im-fs-paper .ql-container.ql-snow { 
-      border: none !important; 
-      flex: 1; 
-      display: flex; 
-      flex-direction: column;
+      border: none !important; flex: 1; display: flex; flex-direction: column;
     }
     .im-fs-paper .ql-editor {
-      flex: 1;
-      font-size: 15px;
-      line-height: 1.85;
-      color: #111827 !important;
-      padding: 40px 8%; 
-      font-family: 'Georgia', serif;
+      flex: 1; font-size: 15px; line-height: 1.85; color: #111827 !important;
+      padding: 40px 8%; font-family: 'Georgia', serif;
     }
-    .im-fs-paper .ql-editor.ql-blank::before {
-      color: #9ca3af;
-      font-style: italic;
-      left: 8%;
-    }
+    .im-fs-paper .ql-editor.ql-blank::before { color: #9ca3af; font-style: italic; left: 8%; }
 
-    .im-fs-paper .ql-editor table {
-      border-collapse: collapse; width: 100%; margin: 20px 0;
-    }
-    .im-fs-paper .ql-editor table td,
-    .im-fs-paper .ql-editor table th {
-      border: 1px solid #d1d5db !important;
-      padding: 10px 14px; min-width: 60px;
-    }
-    .im-fs-paper .ql-editor table th {
-      background: #f3f4f6; font-weight: 700;
-    }
+    .im-fs-paper .ql-editor table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+    .im-fs-paper .ql-editor table td, .im-fs-paper .ql-editor table th { border: 1px solid #d1d5db !important; padding: 10px 14px; min-width: 60px; }
+    .im-fs-paper .ql-editor table th { background: #f3f4f6; font-weight: 700; }
 
-    .im-fs-paper .ql-editor img {
-      max-width: 100%; cursor: pointer; transition: outline 0.15s;
-      border-radius: 4px;
-    }
-    .im-fs-paper .ql-editor img:hover {
-      outline: 2px solid #ef4444; outline-offset: 2px;
-    }
+    .im-fs-paper .ql-editor img { max-width: 100%; cursor: pointer; transition: outline 0.15s; border-radius: 4px; }
+    .im-fs-paper .ql-editor img:hover { outline: 2px solid #ef4444; outline-offset: 2px; }
 
     .im-fs-paper .ql-snow .ql-stroke { stroke: #6b7280 !important; }
     .im-fs-paper .ql-snow .ql-fill   { fill:   #6b7280 !important; }
-    .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-stroke,
-    .im-fs-paper .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #ef4444 !important; }
-    .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-fill,
-    .im-fs-paper .ql-snow.ql-toolbar button.ql-active .ql-fill   { fill: #ef4444 !important; }
+    .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-stroke, .im-fs-paper .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #ef4444 !important; }
+    .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-fill, .im-fs-paper .ql-snow.ql-toolbar button.ql-active .ql-fill   { fill: #ef4444 !important; }
     .im-fs-paper .ql-snow .ql-picker-label { color: #6b7280 !important; }
-    .im-fs-paper .ql-snow .ql-picker-options {
-      background: #ffffff !important;
-      border-color: #e5e7eb !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
+    .im-fs-paper .ql-snow .ql-picker-options { background: #ffffff !important; border-color: #e5e7eb !important; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 
     .im-fs-table-bar {
       display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      padding: 8px 24px;
-      background: #eff6ff;
-      border-bottom: 1px solid #dbeafe;
+      padding: 8px 24px; background: #eff6ff; border-bottom: 1px solid #dbeafe;
     }
 
     .ql-font-dm-sans  { font-family: "DM Sans", sans-serif; }
@@ -259,38 +213,37 @@ if (!document.getElementById(STYLE_ID)) {
     .ql-font-georgia  { font-family: "Georgia", serif; }
     .ql-font-courier  { font-family: "Courier New", monospace; }
 
-   .im-quill-canvas .ql-editor {
-      font-size: 14px; line-height: 1.7; padding: 20px 24px;
-    }
+   .im-quill-canvas .ql-editor { font-size: 14px; line-height: 1.7; padding: 20px 24px; }
     .im-quill-canvas .ql-editor table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    .im-quill-canvas .ql-editor table td,
-    .im-quill-canvas .ql-editor table th {
-      border: 1px solid #64748b !important;
-      padding: 7px 10px; min-width: 40px;
-    }
+    .im-quill-canvas .ql-editor table td, .im-quill-canvas .ql-editor table th { border: 1px solid #64748b !important; padding: 7px 10px; min-width: 40px; }
     .im-quill-canvas .ql-editor img { max-width: 100%; border-radius: 4px; }
     
-    /* Reset paragraph flow and enforce inline images with spacing */
     .ql-editor p { display: block; }
     .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; }
 
-    /* ── MS WORD CSS CRUSHER ── */
-    /* Forces pasted charts and giant tables to stay inside the walls in both views */
-    .im-quill-canvas .ql-editor img,
-    .im-quill-canvas .ql-editor table,
-    .im-quill-canvas .ql-editor figure,
-    .im-fs-paper .ql-editor img,
-    .im-fs-paper .ql-editor table {
-       max-width: 100% !important;
-       height: auto !important;
+    .im-quill-canvas .ql-editor img, .im-quill-canvas .ql-editor table, .im-quill-canvas .ql-editor figure, .im-fs-paper .ql-editor img, .im-fs-paper .ql-editor table {
+       max-width: 100% !important; height: auto !important;
     }
     
-    /* Forces wide tables to become horizontally scrollable instead of breaking the layout */
-    .im-quill-canvas .ql-editor table,
-    .im-fs-paper .ql-editor table {
-       display: block !important;
-       overflow-x: auto !important;
-       white-space: nowrap !important;
+    .im-quill-canvas .ql-editor table, .im-fs-paper .ql-editor table {
+       display: block !important; overflow-x: auto !important; white-space: nowrap !important;
+    }
+
+    /* ── FORCE TEXT WRAPPING CSS (PREVENTS HORIZONTAL OVERFLOW SCROLL) ── */
+    .ql-editor {
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      word-break: break-word !important;
+      white-space: pre-wrap !important;
+    }
+    .ql-editor * {
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      word-break: break-word !important;
+    }
+    .ql-editor pre, .ql-editor code {
+      white-space: pre-wrap !important; 
+      word-break: break-all !important;
     }
   `;
   document.head.appendChild(s);
@@ -306,8 +259,8 @@ function FullscreenEditor({
   const quillRef   = useRef(null);
   const [wc, setWc] = useState(0);
   const [saved, setSaved] = useState(true);
-const saveTimer = useRef(null); // <-- ADD THIS NEW REF
-  // Escape closes 
+  const saveTimer = useRef(null); 
+  
   useEffect(() => {
     const h = (e) => { 
       if (e.key === 'Escape') {
@@ -319,7 +272,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  // Lock body scroll
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -338,11 +290,8 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
         const url  = await getDownloadURL(snap.ref);
         const range = quill.getSelection(true);
         quill.insertEmbed(range.index, 'image', url);
-        
-        // Inject a space and move the cursor after it so side-by-side images work
         quill.insertText(range.index + 1, ' ', 'user');
         quill.setSelection(range.index + 2, 'silent');
-        
         setTimeout(() => { if (onChange) onChange(block.dataPath, quill.root.innerHTML); }, 100);
       } catch (err) { console.error('Image upload failed:', err); }
     };
@@ -358,26 +307,33 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
         table: true,
         toolbar: {
           container: toolbarRef.current,
-          handlers: {
-            image: function () { makeImageHandler(quillRef.current); },
-          },
+          handlers: { image: function () { makeImageHandler(quillRef.current); } },
         },
-        imageResize: {
-          modules: ['Resize', 'DisplaySize']
-        },
+        imageResize: { modules: ['Resize', 'DisplaySize'] },
         clipboard: { matchVisual: false },
       },
     });
     
     if (value) quillRef.current.root.innerHTML = value;
+
+    // ─────────────────────────────────────────────────────────────
+    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS & COLORS ON PASTE ──
+    quillRef.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+      delta.ops.forEach(op => {
+        if (op.attributes) {
+          delete op.attributes.background; // Removes grey highlight
+          delete op.attributes.color;      // Fixes invisible text in Dark Mode
+        }
+      });
+      return delta;
+    });
+    // ─────────────────────────────────────────────────────────────
     
     if (!readOnly) {
       setTimeout(() => quillRef.current?.focus(), 80);
     }
     if (onQuillReady) onQuillReady(quillRef.current);
 
-    // --- NEW PASTE & DROP HANDLER FOR FULLSCREEN ---
-// --- NEW PASTE & DROP HANDLER FOR FULLSCREEN ---
     const handleDirectUpload = async (file, quill) => {
       if (!file || !file.type.startsWith('image/')) return;
       try {
@@ -397,7 +353,7 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
       if (files && files.length > 0) {
         const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
         if (hasImage) {
-          e.preventDefault(); // Stop the base64 crash for ALL files
+          e.preventDefault(); 
           Array.from(files).forEach(file => {
             if (file.type.startsWith('image/')) handleDirectUpload(file, quillRef.current);
           });
@@ -410,14 +366,13 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
       if (files && files.length > 0) {
         const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
         if (hasImage) {
-          e.preventDefault(); // Stop the base64 crash for ALL files
+          e.preventDefault(); 
           Array.from(files).forEach(file => {
             if (file.type.startsWith('image/')) handleDirectUpload(file, quillRef.current);
           });
         }
       }
     });
-    // -----------------------------------------------
 
     quillRef.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
@@ -427,13 +382,10 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
         return txt ? txt.split(/\s+/).length : 0;
       });
 
-      // DEBOUNCED SAVE WITH ASYNC SWEEPER
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         if (onChange && quillRef.current) {
-          // 1. Sweep for Base64 images and upload them silently
           await sweepBase64Images(quillRef.current, block.dataPath);
-
           let rawHtml = quillRef.current.root.innerHTML || '';
           
           if (rawHtml.includes('quill-image-resize-module')) {
@@ -444,7 +396,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
               rawHtml = tempDiv.innerHTML;
           }
 
-          // 2. Failsafe: Prevent Firebase crash if an image is still processing
           if (!rawHtml.includes('data:image/')) {
              onChange(block.dataPath, String(rawHtml));
              setSaved(true);
@@ -458,7 +409,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
     quillRef.current.root.addEventListener('focus', () => { if (onFocus) onFocus(block.id); });
     quillRef.current.root.addEventListener('blur',  () => { if (onBlur)  onBlur(block.id); });
 
-    // Seed word count
     if (value) {
       const txt = value.replace(/<[^>]*>/g, ' ').trim();
       setWc(txt ? txt.split(/\s+/).length : 0);
@@ -470,7 +420,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── FIX: INTELLIGENT JUMP TO COMMENT WITH PROPER TIMING ────────────────────
   useEffect(() => {
     if (!targetCommentId || !paperRef.current || !quillRef.current) return;
 
@@ -493,8 +442,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
       }
 
       if (target) {
-        // Wait 250ms to ensure the 220ms CSS opening animation is 100% finished
-        // before calculating the scroll coordinates.
         setTimeout(() => {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           target.classList.add('active-comment-glow');
@@ -509,7 +456,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
           }));
         }, 250); 
       } else if (attempts < 8) {
-        // If Quill hasn't rendered the text yet, retry every 50ms (up to 8 times)
         attempts++;
         jumpTimer = setTimeout(executeJump, 50); 
       }
@@ -520,7 +466,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
     return () => clearTimeout(jumpTimer);
   }, [block.dataPath, onChange, targetCommentId, targetCommentQuote]);
 
-  // ── FIX: INTELLIGENT SEARCH HIGHLIGHT & SCROLL ────────────────────
   useEffect(() => {
     if (!searchJumpTrigger || !paperRef.current || !quillRef.current) return;
 
@@ -556,15 +501,12 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
 
   const tbl = () => quillRef.current?.getModule('table');
 
-   
-
   return ReactDOM.createPortal(
     <div 
       className="im-fs-shell"
       data-block-label={block?.label || 'Rich Text Block'}
       data-block-path={block?.dataPath || block?.id || 'global'}
     >
-      {/* ── TOP BAR ── */}
       <div className="im-fs-topbar">
         <div style={{ width: 3, height: 22, borderRadius: 2, background: readOnly ? '#3b82f6' : '#ef4444', flexShrink: 0 }} />
 
@@ -629,10 +571,7 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
         </button>
       </div>
 
-      {/* ── BODY ── */}
       <div className="im-fs-body">
-
-        {/* LEFT SIDEBAR */}
         <div className="im-fs-sidebar">
           <div style={{ padding: '0 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
@@ -643,8 +582,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
               {block.desc || block.placeholder || 'No description set.'}
             </div>
           </div>
-
-            
 
           <div style={{ marginTop: 'auto', padding: '16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.7 }}>
@@ -662,7 +599,6 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
           </div>
         </div>
 
-        {/* RIGHT CANVAS */}
         <div className="im-fs-canvas-wrap">
           <div className="im-fs-paper">
             <div ref={toolbarRef} style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '8px 24px', display: readOnly ? 'none' : 'block' }}>
@@ -711,11 +647,7 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
             </div>
 
             <div className="im-fs-table-bar" style={{ 
-              display: readOnly ? 'none' : 'flex',
-              position: 'sticky',
-              top: '58px',
-              zIndex: 9,
-              background: '#eff6ff'
+              display: readOnly ? 'none' : 'flex', position: 'sticky', top: '58px', zIndex: 9, background: '#eff6ff'
             }}>
               <span style={{ fontSize: 10, fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: 1, marginRight: 4 }}>Table</span>
               <button onMouseDown={e => { e.preventDefault(); tbl()?.insertTable(3, 3); }} style={tblBtn()}>
@@ -749,10 +681,8 @@ const saveTimer = useRef(null); // <-- ADD THIS NEW REF
 
 function tblBtn(color = '#3b82f6') {
   return {
-    display: 'flex', alignItems: 'center', gap: 4,
-    background: 'none', border: 'none', color,
-    fontSize: 10, fontWeight: 700, cursor: 'pointer',
-    padding: '3px 7px', borderRadius: 4,
+    display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color,
+    fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: '3px 7px', borderRadius: 4,
     transition: 'background 0.15s',
   };
 }
@@ -761,7 +691,6 @@ function escapeRegex(value = '') {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// NEW INTELLIGENT QUOTE FINDER (Tracks Occurrences)
 function findQuoteRange(quill, quote, targetOccurrenceIndex = 0) {
   if (!quill || !quote) return null;
   const text = quill.getText() || '';
@@ -775,7 +704,6 @@ function findQuoteRange(quill, quote, targetOccurrenceIndex = 0) {
   let match;
   let currentOcc = 0;
   
-  // Iterate through all matches until we hit the exact occurrence index the Search Widget asked for
   while ((match = regex.exec(text)) !== null) {
       if (currentOcc === targetOccurrenceIndex) {
           return { index: match.index, length: match[0].length };
@@ -783,7 +711,6 @@ function findQuoteRange(quill, quote, targetOccurrenceIndex = 0) {
       currentOcc++;
   }
   
-  // Failsafe: if something shifted, just grab the first one
   const fallback = text.match(new RegExp(pattern, 'i'));
   if (fallback?.[0]) return { index: fallback.index, length: fallback[0].length };
   
@@ -802,7 +729,7 @@ function ensureCommentHighlight(quill, { commentId, quote, status = 'open' }) {
   return true;
 }
 
-// ── MAIN COMPONENT ──────────────────────────────���─────────────────────────────
+// ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 export default function RichTextBlock({
   block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
 }) {
@@ -849,7 +776,6 @@ export default function RichTextBlock({
     tableBorder:   isDark ? '#64748b'                : '#cbd5e1',
   };
 
-  // ── LISTEN FOR COMMENT JUMP EVENT ────────────────────────────────────────────
   useEffect(() => {
     const handleJump = (e) => {
       const { dataPath, commentId, quote, blockId } = e.detail || {};
@@ -858,22 +784,20 @@ export default function RichTextBlock({
         setTargetCommentQuote(quote || '');
         setIsExpanded(true);
       } else {
-        setIsExpanded(false); // Fixes the stacking bug instantly
+        setIsExpanded(false); 
       }
     };
     window.addEventListener('im-jump-to-comment', handleJump);
     return () => window.removeEventListener('im-jump-to-comment', handleJump);
   }, [block.dataPath, block.id]);
 
-  // ── LISTEN FOR SEARCH JUMP EVENT (WITH TAB SWITCH RECOVERY) ───────────────
   useEffect(() => {
-    // If this block just mounted because of a tab switch, check if it was the search target
     if (window.imPendingSearchJump) {
       const { dataPath, matchText, occurrenceIndex, blockId } = window.imPendingSearchJump;
       if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
         setSearchJumpTrigger({ matchText, occurrenceIndex, timestamp: Date.now() });
         setIsExpanded(true);
-        window.imPendingSearchJump = null; // Consume the event so it doesn't fire twice
+        window.imPendingSearchJump = null; 
       }
     }
 
@@ -882,9 +806,9 @@ export default function RichTextBlock({
       if (blockId === block.id || (dataPath && dataPath.startsWith(block.dataPath))) {
         setSearchJumpTrigger({ matchText, occurrenceIndex, timestamp: Date.now() });
         setIsExpanded(true);
-        window.imPendingSearchJump = null; // Clear it to prevent re-triggering
+        window.imPendingSearchJump = null; 
       } else {
-        setIsExpanded(false); // Instantly close non-matching editors
+        setIsExpanded(false); 
       }
     };
     
@@ -892,7 +816,6 @@ export default function RichTextBlock({
     return () => window.removeEventListener('im-search-jump', handleSearchJump);
   }, [block.dataPath, block.id]);
 
-  // ── HANDLE EXTERNAL COMMENT CREATION ───────────────────────────────────────────
   useEffect(() => {
     const handleExternalCreate = (e) => {
       const detail = e.detail || {};
@@ -975,33 +898,39 @@ export default function RichTextBlock({
           const url  = await getDownloadURL(snap.ref);
           const range = this.quill.getSelection(true);
           this.quill.insertEmbed(range.index, 'image', url);
-          
-          // Inject a space and move the cursor after it so side-by-side images work
           this.quill.insertText(range.index + 1, ' ', 'user');
           this.quill.setSelection(range.index + 2, 'silent');
-          
           setTimeout(() => { if (onChange) onChange(block.dataPath, this.quill.root.innerHTML); }, 100);
         } catch (err) { console.error('Quill image upload failed:', err); }
       };
     }
 
-quillInstance.current = new Quill(editorRef.current, {
+    quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
       placeholder: usePlaceholderGuide ? '' : (placeholderText || 'Start writing…'),
       modules: {
         table: true,
         toolbar: { container: toolbarRef.current, handlers: { image: imageUploadHandler } },
-        imageResize: {
-          modules: ['Resize', 'DisplaySize']
-        },
+        imageResize: { modules: ['Resize', 'DisplaySize'] },
         clipboard: { matchVisual: false },
       },
     });
 
     if (value) quillInstance.current.root.innerHTML = value;
 
-    // --- NEW PASTE & DROP HANDLER FOR MAIN EDITOR ---
-// --- NEW PASTE & DROP HANDLER FOR MAIN EDITOR ---
+    // ─────────────────────────────────────────────────────────────
+    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS & COLORS ON PASTE ──
+    quillInstance.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+      delta.ops.forEach(op => {
+        if (op.attributes) {
+          delete op.attributes.background; // Removes grey highlight
+          delete op.attributes.color;      // Fixes invisible text in Dark Mode
+        }
+      });
+      return delta;
+    });
+    // ─────────────────────────────────────────────────────────────
+
     const handleMainDirectUpload = async (file, quill) => {
       if (!file || !file.type.startsWith('image/')) return;
       try {
@@ -1021,7 +950,7 @@ quillInstance.current = new Quill(editorRef.current, {
       if (files && files.length > 0) {
         const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
         if (hasImage) {
-          e.preventDefault(); // Stop the base64 crash for ALL files
+          e.preventDefault(); 
           Array.from(files).forEach(file => {
             if (file.type.startsWith('image/')) handleMainDirectUpload(file, quillInstance.current);
           });
@@ -1034,14 +963,13 @@ quillInstance.current = new Quill(editorRef.current, {
       if (files && files.length > 0) {
         const hasImage = Array.from(files).some(f => f.type.startsWith('image/'));
         if (hasImage) {
-          e.preventDefault(); // Stop the base64 crash for ALL files
+          e.preventDefault(); 
           Array.from(files).forEach(file => {
             if (file.type.startsWith('image/')) handleMainDirectUpload(file, quillInstance.current);
           });
         }
       }
     });
-    // ------------------------------------------------
 
     quillInstance.current.on('selection-change', (range) => {
       if (!range || range.length === 0) { setTimeout(() => hideBubble(), 150); return; }
@@ -1058,14 +986,12 @@ quillInstance.current = new Quill(editorRef.current, {
 
     quillInstance.current.on('text-change', (delta, old, source) => {
       if (source !== 'user') return;
-      hasUnsavedChanges.current = true; // Lock local state
+      hasUnsavedChanges.current = true; 
       
       clearTimeout(typingTimeout.current);
       typingTimeout.current = setTimeout(async () => {
         if (onChange && quillInstance.current) {
-          // 1. Sweep for Base64 images and upload them silently
           await sweepBase64Images(quillInstance.current, block.dataPath);
-
           let rawHtml = quillInstance.current.root.innerHTML || '';
           
           if (rawHtml.includes('quill-image-resize-module')) {
@@ -1076,10 +1002,9 @@ quillInstance.current = new Quill(editorRef.current, {
               rawHtml = tempDiv.innerHTML;
           }
 
-          // 2. Failsafe: Prevent Firebase crash
           if (!rawHtml.includes('data:image/')) {
              onChange(block.dataPath, String(rawHtml));
-             hasUnsavedChanges.current = false; // Release lock after auto-save
+             hasUnsavedChanges.current = false; 
           } else {
              console.warn("Base64 image still present, skipping save to protect Firebase.");
           }
@@ -1089,17 +1014,13 @@ quillInstance.current = new Quill(editorRef.current, {
 
     quillInstance.current.root.addEventListener('focus', () => { setIsFocused(true); if (onFocus) onFocus(block.id); });
     
-    // FIX: Debounce the blur event so clicking the toolbar (Bold, Italic, Images) 
-    // doesn't instantly drop the focus lock and ruin the cursor.
     quillInstance.current.root.addEventListener('blur',  () => {
       setTimeout(() => {
-        // Only drop the focus lock if the user clicked completely OUTSIDE the editor wrapper
         if (!editorRef.current?.contains(document.activeElement)) {
           setIsFocused(false); 
           if (onBlur) onBlur(block.id);
           clearTimeout(typingTimeout.current);
           
-          // ONLY push a save if you actually typed something
           if (onChange && hasUnsavedChanges.current) {
             onChange(block.dataPath, quillInstance.current.root.innerHTML);
             hasUnsavedChanges.current = false;
@@ -1112,7 +1033,6 @@ quillInstance.current = new Quill(editorRef.current, {
       const { commentId, status } = e.detail;
       const spans = quillInstance.current.root.querySelectorAll(`[data-comment-id="${commentId}"]`);
       spans.forEach((span) => {
-        // SaaS Standard: Completely unwrap the highlight for BOTH deleted AND resolved comments
         if (status === 'resolved' || status === 'deleted') {
           const textNode = document.createTextNode(span.textContent);
           span.replaceWith(textNode);
@@ -1122,7 +1042,7 @@ quillInstance.current = new Quill(editorRef.current, {
           span.style.borderBottom = '2px solid #f59e0b';
         }
       });
-      if (quillInstance.current) quillInstance.current.root.normalize(); // Clean up fragmented text nodes
+      if (quillInstance.current) quillInstance.current.root.normalize(); 
       if (status === 'resolved' || status === 'deleted') {
         setTimeout(() => { if (onChange) onChange(block.dataPath, quillInstance.current.root.innerHTML); }, 50);
       }
@@ -1132,27 +1052,21 @@ quillInstance.current = new Quill(editorRef.current, {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-useEffect(() => {
+  useEffect(() => {
     if (!quillInstance.current || isExpanded) return;
-    
-    // FIX: Prevent cursor jumping by completely locking out incoming DB updates 
-    // if the user is actively focused OR has pending unsaved changes.
     if (isFocused || hasUnsavedChanges.current) return;
 
     if (value !== quillInstance.current.root.innerHTML) {
       quillInstance.current.root.innerHTML = value || '';
-      // Purposely removed selection restoration here. If the editor isn't focused, 
-      // we don't need to restore selection, which stops the addRange console error.
     }
   }, [value, isFocused, isExpanded]);
+
   useEffect(() => {
     if (!quillInstance.current) return;
     lockedBy ? quillInstance.current.disable() : quillInstance.current.enable();
   }, [lockedBy]);
 
   return (
-    // FIX: Add overflowAnchor to prevent the browser from snapping the scroll 
-    // position when React runs a background render cycle.
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark} style={{ overflowAnchor: 'none' }}>
      
       {usePlaceholderGuide && (
@@ -1175,7 +1089,7 @@ useEffect(() => {
 
       <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, overflow: 'hidden', background: t.bg, position: 'relative' }}>
 
-{!isPrinting && (
+        {!isPrinting && (
           <div 
             onClick={(e) => { 
               e.preventDefault(); 
@@ -1185,7 +1099,7 @@ useEffect(() => {
             onMouseDown={(e) => e.stopPropagation()}
             style={{
               position: 'absolute', inset: 0, zIndex: 10,
-              pointerEvents: 'auto', /* ── THE MAGIC OVERRIDE ── */
+              pointerEvents: 'auto', 
               background: isDark ? 'rgba(13,17,23,0.7)' : 'rgba(255,255,255,0.7)',
               backdropFilter: 'blur(3px)', 
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', 
@@ -1211,7 +1125,7 @@ useEffect(() => {
                   <Eye size={16} /> Read Full Document
                 </button>
                 <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
-                  Locked by {lockedBy?.email ? lockedBy.email.split('@')[0] : 'another user'}
+                  Locked by {lockedBy?.email ? lockedBy.email.split('@')[0] : (typeof lockedBy === 'string' ? lockedBy : 'another user')}
                 </div>
               </>
             ) : (
@@ -1300,7 +1214,8 @@ useEffect(() => {
             <Maximize2 size={13} /> Expand
           </button>
         </div>
-{/* Table Management Bar */}
+
+        {/* Table Management Bar */}
         <div className="im-fs-table-bar" style={{ 
           display: 'flex', 
           flexWrap: 'wrap', 
@@ -1333,27 +1248,46 @@ useEffect(() => {
             <X size={10} /> Table
           </button>
         </div>
+        
         <div 
            ref={editorRef} 
            className="im-quill-canvas" 
            style={{ 
              color: t.text,
-             // FIX: Enforce a strict positioning context so Quill doesn't collapse during renders
              position: 'relative',
              contain: 'layout paint'
            }} 
         />
       </div>
 
-  <style>{`
+      <style>{`
+        /* ── FORCE TEXT WRAPPING CSS (PREVENTS HORIZONTAL OVERFLOW SCROLL) ── */
+        .ql-editor {
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          word-break: break-word !important;
+          white-space: pre-wrap !important;
+        }
+        .ql-editor * {
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          word-break: break-word !important;
+        }
+        .ql-editor pre, .ql-editor code {
+          white-space: pre-wrap !important; 
+          word-break: break-all !important;
+        }
+
         .ql-toolbar.ql-snow { border: none !important; }
         .ql-container.ql-snow { border: none !important; }
         .im-quill-canvas .ql-editor { 
           min-height: ${block.minHeight || '160px'}; 
           max-height: ${isPrinting ? 'none' : '250px'};
-          overflow: hidden; 
+          overflow-y: auto; 
           color: ${t.text} !important; 
           padding: ${isPrinting ? '0' : '16px 20px'};
+          overflow-wrap: break-word !important;
+          word-break: break-word !important;
         }
         .im-quill-canvas .ql-editor.ql-blank::before { 
           color: ${t.textMuted} !important; 
@@ -1378,7 +1312,6 @@ useEffect(() => {
           onChange={onChange}
           onClose={() => {
             setIsExpanded(false);
-            // NOTE: Don't clear targetCommentId/Quote here - they persist for re-opening
           }}
           onFocus={onFocus}
           onBlur={onBlur}
