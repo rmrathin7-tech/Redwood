@@ -670,8 +670,8 @@ export default function IMPrintPreview({
         </body>
         </html>`;
 
-      const response = await fetch('http://localhost:3001/generate-pdf', {
-        method: 'POST',
+const response = await fetch('https://pdf-engine-1088344936506.us-central1.run.app/generate-pdf', {
+  method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/pdf' },
         body: JSON.stringify({ html: fullHtml, brandColor: printConfig.brandColor }),
       });
