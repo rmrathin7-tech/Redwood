@@ -93,5 +93,12 @@ export function useProfilingEditor(projectId, taskId, currentUserEmail) {
       releaseLock();
     };
   }, [taskId]);
-  return { taskData, loading, saving, saveContent };
+// Allows an admin/coworker to forcefully clear a zombie lock
+  const forceUnlock = () => {
+    if (!taskId) return;
+    const docRef = doc(db, 'profiling-tasks', taskId);
+    updateDoc(docRef, { activeEditor: null }).catch(() => {});
+  };
+
+  return { taskData, loading, saving, saveContent, forceUnlock };
 }
