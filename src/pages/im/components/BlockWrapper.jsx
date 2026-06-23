@@ -4,13 +4,16 @@ import { Lock, MessageSquare } from 'lucide-react';
 export default function BlockWrapper({ block, lockedBy, children, isDark = true }) {
   const [isFocused, setIsFocused]   = useState(false);
   const [saveFlash, setSaveFlash]   = useState(false);
-  const [commentFlash, setCommentFlash] = useState(false); // <-- NEW STATE
+  const [commentFlash, setCommentFlash] = useState(false); 
   const [isHovered, setIsHovered]   = useState(false);
   const prevChildren                = useRef(null);
   const flashTimer                  = useRef(null);
-  const commentTimer                = useRef(null); // <-- NEW REF
-  const wrapperRef                  = useRef(null); // <-- NEW REF for scrolling
+  const commentTimer                = useRef(null); 
+  const wrapperRef                  = useRef(null); 
+  
   const isLocked                    = Boolean(lockedBy);
+  // FIX: Safely extract the email string whether lockedBy is an Object or a String
+  const lockEmail                   = isLocked ? (typeof lockedBy === 'string' ? lockedBy : lockedBy.email || 'System') : '';
 
   const isInstruction = block?.type === 'instruction' || block?.type === 'fixed-text' || block?.type === 'h3' || block?.type === 'h4';
 
@@ -34,7 +37,6 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
   };
 
   // ── SAVE FLASH — trigger on children data change ───────────────────────────
-  // Expose a triggerSave method via a custom event so blocks can fire it
   useEffect(() => {
     const handler = (e) => {
       if (e.detail?.blockId !== block?.id) return;
@@ -45,27 +47,6 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     window.addEventListener('im-block-saved', handler);
     return () => window.removeEventListener('im-block-saved', handler);
   }, [block?.id]);
-
-  // ── COMMENT FOCUS — trigger when a sidebar comment is clicked ──────────────
-  useEffect(() => {
-    const handler = (e) => {
-      const targetPath = e.detail?.dataPath;
-      const myPath = block?.dataPath || block?.id;
-      
-      if (targetPath && myPath && targetPath === myPath) {
-        // 1. Scroll into view
-        if (wrapperRef.current) {
-          wrapperRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        // 2. Flash highlight
-        clearTimeout(commentTimer.current);
-        setCommentFlash(true);
-        commentTimer.current = setTimeout(() => setCommentFlash(false), 2000);
-      }
-    };
-    window.addEventListener('im-focus-block', handler);
-    return () => window.removeEventListener('im-focus-block', handler);
-  }, [block?.dataPath, block?.id]);
 
   // ── COMMENT FOCUS — trigger when a sidebar comment is clicked ──────────────
   useEffect(() => {
@@ -115,9 +96,9 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     );
   }
 
-return (
+  return (
     <div
-      ref={wrapperRef} // <-- ATTACH REF HERE
+      ref={wrapperRef}
       className={`block-wrapper ${isFocused ? 'focused' : ''} ${saveFlash ? 'save-flash' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -184,8 +165,7 @@ return (
               {block.label}
             </label>
           </div>
-
-          </div>
+        </div>
       )}
 
       {/* ── CONTENT ───────────────────────────────────────────────────────── */}
@@ -223,11 +203,11 @@ return (
             fontSize:       '11px', fontWeight: 800, color: '#fff',
             boxShadow:      '0 0 0 2px rgba(245,158,11,0.2)',
           }}>
-            {lockedBy.email.charAt(0).toUpperCase()}
+            {lockEmail.charAt(0).toUpperCase()}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', lineHeight: '1.2' }}>
-              {lockedBy.email.split('@')[0]}
+              {lockEmail.split('@')[0]}
             </div>
             <div style={{ fontSize: '9px', fontWeight: 700, color: '#ef4444', lineHeight: '1.1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Is Editing
