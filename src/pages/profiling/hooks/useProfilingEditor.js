@@ -34,46 +34,64 @@ export function useProfilingEditor(projectId, taskId, currentUserEmail) {
     }, 1200);
   }, [taskId]);
 
-  // ── AUTO-PRESENCE ENGINE ──
+// ── AUTO-PRESENCE ENGINE (WITH VISIBILITY AWARENESS) ──
   useEffect(() => {
     if (loading || !taskData || !taskId || !currentUserEmail) return;
-    
+
     const docRef = doc(db, 'profiling-tasks', taskId);
 
-    // 1. Claim the lock if the document is free
-    if (!taskData.activeEditor) {
-      ownsLockRef.current = true;
-      updateDoc(docRef, { activeEditor: currentUserEmail });
-    } 
-    // 2. Acknowledge if we already own it
-    else if (taskData.activeEditor === currentUserEmail) {
-      ownsLockRef.current = true;
-    } 
-    // 3. Someone else is here, do not claim
-    else {
-      ownsLockRef.current = false;
-    }
+    const manageLock = () => {
+      // If the tab is hidden (laptop closed, minimized), DO NOT claim the lock
+      if (document.visibilityState === 'hidden') return;
+
+      if (!taskData.activeEditor) {
+        ownsLockRef.current = true;
+        updateDoc(docRef, { activeEditor: currentUserEmail }).catch(() => {});
+      } else if (taskData.activeEditor === currentUserEmail) {
+        ownsLockRef.current = true;
+      } else {
+        ownsLockRef.current = false;
+      }
+    };
+
+    manageLock();
+
+    // If the user opens the laptop/tab again, try to reclaim the lock instantly
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') manageLock();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+
   }, [taskId, currentUserEmail, taskData?.activeEditor, loading]);
 
-  // ── PRESENCE CLEANUP (ON CLOSE/REFRESH) ──
+  // ── PRESENCE CLEANUP (ON CLOSE/SLEEP/REFRESH) ──
   useEffect(() => {
     if (!taskId) return;
     const docRef = doc(db, 'profiling-tasks', taskId);
-    
+
     const releaseLock = () => {
-      // Only clear the activeEditor field if WE were the ones holding it
       if (ownsLockRef.current) {
+        ownsLockRef.current = false; // Drop local lock immediately to prevent double-firing
         updateDoc(docRef, { activeEditor: null }).catch(() => {});
       }
     };
 
-    // Failsafe for hard browser reloads or tab closures
-    window.addEventListener('beforeunload', releaseLock);
+    // Trigger on tab hide, which fires the exact millisecond a laptop lid is closed
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') releaseLock();
+    };
+
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', releaseLock); // Much more reliable than beforeunload
+    window.addEventListener('beforeunload', releaseLock); // Legacy fallback
+
     return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', releaseLock);
       window.removeEventListener('beforeunload', releaseLock);
-      releaseLock(); // Standard unmount cleanup
+      releaseLock();
     };
   }, [taskId]);
-
   return { taskData, loading, saving, saveContent };
 }
