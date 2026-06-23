@@ -1526,7 +1526,7 @@ const toggleSectionExclusion = async (id, isExcluding) => {
         <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
       )}
 
-      {/* ── PRINT COMPILER MODAL ── */}
+{/* ── PRINT COMPILER MODAL ── */}
       {isPreviewOpen && (
         <div id="print-mount-point">
           <IMPrintPreview 
@@ -1534,7 +1534,8 @@ const toggleSectionExclusion = async (id, isExcluding) => {
             imData={imData} 
             excludedSections={excludedSections} 
             customNames={customNames}
-            projectName={projectName} 
+            projectName={projectName || 'Unknown Project'} 
+            projectId={projectId} /* <--- CRITICAL: ADDED THIS LINE FOR LOGO UPLOAD */
             onClose={() => setIsPreviewOpen(false)} 
           />
         </div>

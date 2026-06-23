@@ -15,7 +15,8 @@ export default function FSAStatements({
   reclassMap,
   activeEntityType,
   activeYearsList,
-  activeItemsMap
+  activeItemsMap,
+  isPrintMode = false // FIX: ADDED FLAG TO HIDE UI
 }) {
   const [viewMode, setViewMode] = useState('full');
   const [targetScope, setTargetScope] = useState('all');
@@ -23,6 +24,16 @@ export default function FSAStatements({
   const availableDocs = configSchemas?.documents || [];
   const sharedCoA = configSchemas?.chartOfAccounts?.shared || {};
 
+  // ── INTELLIGENCE CHECKER: Formats "revenue_from_operations" to "Revenue From Operations" ──
+  const formatIntelligentLabel = (str) => {
+    if (!str) return '';
+    if (str.includes('_') && str === str.toLowerCase()) {
+      return str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+    return str;
+  };
+
+  // ── 1. Use activeYearsList from Firestore ──
   // ── 1. Use activeYearsList from Firestore ──
   const visibleYears = useMemo(() => {
     return [...(activeYearsList || [])].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
@@ -463,7 +474,8 @@ printWin.focus();
         .fsa-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
       `}} />
 
-      {/* ── TOP ACTION BAR ── */}
+      {/* ── TOP ACTION BAR (Hidden in Print Mode) ── */}
+      {!isPrintMode && (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, background: 'var(--bg-secondary)', padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
@@ -512,6 +524,7 @@ printWin.focus();
         </div>
 
       </div>
+      )}
 
       {/* ── REPORTS RENDERER ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
@@ -599,8 +612,8 @@ printWin.focus();
                               return (
                                 <tr className="statement-glass-row" key={`eq_i_${eqIdx}`}>
                                   <td className="statement-sticky-col" style={{ padding: '10px 24px 10px 48px', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, borderBottom: '1px solid var(--border-subtle)' }}>
-                                    {eqItemLabel}
-                                  </td>
+  {formatIntelligentLabel(eqItemLabel)}
+</td>
                                   {visibleYears.map(year => {
                                     const val = getInputValue(doc.key, 'equity', itemKey, year);
                                     return (
@@ -647,9 +660,9 @@ printWin.focus();
                               <React.Fragment key={`itm_${nodeIdx}_${pIdx}`}>
 
                                 <tr className="statement-glass-row">
-                                  <td className="statement-sticky-col" style={{ padding: '10px 24px 10px 48px', fontSize: 13, color: data.subs.length > 0 ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: data.subs.length > 0 ? 700 : 500, borderBottom: '1px solid var(--border-subtle)' }}>
-                                    {parentLabel}
-                                  </td>
+                                <td className="statement-sticky-col" style={{ padding: '10px 24px 10px 48px', fontSize: 13, color: data.subs.length > 0 ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: data.subs.length > 0 ? 700 : 500, borderBottom: '1px solid var(--border-subtle)' }}>
+  {formatIntelligentLabel(parentLabel)}
+</td>
                                   {visibleYears.map(year => {
                                     const val = data.subs.length > 0
                                       ? getParentSum(doc.key, node.key, parentLabel, year)
@@ -667,8 +680,8 @@ printWin.focus();
                                   <tr className="statement-glass-row" key={`sub_${nodeIdx}_${pIdx}_${sIdx}`}>
                                     <td className="statement-sticky-col" style={{ padding: '8px 24px 8px 72px', fontSize: 12, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ borderLeft: '1px solid var(--border-strong)', borderBottom: '1px solid var(--border-strong)', width: 8, height: 10, display: 'inline-block', transform: 'translateY(-4px)', borderRadius: '0 0 0 4px' }}></span>
-                                        {sub.label}
+                                      <span style={{ borderLeft: '1px solid var(--border-strong)', borderBottom: '1px solid var(--border-strong)', width: 8, height: 10, display: 'inline-block', transform: 'translateY(-4px)', borderRadius: '0 0 0 4px' }}></span>
+{formatIntelligentLabel(sub.label)}
                                       </div>
                                     </td>
                                     {visibleYears.map(year => {
@@ -696,10 +709,10 @@ printWin.focus();
                                   <td className="statement-sticky-col" style={{ padding: isSubItem ? '8px 24px 8px 72px' : '10px 24px 10px 48px', fontSize: isSubItem ? 12 : 13, color: isSubItem ? 'var(--text-muted)' : 'var(--text-secondary)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       {isSubItem && (
-                                        <span style={{ borderLeft: '1px dashed var(--text-muted)', borderBottom: '1px dashed var(--text-muted)', width: 8, height: 10, display: 'inline-block', transform: 'translateY(-4px)', flexShrink: 0 }} />
-                                      )}
-                                      {displayLabel}
-                                    </div>
+    <span style={{ borderLeft: '1px dashed var(--text-muted)', borderBottom: '1px dashed var(--text-muted)', width: 8, height: 10, display: 'inline-block', transform: 'translateY(-4px)', flexShrink: 0 }} />
+  )}
+  {formatIntelligentLabel(displayLabel)}
+</div>
                                   </td>
                                   {visibleYears.map(year => {
                                     const val = getInputValue(doc.key, node.key, lookupKey, year);
