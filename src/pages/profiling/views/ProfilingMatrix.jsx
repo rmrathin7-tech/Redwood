@@ -29,13 +29,14 @@ export default function ProfilingMatrix({ matrixTasks, COLUMNS, onOpenEditor, on
     return { level: 'safe', label: `Due in ${daysLeft}d`, accent: '#10b981', bg: 'rgba(16,185,129,0.14)', border: 'rgba(16,185,129,0.45)' };
   };
 
-  // Dynamic grid layout ensures columns expand as needed and prevent text cutoff
-  const gridColumns = 'minmax(200px, 2.5fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1.2fr) minmax(140px, 1fr) minmax(180px, 1.5fr)';
+  // FIX 1: Increased first column from 200px to 280px to give buttons more space
+  const gridColumns = 'minmax(280px, 2.5fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(170px, 1.2fr) minmax(140px, 1fr) minmax(180px, 1.5fr)';
 
   return (
     <div style={{ padding: '0 0 40px', position: 'relative', height: '100%', overflowY: 'auto' }}>
       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.05)', overflowX: 'auto' }}>
-        <div style={{ minWidth: '1050px' }}>
+        {/* Increased minWidth to prevent squishing */}
+        <div style={{ minWidth: '1150px' }}>
           
           {/* Matrix Header */}
           <div style={{ display: 'grid', gridTemplateColumns: gridColumns, gap: '16px', padding: '16px 24px', background: T.surface2, borderBottom: `1px solid ${T.border}`, fontSize: '0.7rem', fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -53,11 +54,9 @@ export default function ProfilingMatrix({ matrixTasks, COLUMNS, onOpenEditor, on
               const colDef = COLUMNS.find(c => c.id === task.status);
               const dueState = getDueDateState(task.dueDate);
               
-              // Map email back to userId for the select elements
               const assigneeUser = workspaceUsers.find(u => u.email === task.assignedTo);
               const reviewerUser = workspaceUsers.find(u => u.email === task.reviewer);
 
-              // Calculate Dynamic SLA Comment Stats
               const taskComments = (comments || []).filter(c => c.imId === task.id);
               const openComments = taskComments.filter(c => c.status !== 'resolved').length;
               const resolvedComments = taskComments.filter(c => c.status === 'resolved').length;
@@ -75,40 +74,40 @@ export default function ProfilingMatrix({ matrixTasks, COLUMNS, onOpenEditor, on
                 >
                   
                   {/* COLUMN 1: Company Name */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <Building2 size={16} color={T.accent} />
+                  {/* FIX 2: Added minWidth: 0 to allow the text to shrink and truncate instead of pushing buttons out */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                    <Building2 size={16} color={T.accent} style={{ flexShrink: 0 }} />
                     <button 
                       onClick={() => onOpenEditor(task.id)}
-                      style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}
                       title="Click to launch editor canvas"
                     >
-                      <span style={{ fontSize: '0.9rem', fontWeight: 700, color: T.text, transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 700, color: T.text, transition: 'color 0.2s', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.text}>
                         {task.companyName}
                       </span>
-                      <ArrowRight size={14} color={T.textMuted} style={{ marginLeft: '8px', opacity: 0.5 }} />
+                      <ArrowRight size={14} color={T.textMuted} style={{ marginLeft: '8px', opacity: 0.5, flexShrink: 0 }} />
                     </button>
 
-<div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <button onClick={() => onEditTask(task)} title="Edit Task Config" style={{ background: 'transparent', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}><Edit3 size={15} /></button>
-                    
-                    <button onClick={() => onArchiveTask(task.id)} title="Archive Task" style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}><Archive size={15} /></button>
-                    
-                    <button onClick={() => onDeleteTask(task.id)} title="Delete Task" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}><Trash2 size={15} /></button>
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                      <button onClick={() => onEditTask(task)} title="Edit Task Config" style={{ background: 'transparent', border: 'none', color: T.textMuted, cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textMuted; }}><Edit3 size={15} /></button>
+                      
+                      <button onClick={() => onArchiveTask(task.id)} title="Archive Task" style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}><Archive size={15} /></button>
+                      
+                      <button onClick={() => onDeleteTask(task.id)} title="Delete Task" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}><Trash2 size={15} /></button>
 
-                    <div style={{ width: 1, height: 16, background: T.border, margin: '0 4px' }} />
+                      <div style={{ width: 1, height: 16, background: T.border, margin: '0 4px' }} />
 
-                    <button 
-                      onClick={() => onOpenDetail(task)} 
-                      title="Open Detailed Task View" 
-                      style={{ background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`, color: T.text, cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 8px', transition: 'all 0.2s' }} 
-                      onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'; e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }} 
-                      onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'; e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'; }}
-                    >
-                      <FileText size={15} />
-                    </button>
-                  </div>        
-                  
-                      </div>
+                      <button 
+                        onClick={() => onOpenDetail(task)} 
+                        title="Open Detailed Task View" 
+                        style={{ background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'}`, color: T.text, cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 8px', transition: 'all 0.2s' }} 
+                        onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'; e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }} 
+                        onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'; e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'; }}
+                      >
+                        <FileText size={15} />
+                      </button>
+                    </div>        
+                  </div>
 
                   {/* COLUMN 2: Assignee */}
                   <div>
