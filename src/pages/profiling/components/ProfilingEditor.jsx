@@ -8,6 +8,7 @@ import RichTextBlock from '../../im/components/RichTextBlock';
 export default function ProfilingEditor({ projectId, taskId, onClose, currentUserEmail, isDark: globalDark }) {
   const { taskData, loading, saving, saveContent } = useProfilingEditor(projectId, taskId, currentUserEmail);
   const [editorDark, setEditorDark] = useState(true);
+  
   // ── DOM Highlight Scroll Bridge ──
   useEffect(() => {
     const handleJumpToComment = (e) => {
@@ -104,7 +105,6 @@ export default function ProfilingEditor({ projectId, taskId, onClose, currentUse
         
         {/* ── SEAMLESS EDITOR CANVAS ── */}
         <div style={{ width: '100%', maxWidth: 900, position: 'relative', padding: '0 20px', animation: 'fadeIn 0.3s ease' }}>
-          {isReadOnly && <div style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'not-allowed' }} title={isLockedByOther ? `Locked by ${activeEditor}` : "Task is locked. Editing disabled."} />}
           
           {/* Reusing the exact IM Rich Text Block */}
           <RichTextBlock 
@@ -118,6 +118,6 @@ export default function ProfilingEditor({ projectId, taskId, onClose, currentUse
         </div>
       </main>
 
-      </div>
+    </div>
   );
 }
