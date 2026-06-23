@@ -90,7 +90,7 @@ if (!Quill.imports['formats/font']?.whitelist) {
 }
 
 // ── GLOBAL STYLES ─────────────────────────────────────────────────────────
-const STYLE_ID = 'im-rte-global-styles-v4';
+const STYLE_ID = 'im-rte-global-styles-v5'; // V5 forces a clean refresh
 if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
   s.id = STYLE_ID;
@@ -131,7 +131,6 @@ if (!document.getElementById(STYLE_ID)) {
       to   { opacity: 1; transform: scale(1) translateY(0); }
     }
 
-    /* ── FULLSCREEN EDITOR ── */
     .im-fs-shell {
       position: fixed; inset: 0; z-index: 99999;
       display: flex; flex-direction: column;
@@ -189,13 +188,6 @@ if (!document.getElementById(STYLE_ID)) {
     }
     .im-fs-paper .ql-editor.ql-blank::before { color: #9ca3af; font-style: italic; left: 8%; }
 
-    .im-fs-paper .ql-editor table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-    .im-fs-paper .ql-editor table td, .im-fs-paper .ql-editor table th { border: 1px solid #d1d5db !important; padding: 10px 14px; min-width: 60px; }
-    .im-fs-paper .ql-editor table th { background: #f3f4f6; font-weight: 700; }
-
-    .im-fs-paper .ql-editor img { max-width: 100%; cursor: pointer; transition: outline 0.15s; border-radius: 4px; }
-    .im-fs-paper .ql-editor img:hover { outline: 2px solid #ef4444; outline-offset: 2px; }
-
     .im-fs-paper .ql-snow .ql-stroke { stroke: #6b7280 !important; }
     .im-fs-paper .ql-snow .ql-fill   { fill:   #6b7280 !important; }
     .im-fs-paper .ql-snow.ql-toolbar button:hover .ql-stroke, .im-fs-paper .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: #ef4444 !important; }
@@ -213,42 +205,72 @@ if (!document.getElementById(STYLE_ID)) {
     .ql-font-georgia  { font-family: "Georgia", serif; }
     .ql-font-courier  { font-family: "Courier New", monospace; }
 
-   .im-quill-canvas .ql-editor { font-size: 14px; line-height: 1.7; padding: 20px 24px; }
-    .im-quill-canvas .ql-editor table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-    .im-quill-canvas .ql-editor table td, .im-quill-canvas .ql-editor table th { border: 1px solid #64748b !important; padding: 7px 10px; min-width: 40px; }
-    .im-quill-canvas .ql-editor img { max-width: 100%; border-radius: 4px; }
+    .im-quill-canvas .ql-editor { font-size: 14px; line-height: 1.7; padding: 20px 24px; }
     
     .ql-editor p { display: block; }
-    .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; }
+    .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; max-width: 100% !important; height: auto !important; }
 
-    .im-quill-canvas .ql-editor img, .im-quill-canvas .ql-editor table, .im-quill-canvas .ql-editor figure, .im-fs-paper .ql-editor img, .im-fs-paper .ql-editor table {
-       max-width: 100% !important; height: auto !important;
+    /* ── THE NUCLEAR MS WORD TABLE CRUSHER & SCROLLBAR ── */
+    
+    /* 1. Prevent editor container from bursting */
+    .im-quill-canvas .ql-editor, .im-fs-paper .ql-editor {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+    }
+
+    /* 2. Turn table into a block scrollable container */
+    .ql-editor table {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        border-collapse: collapse !important;
+        margin: 16px 0 !important;
+        table-layout: auto !important; 
     }
     
-    .im-quill-canvas .ql-editor table, .im-fs-paper .ql-editor table {
-       display: block !important; overflow-x: auto !important; white-space: nowrap !important;
+    /* 3. Keep inner grid functional */
+    .ql-editor table tbody {
+        display: table !important;
+        width: 100% !important;
     }
 
-    /* ── FORCE TEXT WRAPPING CSS (PREVENTS HORIZONTAL OVERFLOW SCROLL) ── */
+    /* 4. Force cells to wrap and limit max width */
+    .ql-editor td, .ql-editor th {
+        min-width: 120px !important;
+        max-width: 300px !important; /* CRITICAL: Stops MS Word from making infinitely wide columns */
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        word-break: break-word !important;
+        vertical-align: top !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 8px 12px !important;
+    }
+
+    /* 5. Force ALL child elements (like MS Word <p> and <span>) to comply */
+    .ql-editor td *, .ql-editor th * {
+        white-space: pre-wrap !important !important;
+        word-wrap: break-word !important;
+        word-break: break-word !important;
+        max-width: 100% !important;
+    }
+
+    /* 6. High Visibility Custom Scrollbar */
+    .ql-editor table::-webkit-scrollbar { height: 12px !important; }
+    .ql-editor table::-webkit-scrollbar-track { background: rgba(148, 163, 184, 0.15) !important; border-radius: 6px !important; margin: 0 4px; }
+    .ql-editor table::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.6) !important; border-radius: 6px !important; border: 2px solid transparent; background-clip: padding-box; }
+    .ql-editor table::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.9) !important; border: 2px solid transparent; background-clip: padding-box; }
+
+    /* General text wrapping for the whole editor */
     .ql-editor {
       word-wrap: break-word !important;
       overflow-wrap: break-word !important;
       word-break: break-word !important;
       white-space: pre-wrap !important;
     }
-    .ql-editor * {
-      word-wrap: break-word !important;
-      overflow-wrap: break-word !important;
-      word-break: break-word !important;
-    }
-    .ql-editor pre, .ql-editor code {
-      white-space: pre-wrap !important; 
-      word-break: break-all !important;
-    }
   `;
   document.head.appendChild(s);
 }
-
 // ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
 function FullscreenEditor({
   block, value, onChange, onClose, onFocus, onBlur, readOnly,
@@ -317,12 +339,14 @@ function FullscreenEditor({
     if (value) quillRef.current.root.innerHTML = value;
 
     // ─────────────────────────────────────────────────────────────
-    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS & COLORS ON PASTE ──
+    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
     quillRef.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       delta.ops.forEach(op => {
         if (op.attributes) {
           delete op.attributes.background; // Removes grey highlight
           delete op.attributes.color;      // Fixes invisible text in Dark Mode
+          delete op.attributes.width;      // CRUSHES HIDDEN TABLE WIDTHS
+          delete op.attributes.height;     // CRUSHES HIDDEN TABLE HEIGHTS
         }
       });
       return delta;
@@ -919,12 +943,14 @@ export default function RichTextBlock({
     if (value) quillInstance.current.root.innerHTML = value;
 
     // ─────────────────────────────────────────────────────────────
-    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS & COLORS ON PASTE ──
+    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
     quillInstance.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       delta.ops.forEach(op => {
         if (op.attributes) {
           delete op.attributes.background; // Removes grey highlight
           delete op.attributes.color;      // Fixes invisible text in Dark Mode
+          delete op.attributes.width;      // CRUSHES HIDDEN TABLE WIDTHS
+          delete op.attributes.height;     // CRUSHES HIDDEN TABLE HEIGHTS
         }
       });
       return delta;
@@ -1261,23 +1287,6 @@ export default function RichTextBlock({
       </div>
 
       <style>{`
-        /* ── FORCE TEXT WRAPPING CSS (PREVENTS HORIZONTAL OVERFLOW SCROLL) ── */
-        .ql-editor {
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-          word-break: break-word !important;
-          white-space: pre-wrap !important;
-        }
-        .ql-editor * {
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-          word-break: break-word !important;
-        }
-        .ql-editor pre, .ql-editor code {
-          white-space: pre-wrap !important; 
-          word-break: break-all !important;
-        }
-
         .ql-toolbar.ql-snow { border: none !important; }
         .ql-container.ql-snow { border: none !important; }
         .im-quill-canvas .ql-editor { 
