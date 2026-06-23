@@ -6,7 +6,7 @@ import { useProfilingEditor } from '../hooks/useProfilingEditor';
 import RichTextBlock from '../../im/components/RichTextBlock';
 
 export default function ProfilingEditor({ projectId, taskId, onClose, currentUserEmail, isDark: globalDark }) {
-  const { taskData, loading, saving, saveContent, forceUnlock } = useProfilingEditor(projectId, taskId, currentUserEmail);
+  const { taskData, loading, saving, saveContent } = useProfilingEditor(projectId, taskId, currentUserEmail);
   const [editorDark, setEditorDark] = useState(true);
   
   // ── DOM Highlight Scroll Bridge ──
@@ -85,16 +85,10 @@ export default function ProfilingEditor({ projectId, taskId, onClose, currentUse
             {saving ? <><Loader2 size={14} className="animate-spin" /> Saving</> : <><Save size={14} /> Saved</>}
           </div>
 
-{isLockedByOther ? (
-            <button 
-              onClick={forceUnlock}
-              title="Click to forcefully take over the document lock"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', borderRadius: 8, fontSize: 12, fontWeight: 700, animation: 'fadeIn 0.3s ease', cursor: 'pointer', transition: 'all 0.2s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.transform = 'scale(1)'; }}
-            >
-              <User size={14} /> Locked by {activeEditor.split('@')[0]} (Click to Take Over)
-            </button>
+          {isLockedByOther ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', borderRadius: 8, fontSize: 12, fontWeight: 700, animation: 'fadeIn 0.3s ease' }}>
+              <User size={14} /> Locked by {activeEditor.split('@')[0]}
+            </div>
           ) : isReadOnly ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: 8, fontSize: 12, fontWeight: 700, animation: 'fadeIn 0.3s ease' }}>
               <AlertTriangle size={14} /> Read-Only
