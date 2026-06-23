@@ -336,7 +336,12 @@ function FullscreenEditor({
       },
     });
     
-    if (value) quillRef.current.root.innerHTML = value;
+    if (value) {
+      quillRef.current.root.innerHTML = value;
+      if (String(value).replace(/<[^>]*>/g, '').trim().length > 0 || String(value).includes('<img') || String(value).includes('<table')) {
+        quillRef.current.root.classList.remove('ql-blank');
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────
     // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
@@ -399,6 +404,11 @@ function FullscreenEditor({
     });
 
     quillRef.current.on('text-change', (delta, old, source) => {
+      if (quillRef.current.getText().trim().length > 0 || quillRef.current.root.innerHTML.includes('<img') || quillRef.current.root.innerHTML.includes('<table')) {
+        quillRef.current.root.classList.remove('ql-blank');
+      } else {
+        quillRef.current.root.classList.add('ql-blank');
+      }
       if (source !== 'user') return;
       setSaved(false);
       setWc(() => {
@@ -940,7 +950,12 @@ export default function RichTextBlock({
       },
     });
 
-    if (value) quillInstance.current.root.innerHTML = value;
+    if (value) {
+      quillInstance.current.root.innerHTML = value;
+      if (String(value).replace(/<[^>]*>/g, '').trim().length > 0 || String(value).includes('<img') || String(value).includes('<table')) {
+        quillInstance.current.root.classList.remove('ql-blank');
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────
     // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
@@ -1011,6 +1026,11 @@ export default function RichTextBlock({
     });
 
     quillInstance.current.on('text-change', (delta, old, source) => {
+      if (quillInstance.current.getText().trim().length > 0 || quillInstance.current.root.innerHTML.includes('<img') || quillInstance.current.root.innerHTML.includes('<table')) {
+        quillInstance.current.root.classList.remove('ql-blank');
+      } else {
+        quillInstance.current.root.classList.add('ql-blank');
+      }
       if (source !== 'user') return;
       hasUnsavedChanges.current = true; 
       
@@ -1084,6 +1104,11 @@ export default function RichTextBlock({
 
     if (value !== quillInstance.current.root.innerHTML) {
       quillInstance.current.root.innerHTML = value || '';
+      if (value && (String(value).replace(/<[^>]*>/g, '').trim().length > 0 || String(value).includes('<img') || String(value).includes('<table'))) {
+        quillInstance.current.root.classList.remove('ql-blank');
+      } else {
+        quillInstance.current.root.classList.add('ql-blank');
+      }
     }
   }, [value, isFocused, isExpanded]);
 
