@@ -6,7 +6,7 @@ import { useProfilingEditor } from '../hooks/useProfilingEditor';
 import RichTextBlock from '../../im/components/RichTextBlock';
 
 export default function ProfilingEditor({ projectId, taskId, onClose, currentUserEmail, isDark: globalDark }) {
-  const { taskData, loading, saving, saveContent } = useProfilingEditor(projectId, taskId, currentUserEmail);
+  const { taskData, loading, saving, saveContent, updateStatus } = useProfilingEditor(projectId, taskId, currentUserEmail);
   const [editorDark, setEditorDark] = useState(true);
   
   // ── DOM Highlight Scroll Bridge ──
@@ -66,7 +66,36 @@ export default function ProfilingEditor({ projectId, taskId, onClose, currentUse
             <h2 style={{ margin: 0, fontSize: 18, color: editorDark ? '#f8fafc' : '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Building2 size={18} color="#ec4899" /> {taskData.companyName}
             </h2>
-            <span style={{ fontSize: 12, color: editorDark ? '#94a3b8' : '#64748b' }}>Status: <strong style={{ color: editorDark ? '#cbd5e1' : '#334155', textTransform: 'capitalize' }}>{taskData.status}</strong></span>
+            
+            {/* ── NEW STATUS DROPDOWN ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 12, color: editorDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>Status:</span>
+              <select
+                value={taskData.status || 'to do'}
+                onChange={(e) => updateStatus && updateStatus(e.target.value)}
+                style={{
+                  background: editorDark ? 'rgba(30,41,59,0.5)' : 'rgba(241,245,249,0.8)',
+                  border: `1px solid ${editorDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                  color: editorDark ? '#f8fafc' : '#0f172a',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <option value="pending allocation" style={{ background: editorDark ? '#0f172a' : '#fff' }}>Pending Allocation</option>
+                <option value="drafting" style={{ background: editorDark ? '#0f172a' : '#fff' }}>Drafting</option>
+                <option value="in review" style={{ background: editorDark ? '#0f172a' : '#fff' }}>In Review</option>
+                <option value="resolve comments" style={{ background: editorDark ? '#0f172a' : '#fff' }}>Resolve Comments</option>
+                <option value="completed" style={{ background: editorDark ? '#0f172a' : '#fff' }}>Completed</option>
+              </select>
+            </div>
+            
           </div>
         </div>
 
@@ -111,7 +140,7 @@ export default function ProfilingEditor({ projectId, taskId, onClose, currentUse
             block={{ id: 'profiling-content', dataPath: 'profiling-content', label: 'Profiling Data' }}
             value={taskData.content || ''}
             onChange={(path, val) => saveContent(val)}
-            lockedBy={isLockedByOther ? activeEditor : (isReadOnly ? 'System' : null)}
+            lockedBy={isLockedByOther ? activeEditor : (isReadOnly ? 'STATUS_LOCK' : null)}
             isDark={editorDark}
             placeholder="Start drafting profiling brief here..."
           />
