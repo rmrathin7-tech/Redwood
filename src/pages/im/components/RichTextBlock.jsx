@@ -1195,7 +1195,9 @@ export default function RichTextBlock({
                   <Eye size={16} /> Read Full Document
                 </button>
                 <div style={{ marginTop: 8, fontSize: 11, color: t.textMuted, fontWeight: 600 }}>
-                  Locked by {lockedBy?.email ? lockedBy.email.split('@')[0] : (typeof lockedBy === 'string' ? lockedBy : 'another user')}
+                  {lockedBy === 'System' || lockedBy === 'STATUS_LOCK' 
+                    ? 'Document is read-only based on task status' 
+                    : `Locked by ${lockedBy?.email ? lockedBy.email.split('@')[0] : (typeof lockedBy === 'string' ? lockedBy : 'another user')}`}
                 </div>
               </>
             ) : (
