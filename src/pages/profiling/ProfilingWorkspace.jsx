@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../../firebase';
-import { LayoutDashboard, LogOut, Briefcase, Loader2, Menu, ChevronLeft, Sun, Moon, Plus, Target, KanbanSquare } from 'lucide-react';
+import { LayoutDashboard, LogOut, Briefcase, Loader2, Menu, ChevronLeft, Sun, Moon, Plus, Target, KanbanSquare, Printer } from 'lucide-react';
 
 import { useProfilingTasks } from './hooks/useProfilingTasks';
 import ProfilingTaskboard from './components/ProfilingTaskboard';
@@ -10,7 +10,7 @@ import ProfilingEditor from './components/ProfilingEditor';
 import CommentsSidebar from '../im/components/CommentsSidebar';
 import CommentSVGOverlay from '../im/components/CommentSVGOverlay';
 import PrintProfile from './components/PrintProfile';
-
+import MultiPrintModal from './components/MultiPrintModal';
 // ── 3D TILT CARD FOR HUB VIEW ──
 const TiltCard = React.memo(function TiltCard({ children, style, onClick }) {
   const cardRef = useRef(null);
@@ -66,6 +66,7 @@ export default function ProfilingWorkspace() {
   const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
   const [printTaskId, setPrintTaskId] = useState(null);
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
+  const [showMultiPrint, setShowMultiPrint] = useState(false);
 
   const { tasks, loading, addTask, updateTaskStatus } = useProfilingTasks(projectId);
   const canvasRef = useRef(null);
@@ -218,9 +219,14 @@ export default function ProfilingWorkspace() {
                 <h1 style={{ fontSize: '3rem', fontWeight: 200, margin: '0 0 8px 0', letterSpacing: '-1px', color: isDark ? '#fff' : '#000' }}>Company Profiling</h1>
                 <p style={{ margin: 0, color: isDark ? '#94a3b8' : '#64748b', fontSize: '1rem', letterSpacing: '1px', textTransform: 'uppercase' }}>Active Targets · {tasks.length} Tracked</p>
               </div>
-              <button onClick={() => setActiveView('taskboard')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#ec4899', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 20px rgba(236,72,153,0.3)', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
-                <KanbanSquare size={18} /> Open Matrix Taskboard
-              </button>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button onClick={() => setShowMultiPrint(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: isDark ? '#fff' : '#0f172a', border: `1px solid ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'}`, borderRadius: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'} onMouseLeave={e => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}>
+                  <Printer size={18} /> Batch Print
+                </button>
+                <button onClick={() => setActiveView('taskboard')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#ec4899', color: '#fff', border: 'none', borderRadius: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 20px rgba(236,72,153,0.3)', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                  <KanbanSquare size={18} /> Open Matrix Taskboard
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
@@ -268,6 +274,15 @@ export default function ProfilingWorkspace() {
           projectId={projectId} 
           taskId={printTaskId} 
           onClose={() => setPrintTaskId(null)} 
+        />
+      )}
+
+      {/* ── BATCH PRINT MOUNT ── */}
+      {showMultiPrint && (
+        <MultiPrintModal 
+          tasks={tasks}
+          isDark={isDark}
+          onClose={() => setShowMultiPrint(false)}
         />
       )}
     </div>
