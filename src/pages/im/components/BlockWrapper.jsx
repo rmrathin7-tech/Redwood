@@ -12,8 +12,9 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
   const wrapperRef                  = useRef(null); 
   
   const isLocked                    = Boolean(lockedBy);
+  const isStatusLock                = lockedBy === 'STATUS_LOCK' || lockedBy === 'System';
   // FIX: Safely extract the email string whether lockedBy is an Object or a String
-  const lockEmail                   = isLocked ? (typeof lockedBy === 'string' ? lockedBy : lockedBy.email || 'System') : '';
+  const lockEmail                   = isLocked && !isStatusLock ? (typeof lockedBy === 'string' ? lockedBy : lockedBy.email || '') : '';
 
   const isInstruction = block?.type === 'instruction' || block?.type === 'fixed-text' || block?.type === 'h3' || block?.type === 'h4';
 
@@ -194,23 +195,21 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
           gap:            '8px',
           boxShadow:      '0 4px 15px rgba(0,0,0,0.15)',
         }}>
-          {/* Avatar circle */}
-          <div style={{
-            width:          '24px', height: '24px',
-            borderRadius:   '50%',
-            background:     'linear-gradient(135deg, #f59e0b, #d97706)',
-            display:        'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize:       '11px', fontWeight: 800, color: '#fff',
-            boxShadow:      '0 0 0 2px rgba(245,158,11,0.2)',
-          }}>
-            {lockEmail.charAt(0).toUpperCase()}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', lineHeight: '1.2' }}>
-              {lockEmail.split('@')[0]}
+          {isStatusLock ? (
+            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'linear-gradient(135deg, #ef4444, #b91c1c)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+              <Lock size={12} />
+            </div>
+          ) : (
+            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'linear-gradient(135deg, #f59e0b, #d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 800, color: '#fff', boxShadow: '0 0 0 2px rgba(245,158,11,0.2)' }}>
+              {lockEmail.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingRight: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: isStatusLock ? '#ef4444' : '#f59e0b', lineHeight: '1.2' }}>
+              {isStatusLock ? 'Read-Only' : lockEmail.split('@')[0]}
             </div>
             <div style={{ fontSize: '9px', fontWeight: 700, color: '#ef4444', lineHeight: '1.1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Is Editing
+              {isStatusLock ? 'Status Locked, in review' : 'Is Editing'}
             </div>
           </div>
         </div>
