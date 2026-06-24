@@ -67,13 +67,28 @@ export function useProfilingEditor(projectId, taskId, currentUserEmail) {
       }
     };
 
-    // Failsafe for hard browser reloads or tab closures
+  // Failsafe for hard browser reloads or tab closures
     window.addEventListener('beforeunload', releaseLock);
+
     return () => {
       window.removeEventListener('beforeunload', releaseLock);
-      releaseLock(); // Standard unmount cleanup
+      releaseLock();
     };
   }, [taskId]);
 
-  return { taskData, loading, saving, saveContent };
+  // ── NEW: Database function to actually save the status ──
+  const updateStatus = useCallback(async (newStatus) => {
+    if (!taskId) return;
+    try {
+      const docRef = doc(db, 'profiling-tasks', taskId);
+      // 1. Instantly update the UI so it doesn't feel laggy
+      setTaskData(prev => prev ? { ...prev, status: newStatus } : prev);
+      // 2. Save it permanently to the database
+      await updateDoc(docRef, { status: newStatus, updatedAt: serverTimestamp() });
+    } catch (err) {
+      console.error("Failed to update status:", err);
+    }
+  }, [taskId]);
+
+  return { taskData, loading, saving, saveContent, updateStatus };
 }
