@@ -274,7 +274,8 @@ if (!document.getElementById(STYLE_ID)) {
 // ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
 function FullscreenEditor({
   block, value, onChange, onClose, onFocus, onBlur, readOnly,
-  targetCommentId, targetCommentQuote, searchJumpTrigger, onQuillReady
+  targetCommentId, targetCommentQuote, searchJumpTrigger, onQuillReady,
+  showBubble, hideBubble
 }) {
   const paperRef   = useRef(null);
   const toolbarRef = useRef(null);
@@ -400,6 +401,18 @@ function FullscreenEditor({
             if (file.type.startsWith('image/')) handleDirectUpload(file, quillRef.current);
           });
         }
+      }
+    });
+
+    // ── NEW: ALLOW HIGHLIGHT & COMMENT IN FULLSCREEN & READ-ONLY ──
+    quillRef.current.on('selection-change', (range) => {
+      if (!range || range.length === 0) { 
+        setTimeout(() => hideBubble && hideBubble(), 150); 
+        return; 
+      }
+      const nr = quillRef.current.selection.getNativeRange();
+      if (nr && showBubble) {
+        showBubble(nr.native.getBoundingClientRect(), range, true); // true = isFullscreen
       }
     });
 
@@ -871,10 +884,10 @@ export default function RichTextBlock({
     return () => window.removeEventListener('im-create-comment', handleExternalCreate);
   }, [block.dataPath, block.id, onChange, persistCommentMarkup]);
 
-  const showBubble = useCallback((rect, range) => {
+  const showBubble = useCallback((rect, range, isFullscreen = false) => {
     const bubble = document.getElementById('im-comment-bubble');
     if (!bubble) return;
-    pendingSelection.current = range;
+    pendingSelection.current = { range, isFullscreen };
     bubble.style.top  = `${Math.max(8, rect.top + window.scrollY - 44)}px`;
     bubble.style.left = `${Math.max(8, rect.left + window.scrollX + rect.width / 2 - 60)}px`;
     bubble.classList.add('visible');
@@ -885,12 +898,18 @@ export default function RichTextBlock({
     pendingSelection.current = null;
   }, []);
 
-  const createComment = useCallback((range) => {
-    if (!quillInstance.current || !range || range.length === 0) return;
-    const quote = quillInstance.current.getText(range.index, range.length).replace(/\s+/g, ' ').trim();
+  const createComment = useCallback((selectionData) => {
+    const { range, isFullscreen } = selectionData;
+    const activeQuill = isFullscreen ? fullscreenQuill.current : quillInstance.current;
+    
+    if (!activeQuill || !range || range.length === 0) return;
+    const quote = activeQuill.getText(range.index, range.length).replace(/\s+/g, ' ').trim();
     if (!quote) return;
+    
     const commentId = `cmt_${crypto.randomUUID().split('-')[0]}`;
-    quillInstance.current.formatText(range.index, range.length, 'comment', { id: commentId, status: 'open' });
+    // formatText works programmatically even if editor is strictly read-only!
+    activeQuill.formatText(range.index, range.length, 'comment', { id: commentId, status: 'open' });
+    
     window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
     requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent('im-create-comment', {
@@ -902,7 +921,7 @@ export default function RichTextBlock({
           quote
         }
       }));
-      persistCommentMarkup(quillInstance);
+      persistCommentMarkup({ current: activeQuill });
     });
   }, [block.dataPath, block.id, block.label, persistCommentMarkup]);
 
@@ -1015,7 +1034,7 @@ export default function RichTextBlock({
     quillInstance.current.on('selection-change', (range) => {
       if (!range || range.length === 0) { setTimeout(() => hideBubble(), 150); return; }
       const nr = quillInstance.current.selection.getNativeRange();
-      if (nr) showBubble(nr.native.getBoundingClientRect(), range);
+      if (nr) showBubble(nr.native.getBoundingClientRect(), range, false); // false = main editor
     });
 
     quillInstance.current.root.addEventListener('click', (e) => {
@@ -1354,13 +1373,15 @@ export default function RichTextBlock({
           targetCommentQuote={targetCommentQuote}
           searchJumpTrigger={searchJumpTrigger}
           onQuillReady={(instance) => { fullscreenQuill.current = instance; }}
+          showBubble={showBubble}
+          hideBubble={hideBubble}
         />
       )}
 
       <BubblePortal onComment={() => {
-        const range = pendingSelection.current;
+        const selectionData = pendingSelection.current;
         hideBubble();
-        if (range) createComment(range);
+        if (selectionData) createComment(selectionData);
       }} />
     </BlockWrapper>
   );
