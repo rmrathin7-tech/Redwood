@@ -267,6 +267,14 @@ if (!document.getElementById(STYLE_ID)) {
       overflow-wrap: break-word !important;
       word-break: break-word !important;
       white-space: pre-wrap !important;
+      cursor: text !important; /* FORCES MOUSE POINTER TO SHOW ON HP VICTUS */
+      caret-color: #ec4899 !important; /* FORCES CURSOR TO BE HOT PINK */
+    }
+
+    /* ── WINDOWS UI SCALING FIX (PREVENTS MICROSCOPIC CURSORS) ── */
+    .ql-editor p, .ql-editor div {
+      min-height: 1.6em !important;
+      font-size: inherit;
     }
   `;
   document.head.appendChild(s);
@@ -1410,7 +1418,7 @@ function BubblePortal({ onComment }) {
     const btn = document.createElement('button');
     btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
     btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); onComment(); });
-    bubble.appendChild(btn);
+bubble.appendChild(btn);
     document.body.appendChild(bubble);
     return () => bubble.remove();
   }, [onComment]);
