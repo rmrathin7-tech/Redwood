@@ -163,7 +163,7 @@ function CustomTooltip({ active, payload, label, mode, getMetricLabel, configSch
       minWidth: 180
     }}>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        FY {label}
+        {(/^\d{4}$/.test(label) ? 'FY ' : '') + label}
       </div>
       {payload.map((entry, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -256,7 +256,8 @@ export default function FSAAnalysis({
   };
 
   const copyRatioTableToTSV = () => {
-    let tsv = "Particulars\t" + selectedYears.map(y => `FY ${y}`).join("\t") + "\n";
+    let tsv = "Particulars\t" + selectedYears.map(y => (/^\d{4}$/.test(y) ? 'FY ' : '') + y).join("\t") + "\n";
+
     const pairsToExport = ratioPairs.filter(p => p.setA.length > 0);
     pairsToExport.forEach((pair, pi) => {
       const numVals = selectedYears.map(y => pair.setA.reduce((s,k) => s+getMetricValue(k,y), 0));
@@ -276,7 +277,14 @@ export default function FSAAnalysis({
 
   // ─── Derived Data ─────────────────────────────────────────────────────────
   const visibleYears = useMemo(() => {
-    return [...(activeYearsList || [])].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    return [...(activeYearsList || [])].sort((a, b) => {
+      const numA = parseInt(a, 10);
+      const numB = parseInt(b, 10);
+      if (!isNaN(numA) && !isNaN(numB) && a.length === 4 && b.length === 4) {
+        return numA - numB;
+      }
+      return 0;
+    });
   }, [activeYearsList]);
 
   const multiYearModel = useMemo(() => {
@@ -546,7 +554,14 @@ export default function FSAAnalysis({
 
   const toggleYear = (y) => {
     setSelectedYears(prev =>
-      prev.includes(y) ? prev.filter(x => x !== y) : [...prev, y].sort((a,b) => parseInt(a)-parseInt(b))
+      prev.includes(y) ? prev.filter(x => x !== y) : [...prev, y].sort((a, b) => {
+        const numA = parseInt(a, 10);
+        const numB = parseInt(b, 10);
+        if (!isNaN(numA) && !isNaN(numB) && a.length === 4 && b.length === 4) {
+          return numA - numB;
+        }
+        return 0;
+      })
     );
   };
 
@@ -902,7 +917,7 @@ export default function FSAAnalysis({
                         boxShadow: sel ? '0 0 0 1px var(--accent-color)' : '0 0 0 1px var(--border-subtle)'
                       }}
                     >
-                      FY {y}
+                      {(/^\d{4}$/.test(y) ? 'FY ' : '') + y}
                     </button>
                   );
                 })}
@@ -1055,7 +1070,7 @@ export default function FSAAnalysis({
                       <th style={{ ...S.th, minWidth: 200 }}>Metric</th>
                       {selectedYears.map((y, i) => (
                         <th key={y} style={{ ...S.th, textAlign: 'right' }}>
-                          {mode === 'yoy' && i === 0 ? `FY ${y} (Base)` : `FY ${y}`}
+                          {mode === 'yoy' && i === 0 ? `${/^\d{4}$/.test(y) ? 'FY ' : ''}${y} (Base)` : (/^\d{4}$/.test(y) ? 'FY ' : '') + y}
                         </th>
                       ))}
                     </tr>
@@ -1136,7 +1151,7 @@ export default function FSAAnalysis({
                       <thead>
                         <tr>
                           <th style={{ ...S.th, minWidth: 220 }}>Description</th>
-                          {selectedYears.map(y => <th key={y} style={{ ...S.th, textAlign: 'right' }}>FY {y}</th>)}
+                          {selectedYears.map(y => <th key={y} style={{ ...S.th, textAlign: 'right' }}>{(/^\d{4}$/.test(y) ? 'FY ' : '') + y}</th>)}
                         </tr>
                       </thead>
 <tbody>
@@ -1246,7 +1261,7 @@ export default function FSAAnalysis({
                       <thead>
                         <tr>
                           <th style={{ ...S.th, minWidth: 220 }}>Line Item</th>
-                          {selectedYears.map(y => <th key={y} style={{ ...S.th, textAlign: 'right' }}>FY {y}</th>)}
+                          {selectedYears.map(y => <th key={y} style={{ ...S.th, textAlign: 'right' }}>{(/^\d{4}$/.test(y) ? 'FY ' : '') + y}</th>)}
                         </tr>
                       </thead>
                       <tbody>

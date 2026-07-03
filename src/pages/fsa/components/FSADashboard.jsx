@@ -80,7 +80,7 @@ export default function FSADashboard({
     if (active && payload && payload.length) {
       return (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.1)', backdropFilter: 'blur(8px)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 4 }}>FY {label}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 4 }}>{(/^\d{4}$/.test(label) ? 'FY ' : '') + label}</div>
           {payload.map((entry, index) => {
              const def = availableKPIs.find(k => k.key === entry.dataKey);
              const isPerc = def ? def.isPercentage : false;
@@ -167,11 +167,11 @@ export default function FSADashboard({
                         {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                         {Math.abs(yoyGrowth).toFixed(1)}%
                       </span>
-                      vs FY {previousYear}
+                      vs {/^\d{4}$/.test(previousYear) ? 'FY ' : ''}{previousYear}
                     </>
                   ) : (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.6 }}>
-                      <Calendar size={12} /> Baseline Year (FY {latestYear})
+                      <Calendar size={12} /> Baseline Year ({/^\d{4}$/.test(latestYear) ? 'FY ' : ''}{latestYear})
                     </span>
                   )}
                 </div>

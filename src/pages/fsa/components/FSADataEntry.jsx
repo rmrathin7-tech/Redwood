@@ -127,7 +127,16 @@ export default function FSADataEntry({
 
   // ── 2. YEAR SORTER & MULTI-ADD MANAGER ──
   const sortedActiveYears = useMemo(() => {
-    const sorted = [...activeYearsList].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    const sorted = [...activeYearsList].sort((a, b) => {
+      const numA = parseInt(a, 10);
+      const numB = parseInt(b, 10);
+      
+      // Sort numerically if both are 4-digit years, otherwise maintain input order
+      if (!isNaN(numA) && !isNaN(numB) && a.length === 4 && b.length === 4) {
+        return numA - numB;
+      }
+      return 0; 
+    });
     return yearSortOrder === 'asc' ? sorted : sorted.reverse();
   }, [activeYearsList, yearSortOrder]);
 
@@ -137,7 +146,7 @@ export default function FSADataEntry({
     
     const newYears = input.split(',')
       .map(y => y.trim())
-      .filter(y => !isNaN(y) && y.length === 4); 
+      .filter(y => y.length > 0); 
 
     if (newYears.length === 0) return;
 
@@ -151,7 +160,7 @@ export default function FSADataEntry({
   };
 
   const handleRemoveYear = (targetYear) => {
-    if (!window.confirm(`Are you sure you want to delete FY ${targetYear}? This permanently wipes all inputs for this column.`)) return;
+    if (!window.confirm(`Are you sure you want to delete ${/^\d{4}$/.test(targetYear) ? 'FY ' : ''}${targetYear}? This permanently wipes all inputs for this column.`)) return;
 
     const updatedYears = activeYearsList.filter(y => y !== targetYear);
     setActiveYearsList(updatedYears);
@@ -748,11 +757,10 @@ const handleInputBlur = (e, docKey, secKey, rawItemKey, year) => {
               {sortedActiveYears.map(year => (
                 <th key={year} className="sticky-header" style={{ padding: '16px 24px', fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, textTransform: 'uppercase', textAlign: 'right', minWidth: 200 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
-                    <span style={{ background: 'var(--bg-hover)', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>FY {year} (₹)</span>
-                    <button 
+<span style={{ background: 'var(--bg-hover)', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>{(/^\d{4}$/.test(year) ? 'FY ' : '') + year} (₹)</span>                    <button 
                       onClick={() => handleRemoveYear(year)}
                       style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4 }}
-                      title={`Delete FY ${year} Column`}
+                      title={`Delete ${/^\d{4}$/.test(year) ? 'FY ' : ''}${year} Column`}
                     >
                       <Trash2 size={14} />
                     </button>

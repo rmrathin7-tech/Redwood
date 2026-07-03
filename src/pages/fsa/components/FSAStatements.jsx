@@ -73,7 +73,7 @@ export default function FSAStatements({
     // Build rows HTML for a given doc
     const buildDocHTML = (doc) => {
       const nodes = sharedCoA[doc.key] || [];
-      const yearHeaders = visibleYears.map(y => `<th>FY ${y}</th>`).join('');
+      const yearHeaders = visibleYears.map(y => `<th>${/^\d{4}$/.test(y) ? 'FY ' : ''}${y}</th>`).join('');
 
       let rowsHTML = '';
 
@@ -360,7 +360,7 @@ printWin.focus();
 
     availableDocs.filter(d => targetScope === 'all' || d.key === targetScope).forEach(doc => {
       csv += `${doc.name.toUpperCase()}\n`;
-      csv += `Particulars,${visibleYears.map(y => `FY ${y}`).join(',')}\n`;
+      csv += `Particulars,${visibleYears.map(y => (/^\d{4}$/.test(y) ? 'FY ' : '') + y).join(',')}\n`;
 
       const nodes = sharedCoA[doc.key] || [];
       nodes.forEach(node => {
@@ -546,8 +546,8 @@ printWin.focus();
                       </th>
                       {visibleYears.map(year => (
                         <th key={year} className="statement-sticky-header" style={{ padding: '16px 24px', fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, textTransform: 'uppercase', textAlign: 'right', minWidth: 160 }}>
-                          FY {year}
-                        </th>
+  {(/^\d{4}$/.test(year) ? 'FY ' : '') + year}
+</th>
                       ))}
                     </tr>
                   </thead>

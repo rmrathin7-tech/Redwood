@@ -129,6 +129,9 @@ export function formatValue(key, value, configSchemas) {
  * @returns {string} Formatted financial year string
  */
 export function formatFinancialYear(year) {
+    // Return raw string if it contains alphabetical characters (e.g., custom month-wise periods)
+    if (/[a-zA-Z]/.test(String(year))) return year;
+    
     const numericYear = parseInt(year, 10) || new Date().getFullYear();
     const startYear = numericYear - 1;
     const shortEndYear = numericYear.toString().slice(-2);
