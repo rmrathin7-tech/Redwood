@@ -837,51 +837,48 @@ export default function FSAAnalysis({
               </div>
 
               {/* Tree */}
-              <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 4 }}>
-                {activeTabMetrics.map(metric => {
-                  const selected = selectedMetrics.includes(metric.key);
-                  
-                  // Dynamic styling based on hierarchical properties
-                  const paddingLeft = metric.isLineItem 
-                      ? (metric.indent === 2 ? 44 : 24) 
-                      : 12;
-                      
-                  const isBold = metric.isSectionHeader || metric.isTotal;
-                  const displayLabel = metric.isTotal ? `Σ ${metric.label}` : metric.label;
-                  
-                  return (
-                    <button
-                      key={metric.key}
-                      onClick={() => toggleMetric(metric.key)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '8px 12px',
-                        paddingLeft: paddingLeft,
-                        borderRadius: 7,
-                        border: selected ? '1px solid var(--accent-color)' : '1px solid transparent',
-                        background: selected ? 'var(--bg-hover)' : (isBold ? 'var(--bg-tertiary)' : 'transparent'),
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        color: selected ? 'var(--accent-text)' : (isBold ? 'var(--text-primary)' : 'var(--text-secondary)'),
-                        borderBottom: !selected && isBold ? '1px solid var(--border-subtle)' : undefined,
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      {selected
-                        ? <CheckSquare size={14} color="var(--accent-color)" style={{ flexShrink: 0 }} />
-                        : <Square size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
-                      
-                      <span style={{ fontSize: 13, fontWeight: selected || isBold ? 600 : 400, flex: 1 }}>
-                        {metric.isLineItem && metric.indent === 2 && <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>↳</span>}
-                        {displayLabel}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div style={{ maxHeight: 360, overflowY: 'auto', paddingRight: 4 }}>
+                {activeTabMetrics.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                    
+                    {/* Left Column: Line Items & Sections */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.05em', paddingLeft: 12 }}>Line Items</div>
+                      {activeTabMetrics.filter(m => !m.isTotal).map(metric => {
+                        const selected = selectedMetrics.includes(metric.key);
+                        const paddingLeft = metric.isLineItem ? (metric.indent === 2 ? 44 : 24) : 12;
+                        const isBold = metric.isSectionHeader;
+                        return (
+                          <button key={metric.key} onClick={() => toggleMetric(metric.key)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', paddingLeft: paddingLeft, borderRadius: 7, border: selected ? '1px solid var(--accent-color)' : '1px solid transparent', background: selected ? 'var(--bg-hover)' : (isBold ? 'var(--bg-tertiary)' : 'transparent'), cursor: 'pointer', textAlign: 'left', color: selected ? 'var(--accent-text)' : (isBold ? 'var(--text-primary)' : 'var(--text-secondary)'), borderBottom: !selected && isBold ? '1px solid var(--border-subtle)' : undefined, transition: 'all 0.15s' }}>
+                            {selected ? <CheckSquare size={14} color="var(--accent-color)" style={{ flexShrink: 0 }} /> : <Square size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
+                            <span style={{ fontSize: 13, fontWeight: selected || isBold ? 600 : 400, flex: 1 }}>
+                              {metric.isLineItem && metric.indent === 2 && <span style={{ color: 'var(--text-muted)', marginRight: 6 }}>↳</span>}
+                              {metric.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                {Object.keys(groupedMetrics).length === 0 && (
+                    {/* Right Column: Totals */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4, letterSpacing: '0.05em', paddingLeft: 12 }}>Calculated Totals</div>
+                      {activeTabMetrics.filter(m => m.isTotal).map(metric => {
+                        const selected = selectedMetrics.includes(metric.key);
+                        return (
+                          <button key={metric.key} onClick={() => toggleMetric(metric.key)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', paddingLeft: 12, borderRadius: 7, border: selected ? '1px solid var(--accent-color)' : '1px solid transparent', background: selected ? 'var(--bg-hover)' : 'var(--bg-tertiary)', cursor: 'pointer', textAlign: 'left', color: selected ? 'var(--accent-text)' : 'var(--text-primary)', borderBottom: !selected ? '1px solid var(--border-subtle)' : undefined, transition: 'all 0.15s' }}>
+                            {selected ? <CheckSquare size={14} color="var(--accent-color)" style={{ flexShrink: 0 }} /> : <Square size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
+                            <span style={{ fontSize: 13, fontWeight: selected ? 600 : 600, flex: 1 }}>
+                              Σ {metric.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
                   <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 24, fontSize: 13 }}>
                     No metrics matched.
                   </div>

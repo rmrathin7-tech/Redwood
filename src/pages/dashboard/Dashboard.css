@@ -1,68 +1,131 @@
-/* =========================================
-   GLOBAL VARIABLES & THEME SETUP
-   ========================================= */
+/* =========================================================
+   REDWOOD — LAYOUT SHELL
+   Complete redesign: aurora mesh background, glass nav,
+   gradient accents, and live micro-interactions.
+   ========================================================= */
+
 :root {
-  /* Core layout mechanics */
-  --top-bar-height: 70px;
-  --transition-smooth: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --top-bar-height: 72px;
+  --transition-smooth: all 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --radius-md: 12px;
+  --radius-lg: 18px;
 }
 
-/* DARK MODE (Default) */
+/* ── THEME SCOPES ── */
 .redwood-space.dark {
-  --bg-core: #0c0f14;
-  --bg-glass: rgba(21, 26, 34, 0.6);
-  --text-primary: #e6edf3;
-  --text-muted: #7d8590;
+  --bg-core: #05070D;
+  --bg-glass: rgba(15, 18, 30, 0.55);
+  --bg-glass-strong: rgba(15, 18, 30, 0.85);
+  --text-primary: #F1F5F9;
+  --text-muted: #7D8590;
   --border-glass: rgba(255, 255, 255, 0.08);
-  --accent-red: #b91c1c;
-  --accent-glow: rgba(185, 28, 28, 0.4);
-  --gradient-bg: radial-gradient(circle at 50% 0%, #1a1f2b, #0c0f14 70%);
+  --border-glass-strong: rgba(255, 255, 255, 0.16);
+
+  --accent-1: #6366F1;
+  --accent-2: #8B5CF6;
+  --accent-3: #22D3EE;
+  --accent-gradient: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
+  --accent-glow: rgba(99, 102, 241, 0.4);
+
+  --blob-a: rgba(99, 102, 241, 0.28);
+  --blob-b: rgba(34, 211, 238, 0.22);
+  --blob-c: rgba(139, 92, 246, 0.2);
 }
 
-/* LIGHT MODE */
 .redwood-space.light {
-  --bg-core: #f8fafc;
-  --bg-glass: rgba(255, 255, 255, 0.7);
-  --text-primary: #0f172a;
-  --text-muted: #64748b;
-  --border-glass: rgba(0, 0, 0, 0.08);
-  --accent-red: #dc2626;
-  --accent-glow: rgba(220, 38, 38, 0.3);
-  --gradient-bg: radial-gradient(circle at 50% 0%, #ffffff, #f1f5f9 70%);
+  --bg-core: #F1F5F9;
+  --bg-glass: rgba(255, 255, 255, 0.65);
+  --bg-glass-strong: rgba(255, 255, 255, 0.9);
+  --text-primary: #0F172A;
+  --text-muted: #64748B;
+  --border-glass: rgba(15, 23, 42, 0.08);
+  --border-glass-strong: rgba(15, 23, 42, 0.16);
+
+  --accent-1: #4F46E5;
+  --accent-2: #7C3AED;
+  --accent-3: #0EA5E9;
+  --accent-gradient: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
+  --accent-glow: rgba(79, 70, 229, 0.25);
+
+  --blob-a: rgba(99, 102, 241, 0.14);
+  --blob-b: rgba(14, 165, 233, 0.12);
+  --blob-c: rgba(124, 58, 237, 0.1);
 }
 
-/* =========================================
-   BASE STYLES & TYPOGRAPHY
-   ========================================= */
+/* =========================================================
+   BASE
+   ========================================================= */
 .redwood-space {
-  font-family: 'DN Sans', sans-serif;
-  font-weight: 400; /* Regular */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 400;
   background-color: var(--bg-core);
   color: var(--text-primary);
   min-height: 100vh;
   width: 100vw;
   overflow-x: hidden;
-  transition: var(--transition-smooth);
   position: relative;
+  transition: var(--transition-smooth);
 }
 
-h1, h2, h3, .glass-btn {
-  font-weight: 600; /* Semi-bold */
+.redwood-space h1, .redwood-space h2, .redwood-space h3, .redwood-space .glass-btn {
+  font-family: 'Manrope', 'Inter', sans-serif;
+  font-weight: 700;
 }
 
-/* Animated Background Layer */
+/* Living aurora mesh — three slow-drifting blurred blobs */
 .space-background {
   position: fixed;
   inset: 0;
-  background: var(--gradient-bg);
   z-index: 0;
-  transition: var(--transition-smooth);
+  overflow: hidden;
+  pointer-events: none;
 }
 
-/* =========================================
+.space-background::before,
+.space-background::after,
+.space-background .blob-c {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+.space-background::before {
+  width: 46vw;
+  height: 46vw;
+  top: -14%;
+  left: -8%;
+  background: radial-gradient(circle, var(--blob-a), transparent 70%);
+  animation: drift1 22s ease-in-out infinite;
+}
+
+.space-background::after {
+  width: 38vw;
+  height: 38vw;
+  top: 8%;
+  right: -10%;
+  background: radial-gradient(circle, var(--blob-b), transparent 70%);
+  animation: drift2 26s ease-in-out infinite;
+}
+
+.space-background .blob-c {
+  width: 34vw;
+  height: 34vw;
+  bottom: -14%;
+  left: 22%;
+  background: radial-gradient(circle, var(--blob-c), transparent 70%);
+  animation: drift3 30s ease-in-out infinite;
+}
+
+@keyframes drift1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(6%, 8%) scale(1.12); } }
+@keyframes drift2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-8%, 5%) scale(1.08); } }
+@keyframes drift3 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(4%, -6%) scale(1.15); } }
+
+/* =========================================================
    TOP FIXED BAR
-   ========================================= */
+   ========================================================= */
 .top-fixed-bar {
   position: fixed;
   top: 0;
@@ -70,8 +133,8 @@ h1, h2, h3, .glass-btn {
   width: 100%;
   height: var(--top-bar-height);
   background: var(--bg-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-glass);
   display: flex;
   align-items: center;
@@ -92,15 +155,33 @@ h1, h2, h3, .glass-btn {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background-color: var(--accent-red);
+  background: var(--accent-gradient);
   box-shadow: 0 0 12px var(--accent-glow);
-  animation: pulse 2s infinite;
+  animation: breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 8px var(--accent-glow); transform: scale(1); }
+  50% { box-shadow: 0 0 18px var(--accent-glow); transform: scale(1.15); }
 }
 
 .brand-title {
   font-size: 1.2rem;
   letter-spacing: 2px;
   margin: 0;
+  font-family: 'Manrope', 'Inter', sans-serif;
+  background: var(--accent-gradient);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradientShift 6s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+  100% { background-position: 0% center; }
 }
 
 /* Search Section */
@@ -120,16 +201,19 @@ h1, h2, h3, .glass-btn {
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  opacity: 0.5;
+  opacity: 0.55;
+  color: var(--text-muted);
+  display: flex;
   transition: var(--transition-smooth);
+  pointer-events: none;
 }
 
 .global-search {
   width: 100%;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.05));
   border: 1px solid var(--border-glass);
-  padding: 10px 14px 10px 40px;
-  border-radius: 8px;
+  padding: 11px 14px 11px 42px;
+  border-radius: 10px;
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.9rem;
@@ -138,63 +222,71 @@ h1, h2, h3, .glass-btn {
 }
 
 .redwood-space.dark .global-search {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .global-search:focus {
-  border-color: var(--accent-red);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
-.global-search:focus + .search-icon {
+.global-search:focus ~ .search-icon {
   opacity: 1;
+  color: var(--accent-1);
 }
 
 /* Actions Section & Buttons */
 .actions-zone {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .glass-btn {
   background: transparent;
   border: 1px solid var(--border-glass);
   color: var(--text-primary);
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 9px 16px;
+  border-radius: 30px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 0.85rem;
+  font-weight: 600;
   transition: var(--transition-bounce);
 }
 
 .glass-btn:hover {
   background: var(--bg-glass);
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-glass-strong);
+  box-shadow: var(--shadow-sm, 0 5px 15px rgba(0, 0, 0, 0.15));
 }
 
-.redwood-space.light .glass-btn:hover {
-  border-color: rgba(0, 0, 0, 0.2);
+.glass-btn:active {
+  transform: translateY(0);
 }
 
 /* Specific Hover Effects */
 .hover-glow:hover {
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 6px 20px var(--accent-glow);
+  border-color: var(--accent-1);
+  color: var(--accent-1);
 }
 
 .theme-toggle-btn {
-  padding: 8px 12px;
-  font-size: 1rem;
+  padding: 9px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  justify-content: center;
 }
 
 .logout-btn:hover {
-  background: rgba(220, 38, 38, 0.1);
-  color: var(--accent-red);
-  border-color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .divider {
@@ -204,9 +296,9 @@ h1, h2, h3, .glass-btn {
   margin: 0 8px;
 }
 
-/* =========================================
+/* =========================================================
    MAIN WORKSPACE
-   ========================================= */
+   ========================================================= */
 .workspace-main {
   position: relative;
   z-index: 10;
@@ -216,27 +308,25 @@ h1, h2, h3, .glass-btn {
   margin: 0 auto;
 }
 
-/* Animations */
-@keyframes pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 var(--accent-glow); }
-  70% { transform: scale(1.2); box-shadow: 0 0 0 10px rgba(185, 28, 28, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(185, 28, 28, 0); }
-}
-
-/* =========================================
-DASHBOARD ENTRY TRANSITION
-========================================= */
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
 @keyframes dashboardEnter {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .redwood-space {
   animation: dashboardEnter 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .space-background::before,
+  .space-background::after,
+  .brand-pulse,
+  .brand-title,
+  .redwood-space {
+    animation: none !important;
+  }
 }

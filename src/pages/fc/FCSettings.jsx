@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
@@ -78,7 +79,7 @@ export default function FCSettings() {
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const isDark = theme === 'dark';
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);

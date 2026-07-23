@@ -14,36 +14,70 @@ if (!document.getElementById(STYLE_ID)) {
   s.id = STYLE_ID;
   s.textContent = `
     .comment-glow {
-      background-color: rgba(245,158,11,0.28) !important;
-      border-bottom: 2px solid #f59e0b !important;
+      background-color: rgba(245,158,11,0.22) !important;
+      background-image: linear-gradient(rgba(245,158,11,0.22), rgba(245,158,11,0.22));
+      box-shadow: inset 0 -2px 0 0 rgba(245,158,11,0.75);
       cursor: pointer !important;
-      transition: background-color 0.15s;
-      border-radius: 2px;
+      transition: background-color 0.18s ease, box-shadow 0.18s ease;
+      border-radius: 3px;
+      padding: 0 1px;
     }
     .comment-glow:hover {
-      background-color: rgba(245,158,11,0.45) !important;
+      background-color: rgba(245,158,11,0.38) !important;
+      box-shadow: inset 0 -2px 0 0 #f59e0b;
     }
   `;
   document.head.appendChild(s);
 }
 
 // ── HIGHLIGHT RENDER ENGINE ──────────────────────────────────────────────────
+// Rebuilt to be corruption-proof: instead of running each comment's quote as a
+// sequential regex .replace() over an HTML string that already contains markup
+// from earlier comments (which can match inside a previously-inserted span's
+// attributes and break the tag structure - the cause of the garbled
+// `class="comment-glow">` text bug), we compute every match as a [start,end]
+// range against the ORIGINAL plain text first, resolve overlaps, and only then
+// build the final HTML in a single pass.
+const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 const renderHighlightedText = (val, comments, isDark, placeholder) => {
   if (val === undefined || val === null || val === '') {
     return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
   }
-  let text = String(val);
+  const text = String(val);
   if (!comments || comments.length === 0) return <span>{text}</span>;
 
-  let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // 1. Find each open comment's FIRST match in the original text and collect as a range.
+  const ranges = [];
   comments.forEach(c => {
-    if (c.quote && c.status !== 'resolved') {
-      const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(${escapedQuote})`, 'gi');
-      html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-    }
+    if (!c.quote || c.status === 'resolved') return;
+    const idx = text.toLowerCase().indexOf(c.quote.toLowerCase());
+    if (idx === -1) return;
+    ranges.push({ start: idx, end: idx + c.quote.length, id: c.id });
   });
+  if (ranges.length === 0) return <span>{text}</span>;
+
+  // 2. Sort by start, then drop any range that overlaps one already kept (first one wins).
+  ranges.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+  const kept = [];
+  let cursor = 0;
+  for (const r of ranges) {
+    if (r.start >= cursor) {
+      kept.push(r);
+      cursor = r.end;
+    }
+  }
+
+  // 3. Build the final HTML in one pass over the plain text - never re-scan markup.
+  let html = '';
+  let pos = 0;
+  kept.forEach(r => {
+    html += escapeHtml(text.slice(pos, r.start));
+    html += `<span data-comment-id="${r.id}" class="comment-glow">${escapeHtml(text.slice(r.start, r.end))}</span>`;
+    pos = r.end;
+  });
+  html += escapeHtml(text.slice(pos));
+
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 };
 

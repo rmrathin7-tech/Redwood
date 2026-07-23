@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Save, Plus, Settings2, Type, AlignLeft,
@@ -7,7 +8,7 @@ import {
   Sun, Moon, ToggleRight, CheckSquare, FileText, List, GitBranch, BarChart3, Upload, Download, Link
 } from 'lucide-react';
 import { db } from '../../firebase.js';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 const BLOCK_TYPES = [
   { id: 'instruction',     icon: <Info size={15} />,         label: 'Instruction Note',   desc: 'Read-only guidance text' },
@@ -136,7 +137,7 @@ export default function IMSettings() {
   const [activeBlockId, setActiveBlockId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const isDark = theme === 'dark';
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -148,12 +149,24 @@ export default function IMSettings() {
 
   const [inspectorTab, setInspectorTab] = useState('branchA');
   const fileInputRef = useRef(null);
+  // Tailor Template overlay - lets the dossier schema editor show which sections
+  // were excluded/renamed via the quick in-workspace "Tailor Template" modal,
+  // so editing structure here doesn't silently conflict with those choices.
+  const [tailorOverlay, setTailorOverlay] = useState({ excludedSections: [], customNames: {} });
 
   useEffect(() => {
     const loadSchema = async () => {
       // 1. If in Dossier Mode, check if a local schema already exists
       if (mode === 'dossier' && imId) {
         const imSnap = await getDoc(doc(db, 'investment-memos', imId));
+        // Capture the Tailor Template overlay regardless of whether a dossierSchema
+        // exists yet, so the editor can show "excluded" / "renamed" continuity.
+        if (imSnap.exists()) {
+          setTailorOverlay({
+            excludedSections: imSnap.data().excludedSections || [],
+            customNames: imSnap.data().customNames || {},
+          });
+        }
         if (imSnap.exists() && imSnap.data().dossierSchema) {
           const data = imSnap.data().dossierSchema;
           setSections(data || []);
@@ -253,6 +266,19 @@ export default function IMSettings() {
       setActiveSectionId(remaining[0]?.id || null);
       setActiveBlockId(null);
     }
+  };
+
+  // Clear a Tailor Template exclusion directly from the schema editor, so the
+  // two customization surfaces (quick Tailor modal vs full schema editor) stay
+  // in sync instead of silently disagreeing about what's excluded.
+  const clearTailorExclusion = async (e, sectionId) => {
+    e.stopPropagation();
+    if (mode !== 'dossier' || !imId) return;
+    const next = tailorOverlay.excludedSections.filter(id => id !== sectionId);
+    setTailorOverlay(prev => ({ ...prev, excludedSections: next }));
+    try {
+      await updateDoc(doc(db, 'investment-memos', imId), { excludedSections: next });
+    } catch { /* best-effort - local state already reflects the change */ }
   };
 
   // ── NEW: SECTION REORDERING LOGIC ──
@@ -1298,18 +1324,34 @@ export default function IMSettings() {
                   const children = sections.filter(s => s.parentId === sec.id).sort((a,b) => (a.order||0) - (b.order||0));
                   const isActiveParent = activeSectionId === sec.id;
                   const secNum = sectionNumberMap[sec.id]; // Dynamic Num
+                  const isExcludedByTailor = tailorOverlay.excludedSections.includes(sec.id);
+                  const tailorCustomName = tailorOverlay.customNames[sec.id];
                   return (
                     <React.Fragment key={sec.id}>
                       <div
                         onClick={() => { setActiveSectionId(sec.id); setActiveBlockId(null); }}
-                        style={{ padding: '10px 12px', marginBottom: '4px', borderRadius: '7px', cursor: 'pointer', background: isActiveParent ? T.primaryLight : 'transparent', border: `1px solid ${isActiveParent ? T.primaryBorder : 'transparent'}`, color: isActiveParent ? T.primary : T.mutedText, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.15s' }}
+                        style={{ padding: '10px 12px', marginBottom: '4px', borderRadius: '7px', cursor: 'pointer', background: isActiveParent ? T.primaryLight : 'transparent', border: `1px solid ${isActiveParent ? T.primaryBorder : 'transparent'}`, color: isActiveParent ? T.primary : T.mutedText, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.15s', opacity: isExcludedByTailor ? 0.5 : 1 }}
                         onMouseEnter={e => { if (!isActiveParent) e.currentTarget.style.background = T.surface2; }}
                         onMouseLeave={e => { if (!isActiveParent) e.currentTarget.style.background = 'transparent'; }}>
                         <div style={{ overflow: 'hidden' }}>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: isExcludedByTailor ? 'line-through' : 'none' }}>
                             <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{secNum}.</span>
                             {cleanTitle(sec.heading || sec.navLabel || 'Untitled Section')}
                           </div>
+                          {tailorCustomName && (
+                            <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '2px', marginLeft: '16px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              ✎ Tailored → "{tailorCustomName}"
+                            </div>
+                          )}
+                          {isExcludedByTailor && (
+                            <div
+                              onClick={(e) => clearTailorExclusion(e, sec.id)}
+                              title="Click to un-exclude this section"
+                              style={{ fontSize: '0.65rem', color: '#ef4444', marginTop: '2px', marginLeft: '16px', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                            >
+                              ⊘ Excluded via Tailor Template (click to restore)
+                            </div>
+                          )}
                           <div style={{ fontSize: '0.68rem', color: T.mutedText, marginTop: '2px', marginLeft: '16px' }}>{sec.blocks?.length || 0} blocks</div>
                         </div>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
@@ -1337,18 +1379,34 @@ export default function IMSettings() {
                       {children.map(child => {
                         const isActiveChild = activeSectionId === child.id;
                         const childNum = sectionNumberMap[child.id]; // Dynamic Num
+                        const childExcluded = tailorOverlay.excludedSections.includes(child.id);
+                        const childCustomName = tailorOverlay.customNames[child.id];
                         return (
                           <div
                             key={child.id}
                             onClick={() => { setActiveSectionId(child.id); setActiveBlockId(null); }}
-                            style={{ padding: '8px 10px 8px 16px', margin: '0 0 4px 12px', borderRadius: '0 7px 7px 0', borderLeft: `2px solid ${isActiveChild ? T.primary : T.border}`, cursor: 'pointer', background: isActiveChild ? T.primaryLight : 'transparent', color: isActiveChild ? T.primary : T.mutedText, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.15s' }}
+                            style={{ padding: '8px 10px 8px 16px', margin: '0 0 4px 12px', borderRadius: '0 7px 7px 0', borderLeft: `2px solid ${isActiveChild ? T.primary : T.border}`, cursor: 'pointer', background: isActiveChild ? T.primaryLight : 'transparent', color: isActiveChild ? T.primary : T.mutedText, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.15s', opacity: childExcluded ? 0.5 : 1 }}
                             onMouseEnter={e => { if (!isActiveChild) e.currentTarget.style.background = T.surface2; }}
                             onMouseLeave={e => { if (!isActiveChild) e.currentTarget.style.background = 'transparent'; }}>
                             <div style={{ overflow: 'hidden' }}>
-                              <div style={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: childExcluded ? 'line-through' : 'none' }}>
                                 <span style={{color: T.primary, marginRight: '6px', fontWeight: 800}}>{childNum}.</span>
                                 {cleanTitle(child.heading || child.navLabel || 'Untitled Subsection')}
                               </div>
+                              {childCustomName && (
+                                <div style={{ fontSize: '0.62rem', color: '#f59e0b', marginTop: '2px', marginLeft: '22px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  ✎ Tailored → "{childCustomName}"
+                                </div>
+                              )}
+                              {childExcluded && (
+                                <div
+                                  onClick={(e) => clearTailorExclusion(e, child.id)}
+                                  title="Click to un-exclude this section"
+                                  style={{ fontSize: '0.62rem', color: '#ef4444', marginTop: '2px', marginLeft: '22px', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                                >
+                                  ⊘ Excluded via Tailor Template (click to restore)
+                                </div>
+                              )}
                               <div style={{ fontSize: '0.65rem', color: T.mutedText, marginTop: '2px', marginLeft: '22px' }}>{child.blocks?.length || 0} blocks</div>
                             </div>
                             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>

@@ -9,6 +9,61 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const storage = getStorage();
 
+// ── SHARED SAFE HIGHLIGHT ENGINE (used by every plain-text cell type below) ──
+// Same fix as BasicInputBlock.jsx: compute every match as a [start,end] range
+// against the ORIGINAL text first (comments, then search - search is trimmed
+// to avoid re-covering an already-claimed comment range), resolve overlaps,
+// then build the final HTML in one single pass. Never re-scan already-mutated
+// HTML with a regex - that's what caused tags/attributes to leak as visible
+// text when quotes collided or overlapped.
+const escapeHtmlCell = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function buildHighlightedCellHtml(text, comments, searchTerm) {
+  const ranges = [];
+  (comments || []).forEach(c => {
+    if (!c.quote || c.status === 'resolved') return;
+    const idx = text.toLowerCase().indexOf(c.quote.toLowerCase());
+    if (idx === -1) return;
+    ranges.push({ start: idx, end: idx + c.quote.length, kind: 'comment', id: c.id });
+  });
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    const lowerText = text.toLowerCase();
+    let from = 0;
+    while (true) {
+      const idx = lowerText.indexOf(term, from);
+      if (idx === -1) break;
+      ranges.push({ start: idx, end: idx + searchTerm.length, kind: 'search' });
+      from = idx + Math.max(term.length, 1);
+    }
+  }
+  if (ranges.length === 0) return escapeHtmlCell(text);
+
+  // Comments win over search when they overlap; sort so comment ranges are considered first at a given start.
+  ranges.sort((a, b) => a.start - b.start || (a.kind === 'comment' ? -1 : 1));
+  const kept = [];
+  let cursor = 0;
+  for (const r of ranges) {
+    if (r.start >= cursor) {
+      kept.push(r);
+      cursor = r.end;
+    }
+  }
+
+  let html = '';
+  let pos = 0;
+  kept.forEach(r => {
+    html += escapeHtmlCell(text.slice(pos, r.start));
+    const inner = escapeHtmlCell(text.slice(r.start, r.end));
+    html += r.kind === 'comment'
+      ? `<span data-comment-id="${r.id}" class="comment-glow">${inner}</span>`
+      : `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">${inner}</span>`;
+    pos = r.end;
+  });
+  html += escapeHtmlCell(text.slice(pos));
+  return html;
+}
+
 // ── GLOBAL HIGHLIGHT STYLES ──────────────────────────────────────────────────
 const STYLE_ID = 'im-smarttable-comments-styles';
 if (!document.getElementById(STYLE_ID)) {
@@ -36,18 +91,21 @@ if (!document.getElementById(STYLE_ID_QUILL)) {
   s.id = STYLE_ID_QUILL;
   s.textContent = `
     mark.im-comment-highlight {
-      background-color: rgba(245,158,11,0.28) !important;
-      border-bottom: 2px solid #f59e0b !important;
-      border-radius: 0 !important; padding: 0 !important; margin: 0 !important;
+      background: linear-gradient(0deg, rgba(245,158,11,0.35) 0%, rgba(245,158,11,0.16) 100%) !important;
+      box-shadow: inset 0 -2px 0 0 rgba(245,158,11,0.85) !important;
+      border-radius: 4px !important; padding: 1px 2px !important; margin: 0 !important;
       display: inline !important; line-height: inherit !important;
-      cursor: pointer !important; transition: background-color 0.15s;
+      cursor: pointer !important; transition: background 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
       color: inherit !important;
     }
-    mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    mark.im-comment-highlight:hover {
+      filter: brightness(1.08);
+      box-shadow: inset 0 -2px 0 0 #f59e0b, 0 1px 6px rgba(245,158,11,0.35) !important;
+    }
     /* SaaS Standard: Make any lingering resolved comments completely invisible */
     mark.im-comment-highlight[data-comment-status="resolved"] {
       background-color: transparent !important;
-      border-bottom: none !important;
+      box-shadow: none !important;
       cursor: inherit !important;
     }
     .active-comment-glow {
@@ -75,11 +133,11 @@ if (!Quill.imports['formats/comment']) {
       if (status === 'resolved') {
         // SaaS Standard: Completely hide the visual marker
         node.style.backgroundColor = 'transparent';
-        node.style.borderBottom = 'none';
+        node.style.boxShadow = 'none';
         node.style.cursor = 'inherit';
       } else {
-        node.style.backgroundColor = 'rgba(245,158,11,0.28)';
-        node.style.borderBottom = '2px solid #f59e0b';
+        node.style.backgroundColor = 'rgba(245,158,11,0.22)';
+        node.style.boxShadow = 'inset 0 -2px 0 0 rgba(245,158,11,0.75)';
       }
     }
     static formats(node) {
@@ -202,31 +260,8 @@ const renderHighlightedText = () => {
     if (val === undefined || val === null || val === '') {
       return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
     }
-    
-    let text = String(val);
-    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    
-    // Highlight Comments
-    if (comments && comments.length > 0) {
-      comments.forEach(c => {
-        if (c.quote && c.status !== 'resolved') {
-          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(${escapedQuote})`, 'gi');
-          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-        }
-      });
-    }
-
-    // Highlight Global Search Matches (High Contrast)
-    if (window.imActiveSearchTerm) {
-       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-       const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       // High-contrast solid blue highlight so it pops out from the faint blue cell background
-       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
-    }
-
+    const text = String(val);
+    const html = buildHighlightedCellHtml(text, comments, window.imActiveSearchTerm);
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -291,7 +326,7 @@ const renderHighlightedText = () => {
     if (val === undefined || val === null || val === '') {
       return <span style={{ color: isDark ? '#94a3b8' : '#6b7280', fontStyle: 'italic' }}>{placeholder || ''}</span>;
     }
-    
+
     let text = String(val);
 
     if (iType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -299,29 +334,7 @@ const renderHighlightedText = () => {
       text = `${dd}/${mm}/${yyyy}`;
     }
 
-    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    
-    // Highlight Comments
-    if (comments && comments.length > 0) {
-      comments.forEach(c => {
-        if (c.quote && c.status !== 'resolved') {
-          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(${escapedQuote})`, 'gi');
-          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-        }
-      });
-    }
-
-    // Highlight Global Search Matches (High Contrast)
-    if (window.imActiveSearchTerm) {
-       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-       const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       // High-contrast solid blue highlight so it pops out from the faint blue cell background
-       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
-    }
-
+    const html = buildHighlightedCellHtml(text, comments, window.imActiveSearchTerm);
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -382,31 +395,8 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
     if (val === undefined || val === null || val === '') {
       return <span style={{ color: t.textMuted, opacity: 0.6, fontStyle: 'italic' }}>{placeholder || ''}</span>;
     }
-
-    let text = String(val);
-    let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    // Highlight Comments
-    if (comments && comments.length > 0) {
-      comments.forEach(c => {
-        if (c.quote && c.status !== 'resolved') {
-          const safeQuote = c.quote.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          const escapedQuote = safeQuote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(${escapedQuote})`, 'gi');
-          html = html.replace(regex, `<span data-comment-id="${c.id}" class="comment-glow">$1</span>`);
-        }
-      });
-    }
-
-    // Highlight Global Search Matches (High Contrast)
-    if (window.imActiveSearchTerm) {
-       const safeSearch = window.imActiveSearchTerm.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-       const escapedSearch = safeSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-       const regex = new RegExp(`(${escapedSearch})`, 'gi');
-       // High-contrast solid blue highlight so it pops out from the faint blue cell background
-       html = html.replace(regex, `<span style="background-color: #2563eb; color: #ffffff; padding: 0 4px; border-radius: 3px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">$1</span>`);
-    }
-
+    const text = String(val);
+    const html = buildHighlightedCellHtml(text, comments, window.imActiveSearchTerm);
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -498,7 +488,8 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   };
 
   useEffect(() => {
-    if (!editorRef.current || quillInstance.current) return;
+    if (!editorRef.current) return;
+    const isNewInstance = !quillInstance.current;
     function imageUploadHandler() {
       const input = document.createElement('input');
       input.type = 'file'; input.accept = 'image/*'; input.click();
@@ -514,7 +505,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
         } catch (err) { console.error('Quill table image upload failed:', err); }
       };
     }
-    quillInstance.current = new Quill(editorRef.current, {
+    if (isNewInstance) quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
       placeholder: placeholder || 'Start writing…',
       modules: {
@@ -530,67 +521,77 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
         clipboard: { matchVisual: false },
       },
     });
-    if (val) quillInstance.current.root.innerHTML = val;
-    
-    quillInstance.current.root.addEventListener('click', (e) => {
+    if (isNewInstance && val) quillInstance.current.root.innerHTML = val;
+
+    if (isNewInstance) quillInstance.current.root.addEventListener('click', (e) => {
       const span = e.target.closest('[data-comment-id]');
       if (!span) return;
       window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
       window.dispatchEvent(new CustomEvent('im-open-comment', { detail: { commentId: span.getAttribute('data-comment-id') } }));
     });
 
-    quillInstance.current.on('text-change', (delta, oldDelta, source) => {
-      if (source !== 'user') return;
-      clearTimeout(typingTimeout.current);
-      typingTimeout.current = setTimeout(() => {
+    if (isNewInstance) {
+      quillInstance.current.on('text-change', (delta, oldDelta, source) => {
+        if (source !== 'user') return;
+        clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => {
+          const html = cleanSearchHighlights(quillInstance.current.root.innerHTML);
+          latestOnChange.current(html);
+        }, 500);
+      });
+
+      quillInstance.current.root.addEventListener('focus', () => {
+        setIsFocused(true);
+        if (latestFocusHandlers.current?.onFocus) latestFocusHandlers.current.onFocus();
+      });
+
+      quillInstance.current.root.addEventListener('blur', () => {
         const html = cleanSearchHighlights(quillInstance.current.root.innerHTML);
+        clearTimeout(typingTimeout.current);
         latestOnChange.current(html);
-      }, 500);
-    });
+        setTimeout(() => {
+          setIsFocused(false);
+          if (latestFocusHandlers.current?.onBlur) latestFocusHandlers.current.onBlur();
+        }, 300);
+      });
 
-    quillInstance.current.root.addEventListener('focus', () => {
-      setIsFocused(true);
-      if (latestFocusHandlers.current?.onFocus) latestFocusHandlers.current.onFocus();
-    });
-
-    quillInstance.current.root.addEventListener('blur', () => {
-      const html = cleanSearchHighlights(quillInstance.current.root.innerHTML);
-      clearTimeout(typingTimeout.current);
-      latestOnChange.current(html);
-      setTimeout(() => {
-        setIsFocused(false);
-        if (latestFocusHandlers.current?.onBlur) latestFocusHandlers.current.onBlur();
-      }, 300);
-    });
-
-    quillInstance.current.on('selection-change', (range) => {
-      if (range && range.length > 0) {
-        pendingCommentRange.current = range;
-        // FIX: Track exactly which cell was highlighted to prevent other cells from stealing the comment!
-        window.imLastFocusedQuillCell = cellDataPath; 
-      } 
-      // FIX: Removed the 400ms timeout that was wiping the range before the comment could save.
-    });
+      quillInstance.current.on('selection-change', (range) => {
+        if (range && range.length > 0) {
+          pendingCommentRange.current = range;
+          window.imLastFocusedQuillCell = cellDataPath; 
+          console.log('[CMT-DEBUG] selection-change in cell →', cellDataPath, range);
+        }
+      });
+    }
 
     const persistHtml = () => latestOnChange.current(cleanSearchHighlights(quillInstance.current.root.innerHTML));
 
     const handleCreateComment = (e) => {
       const detail = e.detail || {};
-      if (detail.dataPath !== block.dataPath) return;
-      
-      // FIX: ONLY apply the comment to the exact cell the user interacted with!
-      if (window.imLastFocusedQuillCell !== cellDataPath) return;
-
-      if (pendingCommentRange.current) {
-        quillInstance.current.formatText(pendingCommentRange.current.index, pendingCommentRange.current.length, 'comment', { id: detail.commentId, status: 'open' }, 'silent');
-        setTimeout(persistHtml, 50); 
-        pendingCommentRange.current = null;
+      console.log('[CMT-DEBUG] handleCreateComment fired, cell =', cellDataPath, 'detail =', detail);
+      if (detail.dataPath !== block.dataPath && detail.dataPath !== cellDataPath) {
+        console.log('[CMT-DEBUG] -> SKIPPED (dataPath mismatch). received:', detail.dataPath, '| this cell:', cellDataPath, '| block:', block.dataPath);
+        return;
       }
+
+      if (pendingCommentRange.current && window.imLastFocusedQuillCell === cellDataPath) {
+        console.log('[CMT-DEBUG] -> applying via pendingCommentRange', pendingCommentRange.current);
+        quillInstance.current.formatText(pendingCommentRange.current.index, pendingCommentRange.current.length, 'comment', { id: detail.commentId, status: 'open' }, 'silent');
+        setTimeout(persistHtml, 50);
+        pendingCommentRange.current = null;
+        return;
+      }
+
+      const applied = ensureCommentHighlight(quillInstance.current, { commentId: detail.commentId, quote: detail.quote, status: 'open' });
+      console.log('[CMT-DEBUG] -> fallback ensureCommentHighlight, applied =', applied, '| quote =', JSON.stringify(detail.quote), '| quill text =', JSON.stringify(quillInstance.current.getText()));
+      if (applied) setTimeout(persistHtml, 50);
+      pendingCommentRange.current = null;
     };
 
     const handleJump = (e) => {
       const { dataPath, commentId, quote } = e.detail || {};
-      if (dataPath !== block.dataPath) return;
+      const belongsToThisTable = dataPath === block.dataPath || (typeof dataPath === 'string' && dataPath.startsWith(`${block.dataPath}.`));
+      if (!belongsToThisTable) return;
       
       let target = quillInstance.current.root.querySelector(`[data-comment-id="${commentId}"]`);
       
@@ -622,8 +623,8 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
             span.replaceWith(textNode);
           } else {
             span.setAttribute('data-comment-status', status);
-            span.style.backgroundColor = 'rgba(245,158,11,0.28)';
-            span.style.borderBottom = '2px solid #f59e0b';
+            span.style.backgroundColor = 'rgba(245,158,11,0.22)';
+            span.style.boxShadow = 'inset 0 -2px 0 0 rgba(245,158,11,0.75)';
           }
         });
         quillInstance.current.root.normalize(); // Clean up fragmented text nodes
@@ -708,11 +709,30 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   }); 
 
   return (
-    <div className="table-quill-wrapper" style={{ minWidth: '160px', padding: '4px', position: 'relative' }}>
+    <div
+      className="table-quill-wrapper"
+      style={{ minWidth: '160px', padding: '4px', position: 'relative' }}
+      data-block-path={cellDataPath}
+      data-block-label={block?.label ? `${block.label} (cell)` : 'Table Cell'}
+      data-block-id={cellDataPath}
+    >
       <style>{`
         .table-quill-wrapper .ql-toolbar.ql-snow { background: ${isDark ? '#161b22' : '#f9fafb'} !important; border-color: ${t.border} !important; border-radius: 6px 6px 0 0; padding: 4px 6px; }
         .table-quill-wrapper .ql-container.ql-snow { background: transparent !important; border-color: ${t.border} !important; border-radius: 0 0 6px 6px; min-height: 80px; }
         .table-quill-wrapper .ql-editor { color: ${t.text} !important; font-size: 0.85rem; line-height: 1.6; padding: 8px; }
+        .table-quill-wrapper .ql-editor s,
+.table-quill-wrapper .ql-editor strike,
+.table-quill-wrapper .ql-editor del { 
+  text-decoration: line-through !important; 
+  opacity: 0.75; 
+}
+.table-quill-wrapper .ql-editor mark,
+.table-quill-wrapper .ql-editor .ql-bg-yellow { 
+  background-color: rgba(253,224,71,0.55) !important; 
+  color: inherit !important; 
+  border-radius: 2px; 
+  padding: 0 2px; 
+}
         .table-quill-wrapper .ql-editor [style*="color: rgb(0, 0, 0)"], .table-quill-wrapper .ql-editor [style*="color:#000"], .table-quill-wrapper .ql-editor [style*="color: #000000"] { color: ${t.text} !important; }
         .table-quill-wrapper .ql-editor.ql-blank::before { color: ${isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.3)'} !important; font-style: italic; }
         .table-quill-wrapper .ql-snow .ql-stroke { stroke: ${isDark ? '#94a3b8' : '#6b7280'} !important; }
@@ -852,7 +872,7 @@ const RepeatTableInstance = ({
 const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
   const [isFocused, setIsFocused]             = useState(false);
   const isFocusedRef                          = useRef(false);
-  const [customValues, setCustomValues]       = useState({});
+  const customValuesRef                       = useRef({});
   const [hiddenGuides, setHiddenGuides]       = useState({});
   const [sideHeadings, setSideHeadings]       = useState([]);
   const typingTimeout                          = useRef(null);
@@ -884,7 +904,14 @@ const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, 
   const [blockComments, setBlockComments] = useState([]);
   useEffect(() => {
     if (!block?.dataPath) return;
-    const q = query(collection(db, 'im-comments'), where('dataPath', '==', block.dataPath));
+    // Range query on dataPath: catches the exact legacy table-level path AND
+    // every new cell-level sub-path (e.g. "block.dataPath.rows.0.cellId"),
+    // since all of those sort lexicographically within [dataPath, dataPath+\uf8ff].
+    const q = query(
+      collection(db, 'im-comments'),
+      where('dataPath', '>=', block.dataPath),
+      where('dataPath', '<=', `${block.dataPath}\uf8ff`)
+    );
     const unsub = onSnapshot(q, (snap) => {
       setBlockComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -893,18 +920,19 @@ const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, 
   
   // FIX: Extract all comment IDs that are perfectly baked into Quill cells.
   // This completely stops standard text cells from rendering duplicate highlights and stealing the SVG!
-  const bakedQuillCommentIds = useMemo(() => {
-    const ids = new Set();
-    records.forEach(r => {
-       Object.values(r).forEach(val => {
-          if (typeof val === 'string' && val.includes('data-comment-id=')) {
-             const matches = val.match(/data-comment-id="([^"]+)"/g);
-             if (matches) matches.forEach(m => ids.add(m.replace('data-comment-id="', '').replace('"', '')));
-          }
-       });
+const bakedQuillCommentIds = useMemo(() => {
+  const ids = new Set();
+  records.forEach(r => {
+    Object.values(r).forEach(val => {
+      const strToCheck = typeof val === 'string' ? val : (val && typeof val === 'object' && typeof val.richtext === 'string' ? val.richtext : '');
+      if (strToCheck && strToCheck.includes('data-comment-id=')) {
+        const matches = strToCheck.match(/data-comment-id="([^"]+)"/g);
+        if (matches) matches.forEach(m => ids.add(m.replace('data-comment-id="', '').replace('"', '')));
+      }
     });
-    return ids;
-  }, [records]);
+  });
+  return ids;
+}, [records]);
 
   const standardCellComments = useMemo(() => {
     return blockComments.filter(c => !bakedQuillCommentIds.has(c.id));
@@ -1666,7 +1694,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                     t={t}
                     focusHandlers={focusHandlers}
                     isDark={isDark}
-                    cellDataPath={cellDataPath}
+                    cellDataPath={`${block.dataPath}.rows.${rIdx}.${cell.id}.richtext`}
                   />
                 ) : (
                   <div style={{ lineHeight: 1.8, paddingLeft: 6, borderLeft: `2px solid ${t.border}` }}>
@@ -1723,7 +1751,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
           const isCustom   = typeof val === 'string' && val.startsWith('__custom__');
           const customText = isCustom && val.includes(':') 
             ? val.substring(val.indexOf(':') + 1) 
-            : (customValues[customKey] || '');
+            : (customValuesRef.current[customKey] || '');
             
           const optionStyle = { background: isDark ? '#1f2937' : '#ffffff', color: t.text };
           return (
@@ -1731,7 +1759,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
               {guideToggle}
               {guidePanel}
               <select value={isCustom ? '__custom__' : val}
-                onChange={e => { if (e.target.value === '__custom__') { onValChange('__custom__'); } else { onValChange(e.target.value); setCustomValues(prev => { const n = { ...prev }; delete n[customKey]; return n; }); } }}
+                onChange={e => { if (e.target.value === '__custom__') { onValChange('__custom__'); } else { onValChange(e.target.value); delete customValuesRef.current[customKey]; } }}
                 disabled={isProtectedRow || !!lockedBy}
                 style={{ ...cellInputStyle, cursor: 'pointer', backgroundColor: isDark ? '#0f172a' : '#ffffff', colorScheme: isDark ? 'dark' : 'light' }}
                 {...focusHandlers}>
@@ -1743,7 +1771,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
               {isCustom && cell.allowCustom && (
                 <HybridInput 
                   val={customText} 
-                  onChange={v => { setCustomValues(prev => ({ ...prev, [customKey]: v })); onValChange(v ? `__custom__:${v}` : '__custom__'); }}
+                  onChange={v => { customValuesRef.current[customKey] = v; onValChange(v ? `__custom__:${v}` : '__custom__'); }}
                   placeholder="Type your own value…" 
                   disabled={isProtectedRow || !!lockedBy}
                   cellInputStyle={{ ...cellInputStyle, padding: '4px 8px', border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem' }}
@@ -1779,7 +1807,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
         );
       }
     }
-  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, customValues, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, standardCellComments]);  const colTotals = useMemo(() => {
+  }, [records, runtimeSchemaRows, t, lockedBy, isDark, block, cellInputStyle, hiddenGuides, onFocus, onBlur, evaluateFormula, renderTemplateInput, standardCellComments]);  const colTotals = useMemo(() => {
     if (!block.showColumnTotals && !block.hasTotalsRow) return null;
     const allCells = runtimeSchemaRows[0]?.cells || headers.map((_, i) => ({ id: `col_${i}`, cellType: 'input', inputType: 'number' }));
     

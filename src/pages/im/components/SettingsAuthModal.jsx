@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, Scissors, KeyRound, ArrowRight, ShieldAlert, X, Edit3, Settings2 } from 'lucide-react';
-import { db } from '../../../firebase.js';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db, auth } from '../../../firebase.js';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
 export default function SettingsAuthModal({ imId, projectId, projectName, isDark = true, onClose }) {
@@ -14,6 +14,38 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
   const [newMasterPin, setNewMasterPin] = useState('');
   const [newDossierPin, setNewDossierPin] = useState('');
   const [newSuperPin, setNewSuperPin] = useState('');
+
+  // ── GUIDED TOUR STATE ──
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    const checkTour = async () => {
+      if (!auth.currentUser || !projectId) return;
+      try {
+        const uRef = doc(db, 'workspace-users', auth.currentUser.uid);
+        const uSnap = await getDoc(uRef);
+        if (uSnap.exists() && !uSnap.data()[`hasSeenTour_${projectId}`]) {
+          setShowTour(true);
+        }
+      } catch (err) {
+        console.error("Tour check failed", err);
+      }
+    };
+    checkTour();
+  }, [projectId]);
+
+  const finishTour = async () => {
+    setShowTour(false);
+    if (auth.currentUser && projectId) {
+      try {
+        await updateDoc(doc(db, 'workspace-users', auth.currentUser.uid), {
+          [`hasSeenTour_${projectId}`]: true
+        });
+      } catch (err) {
+        console.error("Failed to save tour status", err);
+      }
+    }
+  };
 
   const T = {
     bg:         isDark ? '#0d1117' : '#ffffff',
@@ -129,8 +161,17 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
               </button>
 
               <button 
-                onClick={() => { setView('auth-dossier'); setPinInput(''); setError(''); }}
-                style={btnStyle(T, false)}
+                onClick={() => { 
+                  if (showTour) finishTour(); // Auto-finish tour on click
+                  setView('auth-dossier'); 
+                  setPinInput(''); 
+                  setError(''); 
+                }}
+                style={{
+                  ...btnStyle(T, false),
+                  boxShadow: showTour ? '0 0 0 4px rgba(139, 92, 246, 0.5)' : 'none',
+                  borderColor: showTour ? '#8b5cf6' : 'transparent',
+                }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Edit3 size={16} color={T.amber} />
@@ -143,6 +184,23 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
               </button>
 
               <div style={{ height: 1, background: T.border, margin: '8px 0' }} />
+
+              {/* GUIDED TOUR INLINE TOOLTIP */}
+              {showTour && (
+                <div style={{ position: 'relative', background: T.surface, border: `1px solid #8b5cf6`, borderRadius: '12px', padding: '16px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', animation: 'imFadeIn 0.3s ease-out', marginTop: '4px', marginBottom: '8px' }}>
+                  <div style={{ position: 'absolute', top: '-6px', left: '20px', width: '10px', height: '10px', background: T.surface, borderTop: `1px solid #8b5cf6`, borderLeft: `1px solid #8b5cf6`, transform: 'rotate(45deg)' }} />
+                  <h3 style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Settings2 size={14} /> Click 'Local Dossier Schema'
+                  </h3>
+                  <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: T.text, lineHeight: '1.5' }}>
+                    <strong>Instruction:</strong> Click the glowing <strong>Local Dossier Schema</strong> button below to add entirely new elements to this document only.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <button onClick={() => setShowTour(false)} style={{ background: 'none', border: 'none', color: T.textMuted, padding: 0, fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Remind me later</button>
+                    <button onClick={finishTour} style={{ background: '#8b5cf6', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Finish Tour</button>
+                  </div>
+                </div>
+              )}
 
               <button 
                 onClick={() => { setView('auth-change'); setPinInput(''); setError(''); }}

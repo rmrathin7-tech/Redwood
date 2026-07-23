@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu, Search,
   CheckCircle2, ShieldAlert, Loader2, ChevronDown, ChevronRight, Lock, PanelLeftClose,
   MessageSquare, Kanban, User, Scissors, X, Trash2, RotateCcw, Printer,
-  Pencil, Check, Blocks, Upload, Download
+  Pencil, Check, Blocks, Upload, Download, Compass
 } from 'lucide-react';
 import { auth, db } from '../../firebase.js';
 import {
   doc, onSnapshot, updateDoc, serverTimestamp, setDoc, collection,
-  query, where, getDocs, writeBatch
+  query, where, getDocs, writeBatch, getDoc
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import BlockRegistry from './components/BlockRegistry.jsx';
@@ -33,6 +34,8 @@ export default function IMWorkspace() {
   const projectId = searchParams.get('project');
   const imId = searchParams.get('im');
   const projectName = searchParams.get('name') || 'Active Dossier';
+  const deepLinkCommentId = searchParams.get('comment');
+  const deepLinkTaskId = searchParams.get('task');
   
   const [user, setUser] = useState(null);
   const [workspaceUsers, setWorkspaceUsers] = useState([]); // <-- ADD THIS
@@ -48,7 +51,7 @@ export default function IMWorkspace() {
   const [activeSection, setActiveSection] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [saveStatus, setSaveStatus] = useState('idle');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [sectionTransition, setSectionTransition] = useState(false);
@@ -56,6 +59,54 @@ export default function IMWorkspace() {
   const [visibleBlocks, setVisibleBlocks] = useState(new Set());
   const [myLockedBlock, setMyLockedBlock] = useState(null);
   const [commentsSidebarOpen, setCommentsSidebarOpen] = useState(false);
+  
+  // ── ONBOARDING STATE ──
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    return localStorage.getItem(`im_onboarded_${imId}`) !== 'true';
+  });
+
+  const dismissOnboarding = () => {
+    localStorage.setItem(`im_onboarded_${imId}`, 'true');
+    setShowOnboarding(false);
+  };
+
+  // ── GUIDED TOUR STATE ──
+  const [tourStep, setTourStep] = useState(0);
+  const [hasSeenTour, setHasSeenTour] = useState(true); // Defaults to true until DB confirms otherwise
+
+  useEffect(() => {
+    if (!user || !projectId) return;
+    const checkTourStatus = async () => {
+      try {
+        const uRef = doc(db, 'workspace-users', user.uid);
+        const uSnap = await getDoc(uRef);
+        if (uSnap.exists()) {
+          const data = uSnap.data();
+          if (!data[`hasSeenTour_${projectId}`]) {
+            setHasSeenTour(false);
+            setTourStep(1);
+          }
+        }
+      } catch (err) {
+        console.error("Tour check failed", err);
+      }
+    };
+    checkTourStatus();
+  }, [user, projectId]);
+
+  const dismissTour = async () => {
+    setTourStep(0);
+    setHasSeenTour(true);
+    if (user && projectId) {
+      try {
+        await updateDoc(doc(db, 'workspace-users', user.uid), {
+          [`hasSeenTour_${projectId}`]: true
+        });
+      } catch (err) {
+        console.error("Failed to save tour status", err);
+      }
+    }
+  };
   
   // Tailor Template Modal State
   const [showTailorModal, setShowTailorModal] = useState(false);
@@ -560,6 +611,21 @@ const toggleSectionExclusion = async (id, isExcluding) => {
     };
   }, []);
 
+  // ── DEEP LINK: arriving from "My Workspace" panel with ?comment= or ?task= ──
+  useEffect(() => {
+    if (deepLinkCommentId) {
+      setCommentsSidebarOpen(true);
+      // Small delay so CommentsSidebar's own Firestore listener has data loaded first
+      const t = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('im-open-comment', { detail: { commentId: deepLinkCommentId } }));
+      }, 700);
+      return () => clearTimeout(t);
+    }
+    if (deepLinkTaskId) {
+      setIsTaskBoardOpen(true);
+    }
+  }, []);
+
   // ── DEEP LINKING FROM TASK BOARD MATRIX ──
   useEffect(() => {
     const handler = (e) => {
@@ -878,6 +944,18 @@ const toggleSectionExclusion = async (id, isExcluding) => {
             <PanelLeftClose size={14} />
           </button>
         </div>
+        
+        {/* Setup Guide Manual Trigger */}
+        <div style={{ padding: '12px 16px', borderBottom: `1px solid ${T.border}` }}>
+          <button
+            onClick={() => { setTourStep(1); setHasSeenTour(false); }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1px dashed rgba(59, 130, 246, 0.4)`, background: 'rgba(59, 130, 246, 0.08)', color: '#3b82f6', fontWeight: 700, fontSize: 13, transition: 'all 0.2s' }}
+          >
+            <Compass size={16} />
+            {isSidebarOpen && <span>Setup Guide</span>}
+          </button>
+        </div>
+
         <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px', scrollbarWidth: 'thin', scrollbarColor: `${T.border} transparent` }}>
           {flatSections.map(section => {
             const isActive = activeSection === section.key;
@@ -974,7 +1052,8 @@ const toggleSectionExclusion = async (id, isExcluding) => {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <header style={{
           flexShrink: 0, background: T.header, backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10,
+          WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, 
+          zIndex: (!hasSeenTour && tourStep > 0) ? 1000000 : 10, // Elevate above the dark overlay
           /* Expose theme to CSS */
           '--t-muted': T.textMuted,
           '--t-text': T.text,
@@ -1034,10 +1113,19 @@ const toggleSectionExclusion = async (id, isExcluding) => {
               </button>
 
               <button
-                onClick={() => setShowTailorModal(true)}
+                id="tour-tailor-template"
+                onClick={() => {
+                  setShowTailorModal(true);
+                  if (!hasSeenTour && tourStep === 1) setTourStep(2); // Auto-advance tour
+                }}
                 data-tip="Tailor Template"
                 className={`im-top-btn ${showTailorModal ? 'active' : ''}`}
-                style={{ '--hover-bg': 'rgba(239, 68, 68, 0.15)', '--hover-color': '#ef4444', '--hover-border': 'rgba(239, 68, 68, 0.3)', '--active-bg': 'rgba(239, 68, 68, 0.2)', '--active-color': '#ef4444', '--active-border': 'rgba(239, 68, 68, 0.5)' }}
+                style={{ 
+                  '--hover-bg': 'rgba(239, 68, 68, 0.15)', '--hover-color': '#ef4444', '--hover-border': 'rgba(239, 68, 68, 0.3)', '--active-bg': 'rgba(239, 68, 68, 0.2)', '--active-color': '#ef4444', '--active-border': 'rgba(239, 68, 68, 0.5)', 
+                  position: 'relative',
+                  boxShadow: (!hasSeenTour && tourStep === 1) ? '0 0 0 4px rgba(239, 68, 68, 0.6)' : undefined,
+                  zIndex: (!hasSeenTour && tourStep === 1) ? 1000001 : 'auto'
+                }}
               >
                 <Scissors size={18} />
               </button>
@@ -1052,10 +1140,16 @@ const toggleSectionExclusion = async (id, isExcluding) => {
               </button>
 
               <button
+                id="tour-settings"
                 onClick={() => setShowSettingsAuth(true)}
                 data-tip="Configuration Protocol"
                 className={`im-top-btn ${showSettingsAuth ? 'active' : ''}`}
-                style={{ '--hover-bg': 'rgba(139, 92, 246, 0.15)', '--hover-color': '#8b5cf6', '--hover-border': 'rgba(139, 92, 246, 0.3)', '--active-bg': 'rgba(139, 92, 246, 0.2)', '--active-color': '#8b5cf6', '--active-border': 'rgba(139, 92, 246, 0.5)' }}
+                style={{ 
+                  '--hover-bg': 'rgba(139, 92, 246, 0.15)', '--hover-color': '#8b5cf6', '--hover-border': 'rgba(139, 92, 246, 0.3)', '--active-bg': 'rgba(139, 92, 246, 0.2)', '--active-color': '#8b5cf6', '--active-border': 'rgba(139, 92, 246, 0.5)', 
+                  position: 'relative',
+                  boxShadow: (!hasSeenTour && tourStep === 2) ? '0 0 0 4px rgba(139, 92, 246, 0.6)' : undefined,
+                  zIndex: (!hasSeenTour && tourStep === 2) ? 1000001 : 'auto'
+                }}
               >
                 <Settings size={18} />
               </button>
@@ -1523,7 +1617,7 @@ const toggleSectionExclusion = async (id, isExcluding) => {
       <CommentSVGOverlay /> {/* <-- MOUNT THE SVG OVERLAY HERE */}
 
       {isTaskBoardOpen && (
-        <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} />
+        <IMTaskBoard imId={imId} projectId={projectId} isDark={isDark} onClose={() => setIsTaskBoardOpen(false)} initialTaskId={deepLinkTaskId} />
       )}
 
 {/* ── PRINT COMPILER MODAL ── */}
@@ -1564,6 +1658,46 @@ const toggleSectionExclusion = async (id, isExcluding) => {
           onSingleReplace={(path, newVal) => handleDataChange(path, newVal, null)}
           onBatchReplace={(updates) => handleBatchDataChange(updates)}
         />
+      )}
+
+      {/* ── GUIDED TOUR OVERLAY ── */}
+      {!hasSeenTour && tourStep > 0 && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, pointerEvents: 'none' }}>
+          {/* We set pointerEvents: 'none' on the darkness so clicks pass through to the glowing buttons! */}
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', pointerEvents: 'none' }} />
+          
+          {tourStep === 1 && (
+            <div style={{ position: 'absolute', top: '70px', right: '310px', width: '320px', background: T.surface, border: `1px solid ${T.accent}`, borderRadius: '12px', padding: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', pointerEvents: 'auto', animation: 'imFadeIn 0.3s ease-out' }}>
+              <div style={{ position: 'absolute', top: '-8px', right: '20px', width: '14px', height: '14px', background: T.surface, borderTop: `1px solid ${T.accent}`, borderLeft: `1px solid ${T.accent}`, transform: 'rotate(45deg)' }} />
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', color: T.accent, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Scissors size={16} /> Click 'Tailor Template'
+              </h3>
+              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: T.text, lineHeight: '1.5' }}>
+                <strong>Instruction:</strong> To exclude sections/headings or edit heading names of the existing template, click the glowing <strong>Tailor Template</strong> button above.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button onClick={() => setTourStep(0)} style={{ background: 'none', border: 'none', color: T.textMuted, fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}>Remind me later</button>
+                <button onClick={() => setTourStep(2)} style={{ background: T.accent, color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>Got it, next</button>
+              </div>
+            </div>
+          )}
+
+          {tourStep === 2 && (
+            <div style={{ position: 'absolute', top: '70px', right: '220px', width: '320px', background: T.surface, border: `1px solid #8b5cf6`, borderRadius: '12px', padding: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', pointerEvents: 'auto', animation: 'imFadeIn 0.3s ease-out' }}>
+              <div style={{ position: 'absolute', top: '-8px', right: '20px', width: '14px', height: '14px', background: T.surface, borderTop: `1px solid #8b5cf6`, borderLeft: `1px solid #8b5cf6`, transform: 'rotate(45deg)' }} />
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Settings size={16} /> Click 'Configuration Protocol'
+              </h3>
+              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: T.text, lineHeight: '1.5' }}>
+                <strong>Instruction:</strong> To add something entirely new, we need to access the Local Schema. Click the glowing <strong>Settings</strong> button above.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button onClick={() => setTourStep(0)} style={{ background: 'none', border: 'none', color: T.textMuted, fontSize: '12px', cursor: 'pointer', fontWeight: 600 }}>Remind me later</button>
+                <button onClick={() => { setTourStep(0); setShowSettingsAuth(true); }} style={{ background: '#8b5cf6', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>Got it, next</button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
       
       <style>{`

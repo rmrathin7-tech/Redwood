@@ -5,10 +5,10 @@ import {
   GripVertical, Trash2, UserCheck, 
   MessageSquare, ChevronDown, ChevronUp, Eye, Edit3, CalendarClock, AlertTriangle, FileText, AlignLeft
 } from 'lucide-react';
-import { db } from '../../../firebase.js'; 
+import { db, auth } from '../../../firebase.js'; 
 import { 
   collection, query, where, onSnapshot, addDoc, 
-  updateDoc, doc, serverTimestamp, deleteDoc, setDoc
+  updateDoc, doc, serverTimestamp, deleteDoc, setDoc, arrayUnion
 } from 'firebase/firestore';
 
 const AVATAR_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ec4899','#06b6d4'];
@@ -22,7 +22,8 @@ const DEFAULT_COLUMNS = [
   { id: 'approved', label: 'Approved', color: '#10b981' }
 ];
 
-export default function IMTaskBoard({ imId, projectId, isDark = true, onClose }) {
+export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, initialTaskId = null }) {
+  const currentUser = auth.currentUser;
   const [viewMode, setViewMode] = useState('matrix'); // Default to Operations Matrix
   
   // Data States
@@ -179,6 +180,17 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
     }));
     return () => unsubs.forEach(u => u());
   }, [imId]);
+
+  // ── DEEP LINK: auto-open a specific task's detail modal ──
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false);
+  useEffect(() => {
+    if (!initialTaskId || deepLinkHandled || tasks.length === 0) return;
+    const match = tasks.find(t => t.id === initialTaskId);
+    if (match) {
+      openDetailModal(match);
+      setDeepLinkHandled(true);
+    }
+  }, [initialTaskId, tasks, deepLinkHandled]);
 
 
   // ── COMPUTED PROPERTIES ──
@@ -425,7 +437,10 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   const handleUpdateTaskField = async (taskId, field, userId) => {
     const user = workspaceUsers.find(u => u.userId === userId);
     const payload = user ? { uid: user.userId, email: user.email } : null;
-    await updateDoc(doc(db, 'im-tasks', taskId), { [field]: payload, updatedAt: serverTimestamp() });
+    const readByReset = (field === 'assignee' || field === 'reviewer')
+      ? { readBy: currentUser ? [currentUser.uid] : [] }
+      : {};
+    await updateDoc(doc(db, 'im-tasks', taskId), { [field]: payload, updatedAt: serverTimestamp(), ...readByReset });
     
     // Update local state if Detail Modal is open to reflect immediately
     if (activeTask && activeTask.id === taskId) {
@@ -520,7 +535,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
       dueDate: newDueDate,
       customTitle: false,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      readBy: currentUser ? [currentUser.uid] : [],
     });
   };
 
@@ -553,6 +569,9 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
   const openDetailModal = (task) => {
     setActiveTask(task);
     setIsDetailModalOpen(true);
+    if (currentUser && task?.id && !(task.readBy || []).includes(currentUser.uid)) {
+      updateDoc(doc(db, 'im-tasks', task.id), { readBy: arrayUnion(currentUser.uid) }).catch(() => {});
+    }
   };
 
   const openQuickCreate = (secKey) => {
@@ -596,7 +615,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         dueDate: newTask.dueDate || '',
         customTitle: !!newTask.customTitle,
         title: resolvedTitle,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        readBy: currentUser ? [currentUser.uid] : [], // edited - mark unseen for assignee/reviewer again
       });
     } else {
       const initialStatus = columns.length > 0 ? columns[0].id : 'pending';
@@ -606,7 +626,8 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose })
         linkedSections: normalizedLinkedSections, status: initialStatus,
         dueDate: newTask.dueDate || '',
         customTitle: !!newTask.customTitle,
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+        readBy: currentUser ? [currentUser.uid] : [],
       });
     }
     

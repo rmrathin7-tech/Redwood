@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Search, LayoutDashboard, Users, Sun, Moon, LogOut,
   Plus, FolderOpen, Archive, Trash2, RefreshCw, AlertTriangle,
-  Copy, ExternalLink, BarChart2, Activity, X, Target, Briefcase
+  Copy, ExternalLink, BarChart2, Activity, X, Target, Briefcase, Inbox
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase.js';
@@ -14,6 +14,8 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 // <-- 1. IMPORT THE NEW GLOBAL BOARD -->
 import GlobalBoard from './GlobalBoard.jsx'; 
+import MyWorkspacePanel from './MyWorkspacePanel.jsx';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 
 
 // ── TYPEWRITER PLACEHOLDER ────────────────────────────────────────────────────
@@ -35,7 +37,7 @@ function HighlightText({ text, query }) {
   return (
     <span>
       {text.slice(0, idx)}
-      <mark style={{ background: 'rgba(185,28,28,0.35)', color: 'inherit', borderRadius: '3px', padding: '0 2px' }}>
+      <mark style={{ background: 'rgba(99,102,241,0.35)', color: 'inherit', borderRadius: '3px', padding: '0 2px' }}>
         {text.slice(idx, idx + query.length)}
       </mark>
       {text.slice(idx + query.length)}
@@ -128,7 +130,7 @@ const TiltCard = React.memo(function TiltCard({ children, style, className, onCl
 // ── DELETE CONFIRM MODAL ──────────────────────────────────────────────────────
 const DeleteModal = React.memo(function DeleteModal({ projectName, onConfirm, onCancel, isDark }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn 0.2s ease' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn 0.2s ease' }}>
       <div style={{ background: isDark ? '#111827' : '#fff', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', borderRadius: '16px', padding: '28px', width: '360px', boxShadow: '0 24px 60px rgba(0,0,0,0.4)', animation: 'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -153,7 +155,7 @@ const DeleteModal = React.memo(function DeleteModal({ projectName, onConfirm, on
 
 
 // ── CONTEXT MENU ──────────────────────────────────────────────────────────────
-const ContextMenu = React.memo(function ContextMenu({ x, y, project, onOpen, onArchive, onDelete, onCopy, onClose, isDark }) {
+const ContextMenu = React.memo(function ContextMenu({ x, y, project, onOpen, onArchive, onTrash, onCopy, onClose, isDark }) {
   const ref = useRef(null);
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -166,7 +168,7 @@ const ContextMenu = React.memo(function ContextMenu({ x, y, project, onOpen, onA
     { icon: <Copy size={13} />, label: 'Copy Link', action: onCopy },
     { divider: true },
     { icon: <Archive size={13} />, label: 'Archive', action: onArchive, color: '#f59e0b' },
-    { icon: <Trash2 size={13} />, label: 'Delete', action: onDelete, color: '#ef4444' },
+    { icon: <Trash2 size={13} />, label: 'Move to Trash', action: onTrash, color: '#ef4444' },
   ];
 
   return (
@@ -185,7 +187,7 @@ const ContextMenu = React.memo(function ContextMenu({ x, y, project, onOpen, onA
 
 
 // ── ARCHIVED CARD ────────────────────────────────────────────────────────────
-const ArchivedCard = React.memo(function ArchivedCard({ project, onRestore, onDelete, isDark, searchQuery }) {
+const ArchivedCard = React.memo(function ArchivedCard({ project, onRestore, onDelete, isDark, searchQuery, showDeleteButton = true }) {
   return (
     <div className="archive-card" style={{
       display: 'flex', flexDirection: 'column', gap: '8px',
@@ -201,7 +203,9 @@ const ArchivedCard = React.memo(function ArchivedCard({ project, onRestore, onDe
         </span>
         <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
           <button className="action-icon restore-btn" onClick={() => onRestore(project.id, project.name)} style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: '#22c55e', cursor: 'pointer' }} title="Restore"><RefreshCw size={13} /></button>
-          <button className="action-icon delete-btn" onClick={() => onDelete(project)} style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: '#ef4444', cursor: 'pointer' }} title="Delete permanently"><Trash2 size={13} /></button>
+          {showDeleteButton && (
+            <button className="action-icon delete-btn" onClick={() => onDelete(project)} style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: '#ef4444', cursor: 'pointer' }} title="Delete permanently"><Trash2 size={13} /></button>
+          )}
         </div>
       </div>
     </div>
@@ -210,24 +214,32 @@ const ArchivedCard = React.memo(function ArchivedCard({ project, onRestore, onDe
 
 
 // ── STATS BAR ─────────────────────────────────────────────────────────────────
-function StatsBar({ total, active, archived, isDark }) {
+function StatsBar({ total, active, archived, trashed, onTrashClick, isDark }) {
   const stats = [
-    { label: 'Total', value: total, color: isDark ? '#94a3b8' : '#64748b', dot: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.4)' },
-    { label: 'Active', value: active, color: '#22c55e', dot: 'rgba(34,197,94,0.5)' },
-    { label: 'Archived', value: archived, color: isDark ? '#f59e0b' : '#d97706', dot: 'rgba(245,158,11,0.45)' },
+    { key: 'total', label: 'Total', value: total, color: isDark ? '#94a3b8' : '#64748b', dot: isDark ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.4)' },
+    { key: 'active', label: 'Active', value: active, color: '#22c55e', dot: 'rgba(34,197,94,0.5)' },
+    { key: 'archived', label: 'Archived', value: archived, color: isDark ? '#f59e0b' : '#d97706', dot: 'rgba(245,158,11,0.45)' },
+    { key: 'trash', label: 'Trash', value: trashed, color: '#ef4444', dot: 'rgba(239,68,68,0.5)', onClick: onTrashClick },
   ];
   return (
     <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
       {stats.map(s => (
-        <div key={s.label} style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          padding: '7px 14px', borderRadius: '20px',
-          borderWidth: '1px', borderStyle: 'solid',
-          borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
-          background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.7)',
-          backdropFilter: 'blur(8px)',
-          transition: 'all 0.3s',
-        }}>
+        <div
+          key={s.key}
+          className="stat-pill"
+          onClick={s.onClick}
+          title={s.onClick ? 'View trash' : undefined}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '7px 14px', borderRadius: '20px',
+            borderWidth: '1px', borderStyle: 'solid',
+            borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
+            background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.7)',
+            backdropFilter: 'blur(8px)',
+            transition: 'all 0.3s',
+            cursor: s.onClick ? 'pointer' : 'default',
+          }}
+        >
           <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.dot, boxShadow: `0 0 5px ${s.dot}` }} />
           <span style={{ fontSize: '0.75rem', fontWeight: '600', color: isDark ? '#475569' : '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{s.label}</span>
           <span style={{ fontSize: '0.9rem', fontWeight: '800', color: s.color, minWidth: '16px', textAlign: 'center' }}>{s.value}</span>
@@ -240,7 +252,7 @@ function StatsBar({ total, active, archived, isDark }) {
 
 // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const [searchQuery, setSearchQuery] = useState('');
   const [newProjectName, setNewProjectName] = useState('');
   const [user, setUser] = useState(null);
@@ -259,8 +271,11 @@ export default function Dashboard() {
   
   // <-- 2. ADD STATE FOR GLOBAL BOARD & AUDIT LOGS -->
   const [isGlobalBoardOpen, setIsGlobalBoardOpen] = useState(false);
+  const [isMyWorkspaceOpen, setIsMyWorkspaceOpen] = useState(false);
+  const [myWorkspaceUnseenCount, setMyWorkspaceUnseenCount] = useState(0);
   const [isAuditPanelOpen, setIsAuditPanelOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [isTrashPanelOpen, setIsTrashPanelOpen] = useState(false);
 
   // Canvas tracking
   const mouseRef = useRef({ x: -9999, y: -9999 });
@@ -278,7 +293,7 @@ export default function Dashboard() {
   useEffect(() => {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.querySelector('.create-input')?.focus(); }
-      if (e.key === 'Escape') { setDeleteTarget(null); setCtxMenu(null); setIsUsersPanelOpen(false); setIsGlobalBoardOpen(false); }
+      if (e.key === 'Escape') { setDeleteTarget(null); setCtxMenu(null); setIsUsersPanelOpen(false); setIsGlobalBoardOpen(false); setIsMyWorkspaceOpen(false); setIsTrashPanelOpen(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -361,7 +376,7 @@ export default function Dashboard() {
         .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       setProjects(loaded);
       setCardOrder(prev => {
-        const ids = loaded.filter(p => !p.archived).map(p => p.id);
+        const ids = loaded.filter(p => !p.archived && !p.trashed).map(p => p.id);
         const existing = prev.filter(id => ids.includes(id));
         const newIds = ids.filter(id => !prev.includes(id));
         return [...existing, ...newIds];
@@ -374,7 +389,7 @@ export default function Dashboard() {
     setCreating(true);
     const projName = newProjectName.trim();
     try {
-      await addDoc(collection(db, 'projects'), { name: projName, createdAt: serverTimestamp(), archived: false, createdBy: user.email });
+      await addDoc(collection(db, 'projects'), { name: projName, createdAt: serverTimestamp(), archived: false, trashed: false, createdBy: user.email });
       await logAction('CREATED', projName);
       setNewProjectName('');
       showToast(`"${projName}" created`);
@@ -383,13 +398,19 @@ export default function Dashboard() {
   }, [newProjectName, user, creating, showToast]);
 
   const archiveProject = useCallback(async (id, name) => {
-    await updateDoc(doc(db, 'projects', id), { archived: true });
+    await updateDoc(doc(db, 'projects', id), { archived: true, trashed: false });
     await logAction('ARCHIVED', name);
     showToast(`"${name}" archived`);
   }, [showToast, user]);
 
+  const trashProject = useCallback(async (id, name) => {
+    await updateDoc(doc(db, 'projects', id), { trashed: true });
+    await logAction('TRASHED', name);
+    showToast(`"${name}" moved to trash`);
+  }, [showToast, user]);
+
   const restoreProject = useCallback(async (id, name) => {
-    await updateDoc(doc(db, 'projects', id), { archived: false });
+    await updateDoc(doc(db, 'projects', id), { archived: false, trashed: false });
     await logAction('RESTORED', name);
     showToast(`"${name}" restored`);
   }, [showToast, user]);
@@ -577,7 +598,7 @@ export default function Dashboard() {
                   : (1 - distSq / CONNECT_DIST_SQ) * 0.25 * (0.6 + 0.4 * wave);
 
               ctx.strokeStyle = near
-                ? `rgba(185,28,28,${op})`
+                ? `rgba(99,102,241,${op})`
                 : isDark
                   ? `rgba(180,215,255,${op})`
                   : `rgba(10,20,80,${op})`; 
@@ -612,7 +633,7 @@ export default function Dashboard() {
           if (alpha > 0) {
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, (1 - progress) * 2.5 + 0.5, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(185,28,28,${alpha})`;
+            ctx.fillStyle = `rgba(99,102,241,${alpha})`;
             ctx.fill();
           }
         }
@@ -634,7 +655,7 @@ export default function Dashboard() {
 
   // ── MEMOIZED FILTERED LISTS ───────────────────────────────────────────────
   const allActive = useMemo(() =>
-    projects.filter(p => !p.archived && p.name?.toLowerCase().includes(searchQuery.toLowerCase())),
+    projects.filter(p => !p.archived && !p.trashed && p.name?.toLowerCase().includes(searchQuery.toLowerCase())),
     [projects, searchQuery]
   );
 
@@ -647,13 +668,19 @@ export default function Dashboard() {
   }, [allActive, cardOrder]);
 
   const archived = useMemo(() =>
-    projects.filter(p => p.archived && p.name?.toLowerCase().includes(searchQuery.toLowerCase())),
+    projects.filter(p => p.archived && !p.trashed && p.name?.toLowerCase().includes(searchQuery.toLowerCase())),
+    [projects, searchQuery]
+  );
+
+  const trashedList = useMemo(() =>
+    projects.filter(p => p.trashed && p.name?.toLowerCase().includes(searchQuery.toLowerCase())),
     [projects, searchQuery]
   );
 
   const totalCount = projects.length;
-  const activeCount = projects.filter(p => !p.archived).length;
-  const archivedCount = projects.filter(p => p.archived).length;
+  const activeCount = projects.filter(p => !p.archived && !p.trashed).length;
+  const archivedCount = projects.filter(p => p.archived && !p.trashed).length;
+  const trashedCount = projects.filter(p => p.trashed).length;
 
   const cardBase = useMemo(() => ({
     background: isDark ? 'rgba(17,24,39,0.55)' : 'rgba(255,255,255,0.65)',
@@ -675,7 +702,7 @@ export default function Dashboard() {
       onClick={handleRootClick}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-thumb { background: ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)'}; border-radius: 4px; }
@@ -685,13 +712,31 @@ export default function Dashboard() {
         @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-        
+
+        /* Aurora mesh — slow drifting gradient blobs behind the canvas */
+        @keyframes auroraDrift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6%, 8%) scale(1.12); } }
+        @keyframes auroraDrift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-8%, 5%) scale(1.08); } }
+        @keyframes auroraDrift3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(4%, -6%) scale(1.15); } }
+        .aurora-blob { position: absolute; border-radius: 50%; filter: blur(90px); will-change: transform; }
+
+        /* Gradient brand / headline text */
+        .gradient-text {
+          font-family: 'Manrope', 'Inter', sans-serif;
+          background: ${isDark
+            ? 'linear-gradient(90deg, #A5B4FC 0%, #F8FAFC 45%, #67E8F9 100%)'
+            : 'linear-gradient(90deg, #4F46E5 0%, #0F172A 45%, #0EA5E9 100%)'};
+          background-size: 200% auto;
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          animation: gradientShift 6s ease infinite;
+        }
+        @keyframes gradientShift { 0% { background-position: 0% center; } 50% { background-position: 100% center; } 100% { background-position: 0% center; } }
+
         /* Smooth Breathing Aura instead of hard blinking */
         @keyframes smooth-breathe { 
-          0%, 100% { box-shadow: 0 0 10px rgba(185,28,28,0.4); transform: scale(1); } 
-          50% { box-shadow: 0 0 20px rgba(185,28,28,0.8); transform: scale(1.1); } 
+          0%, 100% { box-shadow: 0 0 10px rgba(99,102,241,0.4); transform: scale(1); } 
+          50% { box-shadow: 0 0 20px rgba(103,232,249,0.8); transform: scale(1.1); } 
         }
-        .pulse-dot { animation: smooth-breathe 3s ease-in-out infinite; }
+        .pulse-dot { animation: smooth-breathe 3s ease-in-out infinite; background: linear-gradient(135deg, #6366F1, #22D3EE) !important; }
         
         @keyframes spin { to { transform: rotate(360deg); } }
         
@@ -701,18 +746,42 @@ export default function Dashboard() {
         .glass-btn { transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1); }
         .glass-btn:hover { background: ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'} !important; transform: translateY(-2px); border-color: ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} !important; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         
-        .search-input:focus { border-color: ${isDark ? 'rgba(185,28,28,0.5)' : '#dc2626'} !important; box-shadow: 0 0 0 4px ${isDark ? 'rgba(185,28,28,0.1)' : 'rgba(220,38,38,0.1)'} !important; outline: none; }
-        .create-input:focus { border-color: ${isDark ? 'rgba(185,28,28,0.5)' : '#dc2626'} !important; box-shadow: 0 0 0 4px ${isDark ? 'rgba(185,28,28,0.1)' : 'rgba(220,38,38,0.1)'} !important; outline: none; }
+        .search-input:focus { border-color: ${isDark ? 'rgba(99,102,241,0.5)' : '#4F46E5'} !important; box-shadow: 0 0 0 4px ${isDark ? 'rgba(99,102,241,0.1)' : 'rgba(79,70,229,0.1)'} !important; outline: none; }
+        .create-input:focus { border-color: ${isDark ? 'rgba(99,102,241,0.5)' : '#4F46E5'} !important; box-shadow: 0 0 0 4px ${isDark ? 'rgba(99,102,241,0.1)' : 'rgba(79,70,229,0.1)'} !important; outline: none; }
         
-        .create-btn { transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1); }
-        .create-btn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-3px); box-shadow: 0 10px 25px rgba(185,28,28,0.4) !important; }
+        .create-btn {
+          position: relative; overflow: hidden;
+          background: ${isDark ? 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #22D3EE 100%)' : 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 50%, #0EA5E9 100%)'} !important;
+          background-size: 200% auto;
+          transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1), background-position 0.6s ease;
+        }
+        .create-btn::after {
+          content: ''; position: absolute; inset: 0; border-radius: inherit;
+          background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+          background-size: 250% 100%; background-position: 200% 0; pointer-events: none;
+        }
+        .create-btn:hover:not(:disabled) { background-position: right center !important; transform: translateY(-3px); box-shadow: 0 10px 28px rgba(99,102,241,0.45) !important; }
+        .create-btn:hover:not(:disabled)::after { animation: shimmerSweep 1.1s ease; }
+        @keyframes shimmerSweep { from { background-position: 200% 0; } to { background-position: -50% 0; } }
         .create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .tilt-card:hover { border-color: ${isDark ? 'rgba(185,28,28,0.4)' : 'rgba(185,28,28,0.3)'} !important; box-shadow: ${isDark ? '0 12px 45px rgba(0,0,0,0.6), 0 0 0 1px rgba(185,28,28,0.2)' : '0 12px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(185,28,28,0.15)'} !important; }
+        .tilt-card { position: relative; }
+        .tilt-card::before {
+          content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+          background: linear-gradient(120deg, transparent, ${isDark ? 'rgba(99,102,241,0.5)' : 'rgba(79,70,229,0.4)'}, ${isDark ? 'rgba(34,211,238,0.5)' : 'rgba(14,165,233,0.4)'}, transparent);
+          background-size: 250% 250%;
+          -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          -webkit-mask-composite: xor; mask-composite: exclude;
+          opacity: 0; transition: opacity 0.4s ease; pointer-events: none; z-index: 3;
+        }
+        .tilt-card:hover::before { opacity: 1; animation: borderSheen 2.4s linear infinite; }
+        @keyframes borderSheen { 0% { background-position: 0% 0%; } 100% { background-position: 250% 250%; } }
+        .tilt-card:hover { border-color: ${isDark ? 'rgba(99,102,241,0.4)' : 'rgba(99,102,241,0.3)'} !important; box-shadow: ${isDark ? '0 12px 45px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.2)' : '0 12px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(99,102,241,0.15)'} !important; transform: translateY(-4px); }
 
         .action-icon { transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1); border-radius: 8px; padding: 6px; display: inline-flex; align-items: center; justify-content: center; }
         .action-icon.archive-btn:hover { background: rgba(251,191,36,0.15) !important; color: #f59e0b !important; transform: scale(1.15) translateY(-2px); }
         .action-icon.delete-btn:hover  { background: rgba(239,68,68,0.15) !important; color: #ef4444 !important; transform: scale(1.15) translateY(-2px); }
+        .action-icon.trash-btn:hover   { background: rgba(239,68,68,0.15) !important; color: #ef4444 !important; transform: scale(1.15) translateY(-2px); }
         .action-icon.restore-btn:hover { background: rgba(34,197,94,0.15) !important; color: #22c55e !important; transform: scale(1.15) translateY(-2px); }
 
         .archive-card:hover { background: ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'} !important; border-color: ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} !important; transform: translateX(4px); }
@@ -725,6 +794,13 @@ export default function Dashboard() {
         .create-input::placeholder { color: ${isDark ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.6)'}; font-weight: 300; }
         .tw-cursor { display: inline-block; width: 2px; height: 1em; background: currentColor; margin-left: 2px; vertical-align: middle; animation: soft-blink 1.2s ease-in-out infinite; border-radius: 2px; opacity: 0.8; }
       `}</style>
+
+      {/* Living aurora mesh — soft drifting gradient blobs for ambient motion */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+        <div className="aurora-blob" style={{ width: '46vw', height: '46vw', top: '-12%', left: '-8%', background: isDark ? 'radial-gradient(circle, rgba(99,102,241,0.28), transparent 70%)' : 'radial-gradient(circle, rgba(99,102,241,0.16), transparent 70%)', animation: 'auroraDrift1 22s ease-in-out infinite' }} />
+        <div className="aurora-blob" style={{ width: '38vw', height: '38vw', top: '10%', right: '-10%', background: isDark ? 'radial-gradient(circle, rgba(34,211,238,0.22), transparent 70%)' : 'radial-gradient(circle, rgba(14,165,233,0.14), transparent 70%)', animation: 'auroraDrift2 26s ease-in-out infinite' }} />
+        <div className="aurora-blob" style={{ width: '34vw', height: '34vw', bottom: '-14%', left: '20%', background: isDark ? 'radial-gradient(circle, rgba(139,92,246,0.2), transparent 70%)' : 'radial-gradient(circle, rgba(124,58,237,0.12), transparent 70%)', animation: 'auroraDrift3 30s ease-in-out infinite' }} />
+      </div>
 
       <canvas ref={canvasRef} style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', zIndex: 0, pointerEvents: 'none' }} />
 
@@ -739,7 +815,7 @@ export default function Dashboard() {
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} project={ctxMenu.project} isDark={isDark}
           onOpen={() => navigate(`/module-hub?project=${ctxMenu.project.id}&name=${encodeURIComponent(ctxMenu.project.name)}`)}
           onArchive={() => archiveProject(ctxMenu.project.id, ctxMenu.project.name)}
-          onDelete={() => setDeleteTarget({ id: ctxMenu.project.id, name: ctxMenu.project.name })}
+          onTrash={() => trashProject(ctxMenu.project.id, ctxMenu.project.name)}
           onCopy={() => { navigator.clipboard.writeText(`${window.location.origin}/module-hub?project=${ctxMenu.project.id}&name=${encodeURIComponent(ctxMenu.project.name)}`); showToast('Link copied'); }}
           onClose={() => setCtxMenu(null)}
         />
@@ -749,20 +825,30 @@ export default function Dashboard() {
 
       {/* ── TOPBAR ── */}
       <header style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '70px', background: isDark ? 'linear-gradient(180deg, rgba(5,7,13,0.85) 0%, rgba(5,7,13,0.6) 100%)' : 'linear-gradient(180deg, rgba(245,247,255,0.9) 0%, rgba(245,247,255,0.7) 100%)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderBottomWidth: '1px', borderBottomStyle: 'solid', borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', zIndex: 100, boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: '800', letterSpacing: '2px', fontSize: '1rem', textShadow: isDark ? '0 0 20px rgba(255,255,255,0.2)' : 'none' }}>
-          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#b91c1c', border: '1px solid #ff4444' }} className="pulse-dot" />
-          REDWOOD
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: '800', letterSpacing: '2px', fontSize: '1rem' }}>
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#6366F1', border: '1px solid #22D3EE' }} className="pulse-dot" />
+          <span className="gradient-text" style={{ fontWeight: 800, letterSpacing: '2px' }}>REDWOOD</span>
         </div>
 
         <div style={{ flex: 1, maxWidth: '500px', position: 'relative', margin: '0 32px' }}>
           <Search size={16} strokeWidth={2.5} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }} />
-          <input type="text" className="search-input" placeholder="Search archives..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+          <input type="text" className="search-input" placeholder="Search ..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             style={{ width: '100%', padding: '12px 16px 12px 42px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', color: isDark ? '#f1f5f9' : '#0f172a', fontSize: '0.9rem', fontFamily: 'inherit', fontWeight: '300', transition: 'all 0.3s' }}
           />
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }}>
-          
+
+          {/* ── MY WORKSPACE: opens a drawer instead of pushing the grid down ── */}
+          <button
+            className="glass-btn aw-trigger-btn"
+            onClick={() => setIsMyWorkspaceOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '30px', borderWidth: '1px', borderStyle: 'solid', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', background: 'transparent', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500', fontFamily: 'inherit' }}
+          >
+            <Inbox size={15} /> My Workspace
+            {myWorkspaceUnseenCount > 0 && <span className="aw-trigger-badge">{myWorkspaceUnseenCount}</span>}
+          </button>
+
           {/* <-- 3. WIRE THE BOARD BUTTON TO STATE --> */}
           <button 
             className="glass-btn" 
@@ -833,7 +919,7 @@ export default function Dashboard() {
 
         {/* Page heading */}
         <div style={{ marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '3rem', fontWeight: '200', margin: '0 0 10px', letterSpacing: '-1px', color: isDark ? '#fff' : '#000' }}>Investment Memos</h2>
+          <h2 className="gradient-text" style={{ fontSize: '3rem', fontWeight: '700', margin: '0 0 10px', letterSpacing: '-1.5px' }}>Investment Memos</h2>
           <p style={{ margin: 0, color: isDark ? '#64748b' : '#64748b', fontSize: '1rem', fontWeight: '300', letterSpacing: '2px', textTransform: 'uppercase' }}>
             Collaborative Intelligence Layer · {active.length} active
           </p>
@@ -844,6 +930,8 @@ export default function Dashboard() {
           total={totalCount}
           active={activeCount}
           archived={archivedCount}
+          trashed={trashedCount}
+          onTrashClick={() => setIsTrashPanelOpen(true)}
           isDark={isDark}
         />
 
@@ -877,14 +965,22 @@ export default function Dashboard() {
             className="create-btn"
             onClick={createProject}
             disabled={creating || !newProjectName.trim()}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 28px', borderRadius: '12px', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', cursor: 'pointer', fontFamily: 'inherit', background: isDark ? '#b91c1c' : '#dc2626', color: '#fff', fontWeight: '700', fontSize: '1rem', boxShadow: '0 8px 20px rgba(185,28,28,0.3)', whiteSpace: 'nowrap' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 28px', borderRadius: '12px', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', cursor: 'pointer', fontFamily: 'inherit', background: isDark ? '#6366F1' : '#4F46E5', color: '#fff', fontWeight: '700', fontSize: '1rem', boxShadow: '0 8px 20px rgba(99,102,241,0.3)', whiteSpace: 'nowrap' }}
           >
             {creating ? <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={18} strokeWidth={2.5} />}
             {creating ? 'Initializing...' : 'Initialize'}
           </button>
         </div>
 
-        {/* Active grid */}
+        {/* Active Workspace */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <LayoutDashboard size={16} color={isDark ? '#94a3b8' : '#64748b'} strokeWidth={1.5} />
+          <span style={{ fontSize: '0.85rem', fontWeight: '600', letterSpacing: '0.1em', textTransform: 'uppercase', color: isDark ? '#94a3b8' : '#64748b' }}>
+            Active Workspace{active.length > 0 ? ` · ${active.length}` : ''}
+          </span>
+          <div style={{ flex: 1, height: '1px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }} />
+        </div>
+
         {active.length > 0 ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: '24px', marginBottom: '64px' }}>
             {active.map((project, i) => (
@@ -901,21 +997,31 @@ export default function Dashboard() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', minWidth: 0, flex: 1 }}>
-                    <div style={{ padding: '8px', background: isDark ? 'rgba(185,28,28,0.1)' : 'rgba(220,38,38,0.1)', borderRadius: '10px' }}>
-                      <FolderOpen size={20} color={isDark ? '#b91c1c' : '#dc2626'} style={{ flexShrink: 0 }} strokeWidth={2} />
+                    <div style={{ padding: '8px', background: isDark ? 'rgba(99,102,241,0.1)' : 'rgba(79,70,229,0.1)', borderRadius: '10px' }}>
+                      <FolderOpen size={20} color={isDark ? '#6366F1' : '#4F46E5'} style={{ flexShrink: 0 }} strokeWidth={2} />
                     </div>
                     <h3 style={{ margin: '4px 0 0 0', fontSize: '1.1rem', fontWeight: '600', lineHeight: 1.3, wordBreak: 'break-word' }}>
                       <HighlightText text={project.name} query={searchQuery} />
                     </h3>
                   </div>
-                  <button
-                    className="action-icon archive-btn"
-                    onClick={e => { e.stopPropagation(); archiveProject(project.id, project.name); }}
-                    title="Send to Archive"
-                    style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: isDark ? '#475569' : '#94a3b8', cursor: 'pointer', flexShrink: 0 }}
-                  >
-                    <Archive size={16} strokeWidth={2} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+                    <button
+                      className="action-icon archive-btn"
+                      onClick={e => { e.stopPropagation(); archiveProject(project.id, project.name); }}
+                      title="Send to Archive"
+                      style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: isDark ? '#475569' : '#94a3b8', cursor: 'pointer' }}
+                    >
+                      <Archive size={16} strokeWidth={2} />
+                    </button>
+                    <button
+                      className="action-icon trash-btn"
+                      onClick={e => { e.stopPropagation(); trashProject(project.id, project.name); }}
+                      title="Move to Trash"
+                      style={{ background: 'transparent', borderWidth: '0', borderStyle: 'solid', borderColor: 'transparent', color: isDark ? '#475569' : '#94a3b8', cursor: 'pointer' }}
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  </div>
                 </div>
                 <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: isDark ? '#64748b' : '#94a3b8' }}>
                   <span>Extracted: {formatTime(project.createdAt)}</span>
@@ -949,15 +1055,25 @@ export default function Dashboard() {
                   key={project.id}
                   project={project}
                   onRestore={restoreProject}
-                  onDelete={(p) => setDeleteTarget({ id: p.id, name: p.name })}
                   isDark={isDark}
                   searchQuery={searchQuery}
+                  showDeleteButton={false}
                 />
               ))}
             </div>
           </div>
         )}
       </main>
+
+      {/* ── MY WORKSPACE: always mounted so the header badge stays live; drawer body only shows when open ── */}
+      <MyWorkspacePanel
+        isDark={isDark}
+        navigate={navigate}
+        projects={projects}
+        isOpen={isMyWorkspaceOpen}
+        onClose={() => setIsMyWorkspaceOpen(false)}
+        onUnseenCountChange={setMyWorkspaceUnseenCount}
+      />
 
       {/* <-- 4. RENDER GLOBAL BOARD --> */}
       {isGlobalBoardOpen && (
@@ -999,6 +1115,36 @@ export default function Dashboard() {
                   </div>
                 </div>
               )) : <div style={{ textAlign: 'center', padding: '40px 20px', color: isDark ? '#64748b' : '#94a3b8', fontStyle: 'italic', fontSize: '0.9rem' }}>No activity recorded yet.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TRASH PANEL ── */}
+      {isTrashPanelOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fadeIn 0.2s ease' }} onClick={() => setIsTrashPanelOpen(false)}>
+          <div style={{ width: '400px', height: '100%', background: isDark ? '#0f172a' : '#ffffff', borderLeft: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, display: 'flex', flexDirection: 'column', animation: 'slideLeft 0.3s cubic-bezier(0.23,1,0.32,1)', boxShadow: '-10px 0 40px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '24px', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}><Trash2 size={18} color="#ef4444" /> Trash · {trashedList.length}</h3>
+              <button onClick={() => setIsTrashPanelOpen(false)} style={{ background: 'none', border: 'none', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+              {trashedList.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {trashedList.map(project => (
+                    <ArchivedCard
+                      key={project.id}
+                      project={project}
+                      onRestore={restoreProject}
+                      onDelete={(p) => setDeleteTarget({ id: p.id, name: p.name })}
+                      isDark={isDark}
+                      searchQuery={searchQuery}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: isDark ? '#64748b' : '#94a3b8', fontStyle: 'italic', fontSize: '0.9rem' }}>Trash is empty.</div>
+              )}
             </div>
           </div>
         </div>

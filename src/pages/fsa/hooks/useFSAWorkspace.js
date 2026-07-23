@@ -24,7 +24,13 @@ const [activeItemsMap, setActiveItemsMap] = useState({});     // ← ADD THIS
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
-    const [theme, setTheme] = useState('dark'); // Global SaaS visual theme
+    const [theme, setTheme] = useState(() => {
+        try {
+            const saved = localStorage.getItem('redwood-theme');
+            if (saved === 'dark' || saved === 'light') return saved;
+        } catch { /* ignore */ }
+        return 'dark';
+    }); // Global SaaS visual theme - starts from the shared cross-page preference,
 
     // Persistence Timeout tracking for rapid input editing
     const saveTimeoutRef = useRef(null);
@@ -219,6 +225,7 @@ const updateDataPath = useCallback((docKey, sectionKey, itemKey, numericValue, y
                 const docRef = doc(db, 'projects', projectId, 'fsa', fsaId);
                 updateDoc(docRef, { 'themeOptions.mode': newMode }).catch(() => {});
             }
+            try { localStorage.setItem('redwood-theme', newMode); } catch { /* ignore */ }
             return newMode;
         });
     }, [projectId, fsaId]);

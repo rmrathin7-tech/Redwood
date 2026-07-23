@@ -37,6 +37,37 @@ export default function CommentsSidebar({
   const [drafts, setDrafts] = useState({}); // commentId -> text
   const [selectionPopup, setSelectionPopup] = useState(null);
 
+  // ── PROFESSIONAL ICON-BUTTON HOVER STYLES (close, delete, etc) ────────────
+  useEffect(() => {
+    if (document.getElementById('im-icon-btn-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'im-icon-btn-styles';
+    s.textContent = `
+      .im-icon-btn {
+        transition: background-color 0.16s ease, color 0.16s ease, transform 0.1s ease;
+        border-radius: 8px;
+      }
+      .im-icon-btn:hover {
+        background-color: rgba(148,163,184,0.14) !important;
+        transform: translateY(-1px);
+      }
+      .im-icon-btn:active { transform: translateY(0); }
+      .im-icon-btn.im-icon-btn-danger:hover {
+        background-color: rgba(239,68,68,0.14) !important;
+        color: #ef4444 !important;
+      }
+      .im-pill-btn:hover:not(:disabled) {
+        filter: brightness(1.12);
+        transform: translateY(-1px);
+      }
+      .im-pill-btn:active:not(:disabled) { transform: translateY(0); }
+      .im-pill-btn-danger:hover:not(:disabled) {
+        background-color: rgba(239,68,68,0.22) !important;
+      }
+    `;
+    document.head.appendChild(s);
+  }, []);
+
   // ── INTELLIGENT TEXT SELECTION LISTENER ───────────────────────────────────
   useEffect(() => {
     const handleMouseUp = (e) => {
@@ -98,6 +129,7 @@ export default function CommentsSidebar({
             curr = curr.parentNode;
           }
 
+          console.log('[CMT-DEBUG] selection captured →', { text, blockLabel, blockPath, blockId });
           setSelectionPopup({ text, label: blockLabel, path: blockPath, blockId, x, y, startOffset, endOffset });
         } else {
           setSelectionPopup(null);
@@ -167,6 +199,15 @@ export default function CommentsSidebar({
 
 
 
+  // ── MARK SEEN: whenever a comment is opened (activeId set), stamp readBy ──
+  useEffect(() => {
+    if (!activeId || !user) return;
+    const c = comments.find(x => x.id === activeId);
+    if (!c || (c.readBy || []).includes(user.uid)) return;
+    const ref = c._docId ? doc(db, 'im-comments', c._docId) : null;
+    if (ref) updateDoc(ref, { readBy: arrayUnion(user.uid) }).catch(() => {});
+  }, [activeId, comments, user]);
+
   // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
   useEffect(() => {
     if (!isOpen) {
@@ -212,6 +253,7 @@ export default function CommentsSidebar({
         createdAt: serverTimestamp(),
         replies: [],
         firstComment: '',
+        readBy: [user.uid], // creator has "seen" their own comment
       });
       setActiveId(commentId);
       setShowResolved(false);
@@ -277,6 +319,7 @@ export default function CommentsSidebar({
         author: { uid: user.uid, email: user.email },
         createdAt: new Date().toISOString(),
       }),
+      readBy: [user.uid], // new activity - mark unseen for everyone else again
     });
     setNewCommentText(p => ({ ...p, [commentId]: '' }));
   }, [newCommentText, user, findDoc]);
@@ -293,6 +336,7 @@ export default function CommentsSidebar({
         author: { uid: user.uid, email: user.email },
         createdAt: new Date().toISOString(),
       }),
+      readBy: [user.uid], // new activity - mark unseen for everyone else again
     });
     setReplyText(p => ({ ...p, [commentId]: '' }));
   }, [replyText, user, findDoc]);
@@ -319,8 +363,11 @@ export default function CommentsSidebar({
   const handleAssign = useCallback(async (commentId, uid, email) => {
     const d = await findDoc(commentId);
     if (!d) return;
-    await updateDoc(d.ref, { assignee: uid ? { uid, email } : null });
-  }, [findDoc]);
+    await updateDoc(d.ref, {
+      assignee: uid ? { uid, email } : null,
+      readBy: user ? [user.uid] : [], // mark unseen for the newly assigned person
+    });
+  }, [findDoc, user]);
 
   const handleDelete = useCallback(async (commentId) => {
     if (!window.confirm('Delete this comment thread?')) return;
@@ -400,6 +447,7 @@ export default function CommentsSidebar({
           }}
           onClick={() => {
             const commentId = `cmt_${crypto.randomUUID().split('-')[0]}`;
+            console.log('[CMT-DEBUG] dispatching im-create-comment →', { commentId, dataPath: selectionPopup.path, quote: selectionPopup.text });
             window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
             window.dispatchEvent(new CustomEvent('im-create-comment', {
               detail: {
@@ -449,11 +497,16 @@ export default function CommentsSidebar({
             </span>
             {openComments.length > 0 && (
               <span style={{ background: T.amberBg, color: T.amber, fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1px 7px' }}>
-                {openComments.length}
+                {openComments.length} open
+              </span>
+            )}
+            {resolvedComments.length > 0 && (
+              <span style={{ background: isDark ? 'rgba(74,222,128,0.12)' : 'rgba(22,163,74,0.1)', color: isDark ? '#4ade80' : '#16a34a', fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1px 7px' }}>
+                {resolvedComments.length} resolved
               </span>
             )}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, padding: 4, borderRadius: 5, display: 'flex' }}>
+          <button onClick={onClose} className="im-icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, padding: 6, borderRadius: 8, display: 'flex' }}>
             <X size={15} />
           </button>
         </div>
@@ -788,7 +841,8 @@ const CommentCard = React.forwardRef(function CommentCard({
                       <button
                         onClick={() => onDeleteReply(reply.id)}
                         title="Delete reply"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, padding: 2, borderRadius: 4, display: 'flex' }}
+                        className="im-icon-btn im-icon-btn-danger"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, padding: 4, borderRadius: 6, display: 'flex' }}
                       >
                         <Trash2 size={10} />
                       </button>
@@ -899,15 +953,16 @@ function Btn({ children, icon, bg, danger, secondary, T, onClick, disabled }) {
     <button
       onClick={onClick}
       disabled={disabled}
+      className={`im-pill-btn ${danger ? 'im-pill-btn-danger' : ''}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
         background: danger ? 'rgba(239,68,68,0.12)' : secondary ? 'transparent' : (bg || '#ef4444'),
         color:      danger ? '#ef4444'               : secondary ? (T?.textMuted || '#94a3b8') : '#fff',
         border:     secondary ? `1px solid ${T?.border || 'rgba(255,255,255,0.08)'}` : 'none',
-        borderRadius: 5, padding: '4px 9px', fontSize: 11,
+        borderRadius: 7, padding: '5px 10px', fontSize: 11,
         fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
-        transition: 'opacity 0.15s, background 0.15s',
+        transition: 'opacity 0.15s ease, background-color 0.15s ease, transform 0.1s ease',
         fontFamily: 'inherit',
       }}
     >

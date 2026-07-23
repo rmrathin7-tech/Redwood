@@ -1,4 +1,12 @@
-/* Nuke browser defaults */
+/* =========================================================
+   GLOBAL RESET
+   ========================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -7,9 +15,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
   background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
-/* Let the app take up the full screen! */
 #root {
   width: 100vw;
   min-height: 100vh;
@@ -17,38 +26,109 @@ body {
   flex-direction: column;
 }
 
-/* ── BASE DARK MODE (DEFAULT) ── */
-:root, [data-theme="dark"] {
-  --bg-primary: #0F172A;
-  --bg-secondary: #1E293B;
-  --bg-tertiary: rgba(0, 0, 0, 0.3);
-  --bg-hover: rgba(255, 255, 255, 0.05);
-  
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.15);
-  
-  --accent-color: #6366F1;
-  --accent-text: #818CF8;
+::selection {
+  background: var(--accent-selection);
+  color: var(--text-on-accent);
 }
 
-/* ── LIGHT MODE OVERRIDES ── */
+/* =========================================================
+   DESIGN TOKENS
+   A modern indigo / violet / cyan "aurora" SaaS palette.
+   ========================================================= */
+
+/* ── DARK MODE (DEFAULT) ── */
+:root, [data-theme="dark"] {
+  /* Surfaces */
+  --bg-primary: #05070D;
+  --bg-secondary: #0F1320;
+  --bg-tertiary: rgba(255, 255, 255, 0.03);
+  --bg-elevated: rgba(17, 20, 34, 0.65);
+  --bg-hover: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --text-on-accent: #FFFFFF;
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Brand / Accent — indigo → violet → cyan */
+  --accent-color: #6366F1;
+  --accent-color-2: #8B5CF6;
+  --accent-color-3: #22D3EE;
+  --accent-text: #A5B4FC;
+  --accent-gradient: linear-gradient(135deg, #6366F1 0%, #8B5CF6 55%, #22D3EE 100%);
+  --accent-glow: rgba(99, 102, 241, 0.35);
+  --accent-selection: rgba(99, 102, 241, 0.35);
+
+  /* Semantic */
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #0EA5E9;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 8px 24px var(--accent-glow);
+}
+
+/* ── LIGHT MODE ── */
 [data-theme="light"] {
   --bg-primary: #F8FAFC;
   --bg-secondary: #FFFFFF;
-  --bg-tertiary: rgba(0, 0, 0, 0.03);
-  --bg-hover: rgba(0, 0, 0, 0.04);
-  
+  --bg-tertiary: rgba(15, 23, 42, 0.03);
+  --bg-elevated: rgba(255, 255, 255, 0.75);
+  --bg-hover: rgba(15, 23, 42, 0.04);
+
   --text-primary: #0F172A;
   --text-secondary: #475569;
   --text-muted: #94A3B8;
-  
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.15);
-  
+  --text-on-accent: #FFFFFF;
+
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.16);
+
   --accent-color: #4F46E5;
+  --accent-color-2: #7C3AED;
+  --accent-color-3: #0EA5E9;
   --accent-text: #4338CA;
+  --accent-gradient: linear-gradient(135deg, #4F46E5 0%, #7C3AED 55%, #0EA5E9 100%);
+  --accent-glow: rgba(79, 70, 229, 0.22);
+  --accent-selection: rgba(79, 70, 229, 0.2);
+
+  --success: #16A34A;
+  --warning: #D97706;
+  --danger: #DC2626;
+  --info: #0284C7;
+
+  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 30px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.12);
+  --shadow-glow: 0 8px 24px var(--accent-glow);
+}
+
+/* =========================================================
+   TYPE SCALE (used by anything opting in)
+   ========================================================= */
+.heading-font { font-family: 'Manrope', 'Inter', sans-serif; }
+
+.text-gradient {
+  font-family: 'Manrope', 'Inter', sans-serif;
+  background: var(--accent-gradient);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradientShift 6s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+  100% { background-position: 0% center; }
 }

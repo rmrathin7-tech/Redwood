@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Sun, Moon, Menu,
@@ -38,7 +39,7 @@ export default function FCWorkspace() {
   const [activeSection, setActiveSection] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [saveStatus, setSaveStatus] = useState('idle');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [sectionTransition, setSectionTransition] = useState(false);

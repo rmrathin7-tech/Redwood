@@ -47,6 +47,46 @@ const sweepBase64Images = async (quill, dataPath) => {
   return updatedAny;
 };
 
+// ── WORD/DOCS TABLE-CELL NORMALIZER ────────────────────────────────────────
+// Word and Google Docs export table cells that contain a bulleted list (or
+// any multi-line content) as MULTIPLE <p>/<li> elements inside one <td>.
+// Quill's built-in table module only supports a single paragraph per cell —
+// when it hits the 2nd+ paragraph inside a <td>, it pulls that content OUT
+// of the table and re-inserts it as a brand new, empty-looking table. That
+// is the exact bug where a clean 2-column table turns into a mess of stray
+// boxes after paste.
+//
+// Fix: before Quill's clipboard module ever sees the pasted HTML, walk every
+// <td>/<th> and collapse its paragraphs/list items into ONE paragraph
+// joined by <br>, so each cell round-trips as a single block. No content is
+// lost — bullets are kept as "• " text markers — and nothing about the
+// table module, toolbar buttons, or existing paste/image logic changes.
+const normalizeWordTableCellsHTML = (html) => {
+  if (!html || !/<table/i.test(html)) return html; // only touch table paste, leave everything else untouched
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('td, th').forEach((cell) => {
+      const blocks = Array.from(cell.querySelectorAll(':scope > p, :scope > div, :scope > li'));
+      if (blocks.length <= 1) return; // already a single block, nothing to fix
+
+      const merged = document.createElement('p');
+      blocks.forEach((block, i) => {
+        if (i > 0) merged.appendChild(document.createElement('br'));
+        if (block.tagName === 'LI') merged.appendChild(document.createTextNode('• '));
+        while (block.firstChild) merged.appendChild(block.firstChild); // keep bold/italic/underline etc. intact
+        block.remove();
+      });
+
+      cell.innerHTML = '';
+      cell.appendChild(merged);
+    });
+    return doc.body.innerHTML;
+  } catch (err) {
+    console.error('Table cell normalization failed, pasting original content:', err);
+    return html; // fail safe: never block a paste, worst case old behavior returns
+  }
+};
+
 // ── COMMENT BLOT ───────────────────────────────────────────────────────────────
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
@@ -63,11 +103,11 @@ if (!Quill.imports['formats/comment']) {
     static applyStyle(node, status) {
       if (status === 'resolved') {
         node.style.backgroundColor = 'transparent';
-        node.style.borderBottom = 'none';
+        node.style.boxShadow = 'none';
         node.style.cursor = 'inherit';
       } else {
-        node.style.backgroundColor = 'rgba(245,158,11,0.28)';
-        node.style.borderBottom = '2px solid #f59e0b';
+        node.style.backgroundColor = 'rgba(245,158,11,0.22)';
+        node.style.boxShadow = 'inset 0 -2px 0 0 rgba(245,158,11,0.75)';
       }
     }
     static formats(node) {
@@ -96,17 +136,20 @@ if (!document.getElementById(STYLE_ID)) {
   s.id = STYLE_ID;
   s.textContent = `
     mark.im-comment-highlight {
-      background-color: rgba(245,158,11,0.28) !important;
-      border-bottom: 2px solid #f59e0b !important;
-      border-radius: 0 !important; padding: 0 !important; margin: 0 !important;
+      background: linear-gradient(0deg, rgba(245,158,11,0.35) 0%, rgba(245,158,11,0.16) 100%) !important;
+      box-shadow: inset 0 -2px 0 0 rgba(245,158,11,0.85) !important;
+      border-radius: 4px !important; padding: 1px 2px !important; margin: 0 !important;
       display: inline !important; line-height: inherit !important;
-      cursor: pointer !important; transition: background-color 0.15s;
+      cursor: pointer !important; transition: background 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
       color: inherit !important;
     }
-    mark.im-comment-highlight:hover { background-color: rgba(245,158,11,0.45) !important; }
+    mark.im-comment-highlight:hover {
+      filter: brightness(1.08);
+      box-shadow: inset 0 -2px 0 0 #f59e0b, 0 1px 6px rgba(245,158,11,0.35) !important;
+    }
     mark.im-comment-highlight[data-comment-status="resolved"] {
       background-color: transparent !important;
-      border-bottom: none !important;
+      box-shadow: none !important;
       cursor: inherit !important;
     }
     .active-comment-glow {
@@ -398,6 +441,26 @@ function FullscreenEditor({
         }
       }
     });
+
+    // ── TABLE PASTE FIX ──────────────────────────────────────────────────────
+    // MUST be attached on the CONTAINER (an ancestor of quill.root), in the
+    // CAPTURE phase. Quill's own Clipboard module attaches its paste handler
+    // directly on quill.root the moment `new Quill()` runs above — if we
+    // attach on that same element, ours fires SECOND (registration order),
+    // by which point Quill has already parsed+inserted the broken table.
+    // A capture-phase listener on an ancestor always runs before any listener
+    // on the target itself, so this lets us intercept and stop the event
+    // before Quill ever sees it, only for table paste (everything else is
+    // untouched and still goes to Quill/the image-paste logic above).
+    paperRef.current.addEventListener('paste', (e) => {
+      const html = e.clipboardData?.getData('text/html');
+      if (!html || !/<table/i.test(html)) return; // not a table paste, let it through untouched
+      e.preventDefault();
+      e.stopPropagation();
+      const cleaned = normalizeWordTableCellsHTML(html);
+      const range = quillRef.current.getSelection(true) || { index: quillRef.current.getLength() };
+      quillRef.current.clipboard.dangerouslyPasteHTML(range.index, cleaned, 'user');
+    }, true); // capture: true is required
 
     quillRef.current.root.addEventListener('drop', (e) => {
       const files = e.dataTransfer?.files;
@@ -946,7 +1009,8 @@ export default function RichTextBlock({
   };
 
   useEffect(() => {
-    if (!editorRef.current || !toolbarRef.current || quillInstance.current) return;
+    if (!editorRef.current || !toolbarRef.current) return;
+    const isNewInstance = !quillInstance.current;
 
     function imageUploadHandler() {
       const input = document.createElement('input');
@@ -966,7 +1030,8 @@ export default function RichTextBlock({
       };
     }
 
-    quillInstance.current = new Quill(editorRef.current, {
+    if (isNewInstance) {
+      quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
       placeholder: usePlaceholderGuide ? '' : (placeholderText || 'Start writing…'),
       modules: {
@@ -1025,6 +1090,20 @@ export default function RichTextBlock({
         }
       }
     });
+
+    // ── TABLE PASTE FIX ──────────────────────────────────────────────────────
+    // Attached on the CONTAINER (ancestor of quill.root) in the CAPTURE phase —
+    // see the matching comment in the fullscreen editor above for why this has
+    // to be on an ancestor, in capture phase, rather than on quill.root itself.
+    editorRef.current.addEventListener('paste', (e) => {
+      const html = e.clipboardData?.getData('text/html');
+      if (!html || !/<table/i.test(html)) return; // not a table paste, let it through untouched
+      e.preventDefault();
+      e.stopPropagation();
+      const cleaned = normalizeWordTableCellsHTML(html);
+      const range = quillInstance.current.getSelection(true) || { index: quillInstance.current.getLength() };
+      quillInstance.current.clipboard.dangerouslyPasteHTML(range.index, cleaned, 'user');
+    }, true); // capture: true is required
 
     quillInstance.current.root.addEventListener('drop', (e) => {
       const files = e.dataTransfer?.files;
@@ -1101,6 +1180,7 @@ export default function RichTextBlock({
         }
       }, 150);
     });
+    } // Close isNewInstance block
 
     const onCommentUpdate = (e) => {
       const { commentId, status } = e.detail;
@@ -1111,8 +1191,8 @@ export default function RichTextBlock({
           span.replaceWith(textNode);
         } else {
           span.setAttribute('data-comment-status', status);
-          span.style.backgroundColor = 'rgba(245,158,11,0.28)';
-          span.style.borderBottom = '2px solid #f59e0b';
+          span.style.backgroundColor = 'rgba(245,158,11,0.22)';
+          span.style.boxShadow = 'inset 0 -2px 0 0 rgba(245,158,11,0.75)';
         }
       });
       if (quillInstance.current) quillInstance.current.root.normalize(); 

@@ -145,12 +145,16 @@ export default function CommentSVGOverlay() {
       <path
         ref={pathRef}
         fill="none"
-        stroke="#f59e0b" // Amber accent mapping to the active comment styles
+        stroke="#f59e0b"
         strokeWidth="2"
-        strokeDasharray="5 5"
+        strokeDasharray="6 6"
         strokeLinecap="round"
-        style={{ filter: 'drop-shadow(0 2px 6px rgba(245,158,11,0.4))' }}
+        style={{
+          filter: 'drop-shadow(0 2px 6px rgba(245,158,11,0.4))',
+          animation: 'im-comment-string-march 0.6s linear infinite',
+        }}
       />
+      <style>{`@keyframes im-comment-string-march { to { stroke-dashoffset: -24; } }`}</style>
     </svg>
   );
 }

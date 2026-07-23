@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useThemePreference } from '../../hooks/useThemePreference.js';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../../firebase';
@@ -54,7 +55,7 @@ export default function ProfilingWorkspace() {
   const projectId = searchParams.get('project');
   const projectName = searchParams.get('name') || 'Global Network';
 
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useThemePreference();
   const isDark = theme === 'dark';
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
