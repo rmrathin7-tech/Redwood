@@ -66,7 +66,7 @@ const buildIndex = (schema, imData, customNames, sectionNumberMap) => {
 };
 
 export default function IMSearchWidget({ 
-  imData, schema = [], customNames = {}, sectionNumberMap = {}, onClose, isDark = true, onSingleReplace, onBatchReplace 
+  imData, schema = [], customNames = {}, sectionNumberMap = {}, onClose, isDark = false, onSingleReplace, onBatchReplace 
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [replaceTerm, setReplaceTerm] = useState('');
@@ -229,7 +229,7 @@ export default function IMSearchWidget({
     if (Object.keys(updates).length > 0) onBatchReplace(updates);
   };
 
-// ── DRAG HANDLERS ──
+// ââ DRAG HANDLERS ââ
   const handlePointerDown = (e) => {
     isDragging.current = true;
     dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };

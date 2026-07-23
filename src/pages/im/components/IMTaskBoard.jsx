@@ -22,7 +22,7 @@ const DEFAULT_COLUMNS = [
   { id: 'approved', label: 'Approved', color: '#10b981' }
 ];
 
-export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, initialTaskId = null }) {
+export default function IMTaskBoard({ imId, projectId, isDark = false, onClose, initialTaskId = null }) {
   const currentUser = auth.currentUser;
   const [viewMode, setViewMode] = useState('matrix'); // Default to Operations Matrix
   
@@ -70,7 +70,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     return text.replace(/^([0-9]+\.)+\s*/, '');
   };
 
-  // ── INTERACTIVE CANVAS ENGINE ──
+  // ââ INTERACTIVE CANVAS ENGINE ââ
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -147,7 +147,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
   }, [isDark]);
 
 
-  // ── DATA SUBSCRIPTIONS ──
+  // ââ DATA SUBSCRIPTIONS ââ
   useEffect(() => {
     if (!imId) return;
     const unsubs = [];
@@ -181,7 +181,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     return () => unsubs.forEach(u => u());
   }, [imId]);
 
-  // ── DEEP LINK: auto-open a specific task's detail modal ──
+  // ââ DEEP LINK: auto-open a specific task's detail modal ââ
   const [deepLinkHandled, setDeepLinkHandled] = useState(false);
   useEffect(() => {
     if (!initialTaskId || deepLinkHandled || tasks.length === 0) return;
@@ -193,7 +193,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
   }, [initialTaskId, tasks, deepLinkHandled]);
 
 
-  // ── COMPUTED PROPERTIES ──
+  // ââ COMPUTED PROPERTIES ââ
   const visibleSchema = useMemo(() => {
     return schema.filter(s => !excludedSections.includes(s.id));
   }, [schema, excludedSections]);
@@ -363,7 +363,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     };
   }, [columns, filteredTasks, getDueDateState]);
 
-  // ── COMMENT ANALYTICS & SLA ENGINE ──
+  // ââ COMMENT ANALYTICS & SLA ENGINE ââ
   const commentStatsBySection = useMemo(() => {
     const stats = {};
     schema.forEach(sec => {
@@ -433,7 +433,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     if (onClose) onClose();
   };
 
-  // ── INLINE MUTATIONS ──
+  // ââ INLINE MUTATIONS ââ
   const handleUpdateTaskField = async (taskId, field, userId) => {
     const user = workspaceUsers.find(u => u.userId === userId);
     const payload = user ? { uid: user.userId, email: user.email } : null;
@@ -540,7 +540,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     });
   };
 
-  // ── DRAG AND DROP ──
+  // ââ DRAG AND DROP ââ
   const handleDragStart = (e, taskId) => { e.dataTransfer.setData('taskId', taskId); e.currentTarget.style.opacity = '0.4'; };
   const handleDragEnd = (e) => { e.currentTarget.style.opacity = '1'; };
   const handleDragOver = (e) => { e.preventDefault(); e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'; };
@@ -551,7 +551,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     if (taskId) handleUpdateStatus(taskId, newStatus);
   };
 
-  // ── MODAL & SAVING LOGIC ──
+  // ââ MODAL & SAVING LOGIC ââ
   const openEditModal = (task) => {
     setEditingTaskId(task.id);
     setNewTask({
@@ -680,7 +680,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
     });
   };
 
-  // ── RENDERERS ──
+  // ââ RENDERERS ââ
 
   const renderToolbar = () => (
     <div style={{ padding: '0 32px 20px', borderBottom: `1px solid ${T.border}`, marginBottom: '24px', position: 'relative', zIndex: 10 }}>
@@ -1136,7 +1136,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
         {excludedSectionsWithComments.length > 0 && (
           <div style={{ borderTop: `2px dashed rgba(239,68,68,0.3)`, background: isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.02)' }}>
             <div style={{ padding: '16px 24px', fontSize: '0.75rem', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              ⚠️ Archived / Excluded Sections (With Active Comments)
+              â ï¸ Archived / Excluded Sections (With Active Comments)
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1214,7 +1214,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
         </main>
       </div>
 
-      {/* ── CREATE / EDIT ALLOCATION MODAL (STRUCTURAL/WIDE LAYOUT) ── */}
+      {/* ââ CREATE / EDIT ALLOCATION MODAL (STRUCTURAL/WIDE LAYOUT) ââ */}
       {isCreateModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '16px', width: '850px', maxWidth: '95vw', boxShadow: '0 24px 60px rgba(0,0,0,0.5)', overflow: 'hidden', display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease' }}>
@@ -1317,7 +1317,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
         </div>
       )}
 
-      {/* ── TRELLO-STYLE TASK DETAIL MODAL ── */}
+      {/* ââ TRELLO-STYLE TASK DETAIL MODAL ââ */}
       {isDetailModalOpen && activeTask && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 0' }}>
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: '12px', width: '750px', maxWidth: '95vw', maxHeight: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.5)', overflow: 'hidden', display: 'flex', flexDirection: 'column', animation: 'imFadeIn 0.2s ease' }}>
@@ -1420,7 +1420,7 @@ export default function IMTaskBoard({ imId, projectId, isDark = true, onClose, i
         </div>
       )}
 
-      {/* ── CSS INJECTIONS ── */}
+      {/* ââ CSS INJECTIONS ââ */}
       <style>{`
         .glass-select option {
           background-color: ${T.surface};

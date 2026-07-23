@@ -4,7 +4,7 @@ import BlockRegistry from './BlockRegistry';
 import { GitBranch, CheckCircle2 } from 'lucide-react';
 
 export default function ConditionalSwitcherBlock({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark = false,
   excludedSections = [], customNames = {}
 }) {
   // val typically looks like: { activeBranch: 'some-id', [branchId]: { ...data } }

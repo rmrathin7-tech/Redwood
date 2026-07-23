@@ -4,7 +4,7 @@ import BlockWrapper from './BlockWrapper.jsx';
 import BlockRegistry from './BlockRegistry.jsx';
 
 export default function RepeatingBlockSet({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark = false,
   excludedSections = [], customNames = {}
 }) {
   // Value payload expects: { instances: [ { _setId: '123', name: '...', sub_table_1: {...} } ] }

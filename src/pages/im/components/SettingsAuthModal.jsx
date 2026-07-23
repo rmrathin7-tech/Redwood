@@ -4,7 +4,7 @@ import { db, auth } from '../../../firebase.js';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 
-export default function SettingsAuthModal({ imId, projectId, projectName, isDark = true, onClose }) {
+export default function SettingsAuthModal({ imId, projectId, projectName, isDark = false, onClose }) {
   const navigate = useNavigate();
   const [view, setView] = useState('menu'); // 'menu', 'auth-master', 'auth-dossier', 'auth-change', 'change-pins'
   const [pinInput, setPinInput] = useState('');
@@ -15,7 +15,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
   const [newDossierPin, setNewDossierPin] = useState('');
   const [newSuperPin, setNewSuperPin] = useState('');
 
-  // ── GUIDED TOUR STATE ──
+  // ââ GUIDED TOUR STATE ââ
   const [showTour, setShowTour] = useState(false);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
     amber:      '#f59e0b',
   };
 
-  // ── 1. BOOTSTRAP PINS ON LOAD ──
+  // ââ 1. BOOTSTRAP PINS ON LOAD ââ
   useEffect(() => {
     const bootstrapSecurity = async () => {
       const ref = doc(db, 'config', 'security');
@@ -75,7 +75,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
     bootstrapSecurity();
   }, []);
 
-  // ── 2. HANDLE PIN SUBMISSION ──
+  // ââ 2. HANDLE PIN SUBMISSION ââ
   const handleAuthSubmit = async () => {
     setError('');
     const ref = doc(db, 'config', 'security');
@@ -102,7 +102,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
     }
   };
 
-  // ── 3. SAVE NEW PINS ──
+  // ââ 3. SAVE NEW PINS ââ
   const handleSavePins = async () => {
     if (!newMasterPin || !newDossierPin || !newSuperPin) {
       setError('All fields are required.');
@@ -125,7 +125,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
     if (e.key === 'Enter') handleAuthSubmit();
   };
 
-  // ── RENDER ──
+  // ââ RENDER ââ
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 16, width: '100%', maxWidth: 420, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
@@ -281,7 +281,7 @@ export default function SettingsAuthModal({ imId, projectId, projectName, isDark
   );
 }
 
-// ── STYLE HELPER ──
+// ââ STYLE HELPER ââ
 function btnStyle(T, isPrimary) {
   return {
     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',

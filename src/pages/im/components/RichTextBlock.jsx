@@ -15,7 +15,7 @@ Quill.register('modules/imageResize', ImageResize);
 const storage = getStorage();
 const COMMENT_DOM_SETTLEMENT_DELAY_MS = 50;
 
-// ── BASE64 IMAGE SWEEPER ──────────────────────────────────────────────────────
+// ââ BASE64 IMAGE SWEEPER ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const sweepBase64Images = async (quill, dataPath) => {
   if (!quill || !quill.root) return false;
   const images = quill.root.querySelectorAll('img[src^="data:image/"]');
@@ -47,10 +47,10 @@ const sweepBase64Images = async (quill, dataPath) => {
   return updatedAny;
 };
 
-// ── WORD/DOCS TABLE-CELL NORMALIZER ────────────────────────────────────────
+// ââ WORD/DOCS TABLE-CELL NORMALIZER ââââââââââââââââââââââââââââââââââââââââ
 // Word and Google Docs export table cells that contain a bulleted list (or
 // any multi-line content) as MULTIPLE <p>/<li> elements inside one <td>.
-// Quill's built-in table module only supports a single paragraph per cell —
+// Quill's built-in table module only supports a single paragraph per cell â
 // when it hits the 2nd+ paragraph inside a <td>, it pulls that content OUT
 // of the table and re-inserts it as a brand new, empty-looking table. That
 // is the exact bug where a clean 2-column table turns into a mess of stray
@@ -59,7 +59,7 @@ const sweepBase64Images = async (quill, dataPath) => {
 // Fix: before Quill's clipboard module ever sees the pasted HTML, walk every
 // <td>/<th> and collapse its paragraphs/list items into ONE paragraph
 // joined by <br>, so each cell round-trips as a single block. No content is
-// lost — bullets are kept as "• " text markers — and nothing about the
+// lost â bullets are kept as "â¢ " text markers â and nothing about the
 // table module, toolbar buttons, or existing paste/image logic changes.
 const normalizeWordTableCellsHTML = (html) => {
   if (!html || !/<table/i.test(html)) return html; // only touch table paste, leave everything else untouched
@@ -72,7 +72,7 @@ const normalizeWordTableCellsHTML = (html) => {
       const merged = document.createElement('p');
       blocks.forEach((block, i) => {
         if (i > 0) merged.appendChild(document.createElement('br'));
-        if (block.tagName === 'LI') merged.appendChild(document.createTextNode('• '));
+        if (block.tagName === 'LI') merged.appendChild(document.createTextNode('â¢ '));
         while (block.firstChild) merged.appendChild(block.firstChild); // keep bold/italic/underline etc. intact
         block.remove();
       });
@@ -87,7 +87,7 @@ const normalizeWordTableCellsHTML = (html) => {
   }
 };
 
-// ── COMMENT BLOT ───────────────────────────────────────────────────────────────
+// ââ COMMENT BLOT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
   class CommentBlot extends Inline {
@@ -122,14 +122,14 @@ if (!Quill.imports['formats/comment']) {
   Quill.register(CommentBlot, true);
 }
 
-// ── FONT WHITELIST ─────────────────────────────────────────────────────────
+// ââ FONT WHITELIST âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 if (!Quill.imports['formats/font']?.whitelist) {
   const Font = Quill.import('formats/font');
   Font.whitelist = ['dm-sans', 'arial', 'georgia', 'courier'];
   Quill.register(Font, true);
 }
 
-// ── GLOBAL STYLES ─────────────────────────────────────────────────────────
+// ââ GLOBAL STYLES âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const STYLE_ID = 'im-rte-global-styles-v5'; // V5 forces a clean refresh
 if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
@@ -253,7 +253,7 @@ if (!document.getElementById(STYLE_ID)) {
     .ql-editor p { display: block; }
     .ql-editor img { display: inline; margin: 0 4px; vertical-align: bottom; max-width: 100% !important; height: auto !important; }
 
-    /* ── THE NUCLEAR MS WORD TABLE CRUSHER & SCROLLBAR ── */
+    /* ââ THE NUCLEAR MS WORD TABLE CRUSHER & SCROLLBAR ââ */
     
     /* 1. Prevent editor container from bursting */
     .im-quill-canvas .ql-editor, .im-fs-paper .ql-editor {
@@ -314,7 +314,7 @@ if (!document.getElementById(STYLE_ID)) {
       caret-color: #ec4899 !important; /* FORCES CURSOR TO BE HOT PINK */
     }
 
-    /* ── WINDOWS UI SCALING FIX (PREVENTS MICROSCOPIC CURSORS) ── */
+    /* ââ WINDOWS UI SCALING FIX (PREVENTS MICROSCOPIC CURSORS) ââ */
     .ql-editor p, .ql-editor div {
       min-height: 1.6em !important;
       font-size: inherit;
@@ -322,7 +322,7 @@ if (!document.getElementById(STYLE_ID)) {
   `;
   document.head.appendChild(s);
 }
-// ── FULLSCREEN SHELL (portal) ─────────────────────────────────────────────────
+// ââ FULLSCREEN SHELL (portal) âââââââââââââââââââââââââââââââââââââââââââââââââ
 function FullscreenEditor({
   block, value, onChange, onClose, onFocus, onBlur, readOnly,
   targetCommentId, targetCommentQuote, searchJumpTrigger, onQuillReady,
@@ -376,7 +376,7 @@ function FullscreenEditor({
     quillRef.current = new Quill(paperRef.current, {
       theme: 'snow',
       readOnly: readOnly, 
-      placeholder: block.showPlaceholderAsGuide ? '' : (block.placeholder || block.desc || 'Start writing…'),
+      placeholder: block.showPlaceholderAsGuide ? '' : (block.placeholder || block.desc || 'Start writingâ¦'),
       modules: {
         table: true,
         toolbar: {
@@ -395,8 +395,8 @@ function FullscreenEditor({
       }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
+    // âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ââ NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ââ
     quillRef.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       delta.ops.forEach(op => {
         if (op.attributes) {
@@ -408,7 +408,7 @@ function FullscreenEditor({
       });
       return delta;
     });
-    // ─────────────────────────────────────────────────────────────
+    // âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     
     if (!readOnly) {
       setTimeout(() => quillRef.current?.focus(), 80);
@@ -442,10 +442,10 @@ function FullscreenEditor({
       }
     });
 
-    // ── TABLE PASTE FIX ──────────────────────────────────────────────────────
+    // ââ TABLE PASTE FIX ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     // MUST be attached on the CONTAINER (an ancestor of quill.root), in the
     // CAPTURE phase. Quill's own Clipboard module attaches its paste handler
-    // directly on quill.root the moment `new Quill()` runs above — if we
+    // directly on quill.root the moment `new Quill()` runs above â if we
     // attach on that same element, ours fires SECOND (registration order),
     // by which point Quill has already parsed+inserted the broken table.
     // A capture-phase listener on an ancestor always runs before any listener
@@ -475,7 +475,7 @@ function FullscreenEditor({
       }
     });
 
-    // ── NEW: ALLOW HIGHLIGHT & COMMENT IN FULLSCREEN & READ-ONLY ──
+    // ââ NEW: ALLOW HIGHLIGHT & COMMENT IN FULLSCREEN & READ-ONLY ââ
     quillRef.current.on('selection-change', (range) => {
       if (!range || range.length === 0) { 
         setTimeout(() => hideBubble && hideBubble(), 150); 
@@ -662,7 +662,7 @@ function FullscreenEditor({
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, background: saved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${saved ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
             <Save size={11} color={saved ? '#10b981' : '#f59e0b'} />
             <span style={{ fontSize: 11, color: saved ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
-              {saved ? 'Saved' : 'Saving…'}
+              {saved ? 'Saved' : 'Savingâ¦'}
             </span>
           </div>
         ) : (
@@ -705,14 +705,14 @@ function FullscreenEditor({
             <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.7 }}>
               <div style={{ marginBottom: 4, fontWeight: 700, color: '#475569' }}>Tips</div>
               {readOnly ? (
-                <div>• Highlight text to comment</div>
+                <div>â¢ Highlight text to comment</div>
               ) : (
                 <>
-                  <div>• Use ⌘B / Ctrl+B for bold</div>
-                  <div>• Use # heading for outline</div>
+                  <div>â¢ Use âB / Ctrl+B for bold</div>
+                  <div>â¢ Use # heading for outline</div>
                 </>
               )}
-              <div>• Press Escape to exit</div>
+              <div>â¢ Press Escape to exit</div>
             </div>
           </div>
         </div>
@@ -847,9 +847,9 @@ function ensureCommentHighlight(quill, { commentId, quote, status = 'open' }) {
   return true;
 }
 
-// ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
+// ââ MAIN COMPONENT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 export default function RichTextBlock({
-  block, value, onChange, lockedBy, onFocus, onBlur, isDark = true,
+  block, value, onChange, lockedBy, onFocus, onBlur, isDark = false,
 }) {
   const editorRef        = useRef(null);
   const toolbarRef       = useRef(null);
@@ -1033,7 +1033,7 @@ export default function RichTextBlock({
     if (isNewInstance) {
       quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
-      placeholder: usePlaceholderGuide ? '' : (placeholderText || 'Start writing…'),
+      placeholder: usePlaceholderGuide ? '' : (placeholderText || 'Start writingâ¦'),
       modules: {
         table: true,
         toolbar: { container: toolbarRef.current, handlers: { image: imageUploadHandler } },
@@ -1049,8 +1049,8 @@ export default function RichTextBlock({
       }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // ── NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ──
+    // âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // ââ NEW FIX: STRIP BACKGROUND/GREY MARKS, COLORS, & WIDTHS ââ
     quillInstance.current.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       delta.ops.forEach(op => {
         if (op.attributes) {
@@ -1062,7 +1062,7 @@ export default function RichTextBlock({
       });
       return delta;
     });
-    // ─────────────────────────────────────────────────────────────
+    // âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
     const handleMainDirectUpload = async (file, quill) => {
       if (!file || !file.type.startsWith('image/')) return;
@@ -1091,8 +1091,8 @@ export default function RichTextBlock({
       }
     });
 
-    // ── TABLE PASTE FIX ──────────────────────────────────────────────────────
-    // Attached on the CONTAINER (ancestor of quill.root) in the CAPTURE phase —
+    // ââ TABLE PASTE FIX ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    // Attached on the CONTAINER (ancestor of quill.root) in the CAPTURE phase â
     // see the matching comment in the fullscreen editor above for why this has
     // to be on an ancestor, in capture phase, rather than on quill.root itself.
     editorRef.current.addEventListener('paste', (e) => {

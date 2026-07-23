@@ -29,7 +29,7 @@ function relativeTime(ts) {
 }
 
 export default function CommentsSidebar({ 
-  imId, isDark = true, isOpen, onClose, activeSection, 
+  imId, isDark = false, isOpen, onClose, activeSection, 
   workspaceUsers = [], flatSections = [], customNames = {}, excludedSections = [] 
 }) {
   const [comments, setComments] = useState([]);
@@ -37,7 +37,7 @@ export default function CommentsSidebar({
   const [drafts, setDrafts] = useState({}); // commentId -> text
   const [selectionPopup, setSelectionPopup] = useState(null);
 
-  // ── PROFESSIONAL ICON-BUTTON HOVER STYLES (close, delete, etc) ────────────
+  // ââ PROFESSIONAL ICON-BUTTON HOVER STYLES (close, delete, etc) ââââââââââââ
   useEffect(() => {
     if (document.getElementById('im-icon-btn-styles')) return;
     const s = document.createElement('style');
@@ -68,7 +68,7 @@ export default function CommentsSidebar({
     document.head.appendChild(s);
   }, []);
 
-  // ── INTELLIGENT TEXT SELECTION LISTENER ───────────────────────────────────
+  // ââ INTELLIGENT TEXT SELECTION LISTENER âââââââââââââââââââââââââââââââââââ
   useEffect(() => {
     const handleMouseUp = (e) => {
       setTimeout(() => {
@@ -129,7 +129,7 @@ export default function CommentsSidebar({
             curr = curr.parentNode;
           }
 
-          console.log('[CMT-DEBUG] selection captured →', { text, blockLabel, blockPath, blockId });
+          console.log('[CMT-DEBUG] selection captured â', { text, blockLabel, blockPath, blockId });
           setSelectionPopup({ text, label: blockLabel, path: blockPath, blockId, x, y, startOffset, endOffset });
         } else {
           setSelectionPopup(null);
@@ -151,7 +151,7 @@ export default function CommentsSidebar({
     };
   }, []);
 
-  // ── FETCH COMMENTS ────────────────────────────────────────────────────────
+  // ââ FETCH COMMENTS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const [activeId, setActiveId] = useState(null);
   const [showResolved, setShowResolved] = useState(false);
   const [replyText, setReplyText] = useState({});
@@ -178,7 +178,7 @@ export default function CommentsSidebar({
     inputBorder: isDark ? 'rgba(255,255,255,0.12)'     : '#d1d5db',
   };
 
-// ── FIRESTORE LISTENER ────────────────────────────────────────────────────
+// ââ FIRESTORE LISTENER ââââââââââââââââââââââââââââââââââââââââââââââââââââ
   useEffect(() => {
     if (!imId) return;
     const q = query(collection(db, 'im-comments'), where('imId', '==', imId));
@@ -199,7 +199,7 @@ export default function CommentsSidebar({
 
 
 
-  // ── MARK SEEN: whenever a comment is opened (activeId set), stamp readBy ──
+  // ââ MARK SEEN: whenever a comment is opened (activeId set), stamp readBy ââ
   useEffect(() => {
     if (!activeId || !user) return;
     const c = comments.find(x => x.id === activeId);
@@ -208,7 +208,7 @@ export default function CommentsSidebar({
     if (ref) updateDoc(ref, { readBy: arrayUnion(user.uid) }).catch(() => {});
   }, [activeId, comments, user]);
 
-  // ── BROADCAST ACTIVE COMMENT FOR SVG STRING ───────────────────────────────
+  // ââ BROADCAST ACTIVE COMMENT FOR SVG STRING âââââââââââââââââââââââââââââââ
   useEffect(() => {
     if (!isOpen) {
       window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
@@ -227,7 +227,7 @@ export default function CommentsSidebar({
     return () => window.dispatchEvent(new CustomEvent('im-active-comment-changed', { detail: null }));
   }, [activeId, comments, isOpen]);
 
-  // ── EVENTS FROM SELECTION POPUP ───────────────────────────────────────────
+  // ââ EVENTS FROM SELECTION POPUP âââââââââââââââââââââââââââââââââââââââââââ
   useEffect(() => {
     let isCreating = false; // Debounce lock to prevent ghost duplicates
 
@@ -283,7 +283,7 @@ export default function CommentsSidebar({
     }
   }, [activeId]);
 
-// ── HELPERS to find Firestore doc by custom `id` field ────────────────────
+// ââ HELPERS to find Firestore doc by custom `id` field ââââââââââââââââââââ
   const findDoc = useCallback(async (commentId) => {
     // 1. Try finding by the new explicit 'id' field
     const found = await getDocs(
@@ -305,7 +305,7 @@ export default function CommentsSidebar({
     return null;
   }, [comments]); // <-- IMPORTANT: Ensure 'comments' is in this dependency array
 
-  // ── ACTIONS ──────────────────────────────────────────────────────────────
+  // ââ ACTIONS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const handleFirstComment = useCallback(async (commentId) => {
     const text = newCommentText[commentId]?.trim();
     if (!text || !user) return;
@@ -423,7 +423,7 @@ export default function CommentsSidebar({
 
   return (
     <>
-      {/* ── INTELLIGENT SELECTION POPUP ────────────────────────────────────────── */}
+      {/* ââ INTELLIGENT SELECTION POPUP ââââââââââââââââââââââââââââââââââââââââââ */}
       {selectionPopup && (
         <div
           id="selection-comment-popup"
@@ -447,7 +447,7 @@ export default function CommentsSidebar({
           }}
           onClick={() => {
             const commentId = `cmt_${crypto.randomUUID().split('-')[0]}`;
-            console.log('[CMT-DEBUG] dispatching im-create-comment →', { commentId, dataPath: selectionPopup.path, quote: selectionPopup.text });
+            console.log('[CMT-DEBUG] dispatching im-create-comment â', { commentId, dataPath: selectionPopup.path, quote: selectionPopup.text });
             window.dispatchEvent(new CustomEvent('im-open-comments-sidebar'));
             window.dispatchEvent(new CustomEvent('im-create-comment', {
               detail: {
@@ -474,7 +474,7 @@ export default function CommentsSidebar({
         </div>
       )}
 
-      {/* ── SIDEBAR ── */}
+      {/* ââ SIDEBAR ââ */}
       {isOpen && (
         <div id="comments-sidebar" style={{
           width: 320, minWidth: 320, background: T.bg,
@@ -484,7 +484,7 @@ export default function CommentsSidebar({
           position: 'relative', zIndex: 100000, /* FLOAT OVER THE FULLSCREEN EDITOR */
           boxShadow: isDark ? '-8px 0 30px rgba(0,0,0,0.5)' : '-8px 0 30px rgba(0,0,0,0.1)',
         }}>
-          {/* ── HEADER ── */}
+          {/* ââ HEADER ââ */}
       <div style={{
         display: 'flex', flexDirection: 'column',
         borderBottom: `1px solid ${T.border}`, flexShrink: 0,
@@ -511,7 +511,7 @@ export default function CommentsSidebar({
           </button>
         </div>
         
-        {/* ── TABS & FILTERS ── */}
+        {/* ââ TABS & FILTERS ââ */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', marginBottom: '8px' }}>
           <div style={{ display: 'flex', gap: '16px' }}>
             <button 
@@ -533,7 +533,7 @@ export default function CommentsSidebar({
           </div>
         </div>
 
-        {/* ── ASSIGNEE & CREATOR FILTERS ── */}
+        {/* ââ ASSIGNEE & CREATOR FILTERS ââ */}
         <div style={{ display: 'flex', gap: '8px', padding: '0 16px 12px' }}>
           <select 
             value={assigneeFilter} 
@@ -567,7 +567,7 @@ export default function CommentsSidebar({
         </div>
       </div>
 
-      {/* ── BODY ── */}
+      {/* ââ BODY ââ */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }}>
 
         {openComments.length === 0 && resolvedComments.length === 0 && (
@@ -688,7 +688,7 @@ export default function CommentsSidebar({
   );
 }
 
-// ── COMMENT CARD ──────────────────────────────────────────────────────────────
+// ââ COMMENT CARD ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const CommentCard = React.forwardRef(function CommentCard({
   comment, isActive, isResolved, T, user, workspaceUsers = [],
   replyText, newCommentText,
@@ -753,7 +753,7 @@ const CommentCard = React.forwardRef(function CommentCard({
 
           {comment.contextLabel && comment.contextLabel !== 'General' && (
             <div style={{ fontSize: 9, fontWeight: 800, color: '#0ea5e9', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              📍 {comment.contextLabel}
+              ð {comment.contextLabel}
             </div>
           )}
 
@@ -793,7 +793,7 @@ const CommentCard = React.forwardRef(function CommentCard({
         </div>
       </div>
 
-      {/* Expanded thread — only when active */}
+      {/* Expanded thread â only when active */}
       {isActive && (
         <div onClick={e => e.stopPropagation()} style={{ padding: '0 12px 10px' }}>
 
@@ -804,7 +804,7 @@ const CommentCard = React.forwardRef(function CommentCard({
                 ref={firstInputRef}
                 value={newCommentText}
                 onChange={e => onFirstCommentChange(e.target.value)}
-                placeholder="Add a comment…"
+                placeholder="Add a commentâ¦"
                 rows={2}
                 style={taStyle(T)}
                 onKeyDown={e => {
@@ -864,7 +864,7 @@ const CommentCard = React.forwardRef(function CommentCard({
                   ref={replyInputRef}
                   value={replyText}
                   onChange={e => onReplyChange(e.target.value)}
-                  placeholder="Reply…"
+                  placeholder="Replyâ¦"
                   rows={2}
                   style={taStyle(T)}
                   onKeyDown={e => {
@@ -936,7 +936,7 @@ const CommentCard = React.forwardRef(function CommentCard({
   );
 });
 
-// ── STYLE HELPERS ─────────────────────────────────────────────────────────────
+// ââ STYLE HELPERS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 function taStyle(T) {
   return {
     width: '100%', resize: 'vertical', minHeight: 56,

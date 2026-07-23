@@ -20,7 +20,7 @@ const BlockWrapper = ({ children, isDark }) => (
 );
 
 // FIX: Added isPrintMode prop
-export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true, isPrintMode = false }) {
+export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = false, isPrintMode = false }) {
   
   // FIX: Default to 'chart' view
   const [activeTab, setActiveTab] = useState(isPrintMode ? 'chart' : 'chart'); 
@@ -32,7 +32,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
     if (isPrintMode) setActiveTab('chart');
   }, [isPrintMode]);
 
-  // ── THEME TOKENS ─────────────────────────────────────────────────────────
+  // ââ THEME TOKENS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const t = {
     bg:          isDark ? '#0d1117' : '#ffffff',
     border:      isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb',
@@ -55,7 +55,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
   // Chart type reads from the live workspace value first, falls back to block default
   const chartType = value?.chartType || block.chartType || 'bar';
 
-  // ── FORMATTER ────────────────────────────────────────────────────────────
+  // ââ FORMATTER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const formatValue = useCallback((val, curr = '', mag = '') => {
     if (val === null || val === undefined) return '';
     let formattedNum = val;
@@ -74,7 +74,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
     return val;
   }, []);
 
-  // ── DATA MANAGEMENT ──────────────────────────────────────────────────────
+  // ââ DATA MANAGEMENT ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const rows = value?.rows || [];
 
   useEffect(() => {
@@ -130,7 +130,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
     save(next);
   };
 
-  // ── CHART DATA TRANSFORM ─────────────────────────────────────────────────
+  // ââ CHART DATA TRANSFORM âââââââââââââââââââââââââââââââââââââââââââââââââ
   const chartData = rows.map(r => {
     const dataObj = { 
       name: r.label || 'Unnamed', 
@@ -150,11 +150,11 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
     return DEFAULT_COLORS;
   };
 
-  // ── DYNAMIC CHART RENDERER ───────────────────────────────────────────────
+  // ââ DYNAMIC CHART RENDERER âââââââââââââââââââââââââââââââââââââââââââââââ
   const renderChart = () => {
     if (!chartData || chartData.length === 0) return null;
 
-// ── NESTED CIRCLE (TAM/SAM/SOM) ──
+// ââ NESTED CIRCLE (TAM/SAM/SOM) ââ
     if (chartType === 'nested-circle') {
       const seriesKey = seriesNames[0]; 
       
@@ -229,11 +229,11 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
         </div>
       );
     }
-    // ── PIE CHART ──
+    // ââ PIE CHART ââ
     if (chartType === 'pie') {
       const pieColors = getPieColors();
 
-      // Multiple series → render one pie per series side by side
+      // Multiple series â render one pie per series side by side
       if (seriesNames.length > 1) {
         return (
           <div style={{ display: 'flex', gap: '12px', width: '100%', height: '100%', alignItems: 'flex-start' }}>
@@ -289,7 +289,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
         );
       }
 
-      // Single series → single pie
+      // Single series â single pie
       const pieSeriesIdx = block.pieSeriesIndex ?? 0;
       const pieData = rows.map((r, idx) => ({
         name: r.label || `Item ${idx + 1}`,
@@ -330,7 +330,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
       );
     }
 
-    // ── BAR / LINE / AREA / HORIZONTAL BAR ──
+    // ââ BAR / LINE / AREA / HORIZONTAL BAR ââ
     const isHorizontal = chartType === 'horizontal-bar';
     const ChartComponent = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
     
@@ -423,7 +423,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
           {/* FIX: Hide everything inside the header if we are in Print Mode */}
           {!isPrintMode && (
             <>
-              {/* ── WORKSPACE CHART OVERRIDE ── */}
+              {/* ââ WORKSPACE CHART OVERRIDE ââ */}
               <select 
                 value={chartType} 
                 onChange={(e) => onChange && onChange(block.dataPath, { ...value, chartType: e.target.value })}
@@ -438,7 +438,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                 <option value="nested-circle" style={optionStyle}>Nested Circles</option>
               </select>
 
-              {/* ── TAB SWITCHER ── */}
+              {/* ââ TAB SWITCHER ââ */}
               <div style={{ display: 'flex', background: isDark ? 'rgba(0,0,0,0.2)' : '#f1f5f9', padding: '4px', borderRadius: '8px', border: `1px solid ${t.border}` }}>
             <button
               onClick={() => setActiveTab('data')}
@@ -472,7 +472,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
 
       <div style={{ border: `1px solid ${t.border}`, borderRadius: '10px', background: t.bg, overflow: 'hidden' }}>
 
-        {/* ── DATA TAB ── */}
+        {/* ââ DATA TAB ââ */}
         {activeTab === 'data' && (
           <div style={{ padding: '0', overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -520,9 +520,9 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
                         >
                           <option value="" style={optionStyle}>Cur.</option>
                           <option value="$" style={optionStyle}>$</option>
-                          <option value="₹" style={optionStyle}>₹</option>
-                          <option value="€" style={optionStyle}>€</option>
-                          <option value="£" style={optionStyle}>£</option>
+                          <option value="â¹" style={optionStyle}>â¹</option>
+                          <option value="â¬" style={optionStyle}>â¬</option>
+                          <option value="Â£" style={optionStyle}>Â£</option>
                         </select>
                         <select 
                           value={row.magnitude || ''} 
@@ -579,7 +579,7 @@ export default function ChartBlock({ block, value, onChange, lockedBy, onFocus, 
           </div>
         )}
 
-        {/* ── CHART TAB ── */}
+        {/* ââ CHART TAB ââ */}
         {activeTab === 'chart' && (
           <div style={{ padding: '24px', width: '100%', height: isMultiPie ? 'auto' : '350px' }}>
             {(isMultiPie || isCustomSVG)

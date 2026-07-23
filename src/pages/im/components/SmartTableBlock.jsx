@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const storage = getStorage();
 
-// ── SHARED SAFE HIGHLIGHT ENGINE (used by every plain-text cell type below) ──
+// ââ SHARED SAFE HIGHLIGHT ENGINE (used by every plain-text cell type below) ââ
 // Same fix as BasicInputBlock.jsx: compute every match as a [start,end] range
 // against the ORIGINAL text first (comments, then search - search is trimmed
 // to avoid re-covering an already-claimed comment range), resolve overlaps,
@@ -64,7 +64,7 @@ function buildHighlightedCellHtml(text, comments, searchTerm) {
   return html;
 }
 
-// ── GLOBAL HIGHLIGHT STYLES ──────────────────────────────────────────────────
+// ââ GLOBAL HIGHLIGHT STYLES ââââââââââââââââââââââââââââââââââââââââââââââââââ
 const STYLE_ID = 'im-smarttable-comments-styles';
 if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
@@ -84,7 +84,7 @@ if (!document.getElementById(STYLE_ID)) {
   document.head.appendChild(s);
 }
 
-// ── ADDED: GLOBAL HIGHLIGHT STYLES FOR QUILL ─────────────────────────────────
+// ââ ADDED: GLOBAL HIGHLIGHT STYLES FOR QUILL âââââââââââââââââââââââââââââââââ
 const STYLE_ID_QUILL = 'im-smarttable-quill-comments';
 if (!document.getElementById(STYLE_ID_QUILL)) {
   const s = document.createElement('style');
@@ -116,7 +116,7 @@ if (!document.getElementById(STYLE_ID_QUILL)) {
   document.head.appendChild(s);
 }
 
-// ── ADDED: COMMENT BLOT FOR INLINE QUILL ──────────────────────────────────────
+// ââ ADDED: COMMENT BLOT FOR INLINE QUILL ââââââââââââââââââââââââââââââââââââââ
 if (!Quill.imports['formats/comment']) {
   const Inline = Quill.import('blots/inline');
   class CommentBlot extends Inline {
@@ -162,7 +162,7 @@ if (!Quill.imports['formats/comment']) {
   Quill.register(CommentBlot, true);
 }
 
-// ── ADDED: QUILL RANGE HELPERS ────────────────────────────────────────────────
+// ââ ADDED: QUILL RANGE HELPERS ââââââââââââââââââââââââââââââââââââââââââââââââ
 function escapeRegex(value = '') { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function findQuoteRange(quill, quote) {
@@ -194,11 +194,11 @@ function ensureCommentHighlight(quill, { commentId, quote, status = 'open' }) {
   return true;
 }
 
-// ── UNIQUE ID HELPER ─────────────────────────────────────────────────────────
+// ââ UNIQUE ID HELPER âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const genRowId = () => `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 const addRowId = (r) => (r && r._rowId ? r : { ...r, _rowId: genRowId() });
 
-// ── VALUE PARSER ─────────────────────────────────────────────────────────────
+// ââ VALUE PARSER âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 function parseValue(value, block) {
   if (value && !Array.isArray(value) && typeof value === 'object' && value.rows) {
     return {
@@ -240,7 +240,7 @@ function seedEmptyRow(schemaRows) {
   return row;
 }
 
-// ── HYBRID TEXTAREA COMPONENT ────────────────────────────────────────────────
+// ââ HYBRID TEXTAREA COMPONENT ââââââââââââââââââââââââââââââââââââââââââââââââ
 const HybridTextarea = ({ val, onChange, disabled, placeholder, cellInputStyle, focusHandlers, comments, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -308,7 +308,7 @@ const renderHighlightedText = () => {
   );
 };
 
-// ── HYBRID STANDARD INPUT COMPONENT ──────────────────────────────────────────
+// ââ HYBRID STANDARD INPUT COMPONENT ââââââââââââââââââââââââââââââââââââââââââ
 const HybridInput = ({ val, onChange, disabled, placeholder, cellInputStyle, focusHandlers, comments, isDark, iType, showPrefix, showSuffix }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -341,7 +341,7 @@ const renderHighlightedText = () => {
   if (isEditing) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', height: '100%' }}>
-        {showPrefix && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>₹</span>}
+        {showPrefix && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>â¹</span>}
         <input
           ref={inputRef}
           type={iType === 'currency' || iType === 'percentage' || iType === 'number' ? 'number' : (iType === 'lang' || iType === 'date' ? 'date' : 'text')}
@@ -372,14 +372,14 @@ const renderHighlightedText = () => {
         wordWrap: 'break-word',
       }}
     >
-      {showPrefix && val && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>₹</span>}
+      {showPrefix && val && <span style={{ padding: '0 4px 0 10px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>â¹</span>}
       {renderHighlightedText()}
       {showSuffix && val && <span style={{ padding: '0 10px 0 2px', color: isDark ? '#94a3b8' : '#6b7280', fontSize: '0.8rem' }}>%</span>}
     </div>
   );
 };
 
-// ── HYBRID MIXED (FILL IN BLANKS) INLINE INPUT ───────────────────────────────
+// ââ HYBRID MIXED (FILL IN BLANKS) INLINE INPUT âââââââââââââââââââââââââââââââ
 const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers, comments }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -437,7 +437,7 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
   );
 };
 
-// ── ADDED: SEARCH HIGHLIGHT BLOT FOR INLINE QUILL ───────────────────────────────
+// ââ ADDED: SEARCH HIGHLIGHT BLOT FOR INLINE QUILL âââââââââââââââââââââââââââââââ
 if (!Quill.imports['formats/searchMatch']) {
   const Inline = Quill.import('blots/inline');
   class SearchMatchBlot extends Inline {
@@ -460,7 +460,7 @@ if (!Quill.imports['formats/searchMatch']) {
   Quill.register(SearchMatchBlot, true);
 }
 
-// ── INLINE QUILL CELL EDITOR ─────────────────────────────────────────────────
+// ââ INLINE QUILL CELL EDITOR âââââââââââââââââââââââââââââââââââââââââââââââââ
 const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focusHandlers, isDark, cellDataPath }) => {
   const editorRef      = useRef(null);
   const quillInstance  = useRef(null);
@@ -507,7 +507,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     }
     if (isNewInstance) quillInstance.current = new Quill(editorRef.current, {
       theme: 'snow',
-      placeholder: placeholder || 'Start writing…',
+      placeholder: placeholder || 'Start writingâ¦',
       modules: {
         toolbar: {
           container: [
@@ -559,7 +559,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
         if (range && range.length > 0) {
           pendingCommentRange.current = range;
           window.imLastFocusedQuillCell = cellDataPath; 
-          console.log('[CMT-DEBUG] selection-change in cell →', cellDataPath, range);
+          console.log('[CMT-DEBUG] selection-change in cell â', cellDataPath, range);
         }
       });
     }
@@ -644,7 +644,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── DYNAMIC SEARCH HIGHLIGHT LISTENER ──
+  // ââ DYNAMIC SEARCH HIGHLIGHT LISTENER ââ
   useEffect(() => {
     const handleSearch = () => setForceSearchRender(p => p + 1);
     window.addEventListener('im-search-jump', handleSearch);
@@ -671,7 +671,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
     disabled ? quillInstance.current.disable() : quillInstance.current.enable();
   }, [disabled]);
 
-  // ── APPLY NATIVE SEARCH HIGHLIGHTS VIA QUILL API ──
+  // ââ APPLY NATIVE SEARCH HIGHLIGHTS VIA QUILL API ââ
   useEffect(() => {
      if (!quillInstance.current) return;
      const quill = quillInstance.current;
@@ -746,7 +746,7 @@ const TableQuillEditor = ({ val, onChange, disabled, placeholder, block, t, focu
   );
 };
 
-// ── CONTROLLED REPEAT TABLE INSTANCE ─────────────────────────────────────────
+// ââ CONTROLLED REPEAT TABLE INSTANCE âââââââââââââââââââââââââââââââââââââââââ
 const RepeatTableInstance = ({
   idx, tableData, headers, runtimeSchemaRows, hasSchema, numCols,
   block, t, cellInputStyle, lockedBy, onUpdate, onRemove, isDark, renderCellContent, focusHandlers, blockComments
@@ -846,9 +846,9 @@ const RepeatTableInstance = ({
                   }
                   <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, width: '52px', textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '2px' }}>
-                      {block.allowInsertRows && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▲</button>}
+                      {block.allowInsertRows && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>â²</button>}
                       {!lockedBy && <button onClick={() => deleteRow(rIdx)} title="Delete row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
-                      {block.allowInsertRows && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▼</button>}
+                      {block.allowInsertRows && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>â¼</button>}
                     </div>
                   </td>
                 </tr>
@@ -868,8 +868,8 @@ const RepeatTableInstance = ({
   );
 };
 
-// ── MAIN SMART TABLE COMPONENT ────────────────────────────────────────────────
-const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
+// ââ MAIN SMART TABLE COMPONENT ââââââââââââââââââââââââââââââââââââââââââââââââ
+const SmartTableBlock = memo(function SmartTableBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = false }) {
   const [isFocused, setIsFocused]             = useState(false);
   const isFocusedRef                          = useRef(false);
   const customValuesRef                       = useRef({});
@@ -1552,7 +1552,7 @@ useEffect(() => {
     if (typeStr === 'currency') {
       return (
         <span key={keyIdx} style={{ display: 'inline-flex', alignItems: 'center', margin: '0 4px', background: 'transparent', border: `1px solid ${t.border}`, borderRadius: '4px', overflow: 'hidden' }}>
-          <span style={{ padding: '2px 6px', fontSize: '0.75rem', color: t.textMuted, borderRight: `1px solid ${t.border}`, background: t.surface2 }}>₹</span>
+          <span style={{ padding: '2px 6px', fontSize: '0.75rem', color: t.textMuted, borderRight: `1px solid ${t.border}`, background: t.surface2 }}>â¹</span>
           <input type="number" value={inputVal || ''} onChange={e => onInputChange(e.target.value)} placeholder={placeholderText} disabled={disabled} style={{ padding: '2px 6px', border: 'none', background: 'transparent', outline: 'none', color: t.text, fontSize: '0.8rem', width: '80px' }} {...focusHandlers} />
         </span>
       );
@@ -1595,7 +1595,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
       </div>
     ) : null;
 
-    // ── ISOLATED SEARCH MATCH DETECTOR ──
+    // ââ ISOLATED SEARCH MATCH DETECTOR ââ
     const cellIdSuffix = `${rIdx}.${cell.id}`;
     const cellDataPath = `${block.dataPath}.rows.${cellIdSuffix}`;
     const cellIdString = `cell-${cellDataPath.replace(/[^a-zA-Z0-9-]/g, '-')}`;
@@ -1676,7 +1676,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
               }}
               {...focusHandlers}
             >
-              <option value="" style={{ color: t.textMuted }}>{usePlaceholderGuide ? 'Select…' : (cellPlaceholder || 'Select…')}</option>
+              <option value="" style={{ color: t.textMuted }}>{usePlaceholderGuide ? 'Selectâ¦' : (cellPlaceholder || 'Selectâ¦')}</option>
               {conditions.map((cond, i) => (
                 <option key={i} value={cond.label}>{cond.label}</option>
               ))}
@@ -1689,7 +1689,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                     val={valObj.richtext || ''}
                     onChange={(newHtml) => onValChange({ ...valObj, richtext: newHtml })}
                     disabled={isProtectedRow || !!lockedBy}
-                    placeholder={activeCondition.placeholder || activeCondition.template || 'Start writing…'}
+                    placeholder={activeCondition.placeholder || activeCondition.template || 'Start writingâ¦'}
                     block={block}
                     t={t}
                     focusHandlers={focusHandlers}
@@ -1763,7 +1763,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                 disabled={isProtectedRow || !!lockedBy}
                 style={{ ...cellInputStyle, cursor: 'pointer', backgroundColor: isDark ? '#0f172a' : '#ffffff', colorScheme: isDark ? 'dark' : 'light' }}
                 {...focusHandlers}>
-                <option value="" style={optionStyle}>{usePlaceholderGuide ? 'Select…' : (cellPlaceholder || 'Select…')}</option>
+                <option value="" style={optionStyle}>{usePlaceholderGuide ? 'Selectâ¦' : (cellPlaceholder || 'Selectâ¦')}</option>
                 {(cell.selectOptions || []).map(opt => <option key={opt} value={opt} style={optionStyle}>{opt}</option>)}
                 {cell.allowCustom && <option value="__custom__" style={optionStyle}>Other (specify)</option>}
                 {block.allowNA && <option value="N/A" style={optionStyle}>N/A</option>}
@@ -1772,7 +1772,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                 <HybridInput 
                   val={customText} 
                   onChange={v => { customValuesRef.current[customKey] = v; onValChange(v ? `__custom__:${v}` : '__custom__'); }}
-                  placeholder="Type your own value…" 
+                  placeholder="Type your own valueâ¦" 
                   disabled={isProtectedRow || !!lockedBy}
                   cellInputStyle={{ ...cellInputStyle, padding: '4px 8px', border: `1px solid ${t.border}`, borderRadius: '4px', fontSize: '0.8rem' }}
                   focusHandlers={focusHandlers}
@@ -1902,12 +1902,12 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                   {headers.map((header, cIdx) => (
                     <th key={cIdx} style={{ padding: 0, background: t.headerBg, borderBottom: `1px solid ${t.border}`, borderRight: cIdx < headers.length - 1 ? `1px solid ${t.border}` : 'none', width: block.colWidths?.[cIdx] || 'auto', position: 'relative' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', gap: '4px' }}>
-                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColBefore(cIdx)} title="Insert column left" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>◀</button>}
+                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColBefore(cIdx)} title="Insert column left" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>â</button>}
                         {block.editableHeaders
                           ? <input value={header} onChange={e => updateHeader(cIdx, e.target.value)} disabled={!!lockedBy} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.textMuted, fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', width: '100%', padding: '6px', fontFamily: 'inherit', textAlign: 'center' }} placeholder={`Column ${cIdx + 1}`} />
                           : <div style={{ padding: '6px', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: t.textMuted, width: '100%', textAlign: 'center' }}>{header}</div>
                         }
-                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColAfter(cIdx)} title="Insert column right" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>▶</button>}
+                        {block.allowInsertCols && !lockedBy && <button onClick={() => insertColAfter(cIdx)} title="Insert column right" style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', fontSize: '9px', borderRadius: '3px', flexShrink: 0 }}>â¶</button>}
                       </div>
                       {block.allowDeleteCols !== false && !lockedBy && headers.length > 1 && (
                         <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: '4px' }}>
@@ -1929,11 +1929,11 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                     const rowActionCell = (
                       <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, width: '52px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '2px' }}>
-                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▲</button>}
+                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowBefore(rIdx)} title="Insert row above" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>â²</button>}
                           
                           {!isProtectedRow && !lockedBy && (block.allowAddRows !== false || rIdx >= runtimeSchemaRows.length) && <button onClick={() => deleteRow(rIdx)} title="Delete Row" style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>}
                           
-                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>▼</button>}
+                          {block.allowInsertRows && !isProtectedRow && !lockedBy && <button onClick={() => insertRowAfter(rIdx)} title="Insert row below" style={{ background: t.headerBg, border: `1px solid ${t.border}`, color: t.textMuted, cursor: 'pointer', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', lineHeight: '1.2', width: 'calc(100% - 8px)' }}>â¼</button>}
                         </div>
                       </td>
                     );
@@ -1942,7 +1942,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                       const schemaRow = runtimeSchemaRows[rIdx] || runtimeSchemaRows[runtimeSchemaRows.length - 1];
                       return (
                         <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
-                          {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
+                          {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? 'â' : rIdx + 1}</td>}
                           {schemaRow?.cells?.map((cell, cIdx) => {
                             if (occupied[rIdx]?.[cIdx]) return null;
                             const cs = Math.min(Math.max(1, cell.colspan || 1), numCols - cIdx);
@@ -1962,7 +1962,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                       );
                     })() : (
                       <tr key={rec?._rowId || rIdx} style={{ background: isProtectedRow ? t.totalBg : 'transparent' }}>
-                        {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? '∑' : rIdx + 1}</td>}
+                        {block.showSno && <td style={{ padding: 0, borderBottom: `1px solid ${t.border}`, textAlign: 'center', fontSize: '11px', color: t.textMuted, fontWeight: 700, width: '40px' }}>{isProtectedRow ? 'â' : rIdx + 1}</td>}
                         {Array.from({ length: numCols }, (_, cIdx) => {
                           const cellId = `col_${cIdx}`;
                           const v      = rec[cellId] ?? '';
@@ -1998,7 +1998,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                               {block.showSno && <td style={{ borderBottom: `1px solid ${t.border}` }} />}
                               <td colSpan={numCols} style={{ borderBottom: `1px solid ${t.border}`, padding: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <input value={h.label} onChange={e => updateSideHeading(hIdx, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.sideHeadText, fontSize: '0.82rem', fontWeight: 700, padding: '8px 12px', width: '100%', fontFamily: 'inherit' }} placeholder="Side heading…" />
+                                  <input value={h.label} onChange={e => updateSideHeading(hIdx, 'label', e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', color: t.sideHeadText, fontSize: '0.82rem', fontWeight: 700, padding: '8px 12px', width: '100%', fontFamily: 'inherit' }} placeholder="Side headingâ¦" />
                                   <button onClick={() => deleteSideHeading(hIdx)} style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', padding: '8px 6px', flexShrink: 0 }}><Trash2 size={12} /></button>
                                 </div>
                               </td>
@@ -2014,7 +2014,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
                 {/* Totals row */}
                 {colTotals && (
                   <tr style={{ background: t.totalBg }}>
-                    {block.showSno && <td style={{ padding: '8px 10px', fontSize: '11px', fontWeight: 800, color: t.totalText, textAlign: 'center' }}>∑</td>}
+                    {block.showSno && <td style={{ padding: '8px 10px', fontSize: '11px', fontWeight: 800, color: t.totalText, textAlign: 'center' }}>â</td>}
                     {colTotals.map((total, cIdx) => (
                       <td key={cIdx} style={{ padding: '8px 10px', borderTop: `2px solid ${t.border}`, borderRight: cIdx < colTotals.length - 1 ? `1px solid ${t.border}` : 'none', fontSize: '0.875rem', fontWeight: 700, color: t.totalText }}>{total}</td>
                     ))}
@@ -2072,7 +2072,7 @@ const renderCellContent = useCallback((cell, val, onValChange, rIdx, isProtected
     </BlockWrapper>
   );
 }, (prev, next) => {
-  // ── TITANIUM RENDER SHIELD (Blocks Render Cascades) ──
+  // ââ TITANIUM RENDER SHIELD (Blocks Render Cascades) ââ
   // 1. Basic prop checks
   if (prev.block?.id !== next.block?.id) return false;
   if (prev.lockedBy !== next.lockedBy) return false;

@@ -5,7 +5,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 
 const storage = getStorage();
 
-export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
+export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = false }) {
   const [isFocused, setIsFocused] = useState(false);
   const typingTimeout = useRef(null);
   const fileRefs = useRef({});   // keyed by `${itemIndex}-${fieldId}`
@@ -47,14 +47,14 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
     return [generateEmptyItem()];
   });
 
-  // ── INCOMING FIREBASE SYNC ────────────────────────────────────────────────
+  // ââ INCOMING FIREBASE SYNC ââââââââââââââââââââââââââââââââââââââââââââââââ
   useEffect(() => {
     if (!isFocused && Array.isArray(value) && JSON.stringify(value) !== JSON.stringify(items)) {
       setItems(value.length > 0 ? value : [generateEmptyItem()]);
     }
   }, [value, isFocused, generateEmptyItem]);
 
-  // ── DEBOUNCED SAVE ────────────────────────────────────────────────────────
+  // ââ DEBOUNCED SAVE ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const debouncedSave = useCallback((newItems) => {
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => {
@@ -62,7 +62,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
     }, 800);
   }, [onChange, block.dataPath]);
 
-  // ── MUTATIONS ─────────────────────────────────────────────────────────────
+  // ââ MUTATIONS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const updateField = (itemIdx, fieldId, val) => {
     const next = items.map((item, i) => i === itemIdx ? { ...item, [fieldId]: val } : item);
     setItems(next);
@@ -89,7 +89,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
     if (onChange) onChange(block.dataPath, items);
   };
 
-  // ── IMAGE / FILE UPLOAD per field per item ────────────────────────────────
+  // ââ IMAGE / FILE UPLOAD per field per item ââââââââââââââââââââââââââââââââ
   const handleUpload = async (itemIdx, field, files) => {
     const uploaded = await Promise.all(Array.from(files).map(async (file) => {
       const path = `im-uploads/${block.dataPath}/${itemIdx}-${field.id}-${Date.now()}-${file.name}`;
@@ -108,7 +108,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
     updateField(itemIdx, fieldId, newFiles);
   };
 
-  // ── FIELD RENDERER ────────────────────────────────────────────────────────
+  // ââ FIELD RENDERER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const renderField = (field, item, itemIdx) => {
     const val = item[field.id] ?? '';
     const refKey = `${itemIdx}-${field.id}`;
@@ -142,7 +142,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
               Click to upload {field.multiple ? 'images' : 'image'}
             </div>
           )}
-          {/* Caption input — fixes site photos issue */}
+          {/* Caption input â fixes site photos issue */}
           {files.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
               {files.map((f, fi) => (
@@ -161,7 +161,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
                   {/* Editable caption per image */}
                   <input
                     type="text"
-                    placeholder="Caption…"
+                    placeholder="Captionâ¦"
                     value={f.caption || ''}
                     disabled={!!lockedBy}
                     onChange={e => {
@@ -222,7 +222,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             onChange={e => updateField(itemIdx, field.id, e.target.value)}
             onFocus={e => { handleFocus(); e.currentTarget.style.borderColor = t.borderFocus; }}
             onBlur={e =>  { handleBlur();  e.currentTarget.style.borderColor = t.border; }}
-            placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}…`}
+            placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}â¦`}
             style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
           />
         </div>
@@ -238,7 +238,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             disabled={!!lockedBy}
             onFocus={handleFocus} onBlur={handleBlur}
             style={{ ...inputStyle, cursor: lockedBy ? 'not-allowed' : 'pointer' }}>
-            <option value="">Select…</option>
+            <option value="">Selectâ¦</option>
             {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         </div>
@@ -255,14 +255,14 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
           onChange={e => updateField(itemIdx, field.id, e.target.value)}
           onFocus={e => { handleFocus(); e.currentTarget.style.borderColor = t.borderFocus; }}
           onBlur={e =>  { handleBlur();  e.currentTarget.style.borderColor = t.border; }}
-          placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}…`}
+          placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}â¦`}
           style={inputStyle}
         />
       </div>
     );
   };
 
-  // ── RENDER ────────────────────────────────────────────────────────────────
+  // ââ RENDER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   return (
     <BlockWrapper block={block} lockedBy={lockedBy} isDark={isDark}>
 
@@ -274,7 +274,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
             background: t.card, border: `1px solid ${t.cardBorder}`,
             borderRadius: '10px', padding: '16px',
           }}>
-            {/* Auto S.No — not editable, fixes "can't change S.No" feedback */}
+            {/* Auto S.No â not editable, fixes "can't change S.No" feedback */}
             <div style={{
               minWidth: '28px', height: '28px', borderRadius: '6px',
               background: t.numBg, display: 'flex', alignItems: 'center',
@@ -289,7 +289,7 @@ export default function RepeatingGroupBlock({ block, value, onChange, lockedBy, 
               {template.map(field => renderField(field, item, idx))}
             </div>
 
-            {/* Remove — won't remove the last entry, just clears it */}
+            {/* Remove â won't remove the last entry, just clears it */}
             {!lockedBy && (
               <button
                 onClick={() => removeItem(idx)}

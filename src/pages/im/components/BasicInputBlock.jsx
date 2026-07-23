@@ -7,7 +7,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const storage = getStorage();
 
-// ── GLOBAL HIGHLIGHT STYLES ──────────────────────────────────────────────────
+// ââ GLOBAL HIGHLIGHT STYLES ââââââââââââââââââââââââââââââââââââââââââââââââââ
 const STYLE_ID = 'im-basicinput-comments-styles';
 if (!document.getElementById(STYLE_ID)) {
   const s = document.createElement('style');
@@ -30,7 +30,7 @@ if (!document.getElementById(STYLE_ID)) {
   document.head.appendChild(s);
 }
 
-// ── HIGHLIGHT RENDER ENGINE ──────────────────────────────────────────────────
+// ââ HIGHLIGHT RENDER ENGINE ââââââââââââââââââââââââââââââââââââââââââââââââââ
 // Rebuilt to be corruption-proof: instead of running each comment's quote as a
 // sequential regex .replace() over an HTML string that already contains markup
 // from earlier comments (which can match inside a previously-inserted span's
@@ -81,7 +81,7 @@ const renderHighlightedText = (val, comments, isDark, placeholder) => {
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 };
 
-// ── HYBRID STANDARD INPUT COMPONENT ──────────────────────────────────────────
+// ââ HYBRID STANDARD INPUT COMPONENT ââââââââââââââââââââââââââââââââââââââââââ
 const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholder, style, comments, isDark, disabled, displayFormatter }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -119,7 +119,7 @@ const HybridInput = ({ val, onChange, onFocus, onBlur, type = 'text', placeholde
   );
 };
 
-// ── HYBRID TEXTAREA COMPONENT ────────────────────────────────────────────────
+// ââ HYBRID TEXTAREA COMPONENT ââââââââââââââââââââââââââââââââââââââââââââââââ
 const HybridTextarea = ({ val, onChange, onFocus, onBlur, placeholder, style, comments, isDark, disabled }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -170,7 +170,7 @@ const HybridTextarea = ({ val, onChange, onFocus, onBlur, placeholder, style, co
   );
 };
 
-// ── HYBRID MIXED (FILL IN BLANKS) INLINE INPUT ───────────────────────────────
+// ââ HYBRID MIXED (FILL IN BLANKS) INLINE INPUT âââââââââââââââââââââââââââââââ
 const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandlers, comments, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef(null);
@@ -220,8 +220,8 @@ const MixedInlineInput = ({ val, onChange, disabled, placeholder, t, focusHandle
 };
 
 
-// ── MAIN BASIC INPUT COMPONENT ───────────────────────────────────────────────
-export default function BasicInputBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = true }) {
+// ââ MAIN BASIC INPUT COMPONENT âââââââââââââââââââââââââââââââââââââââââââââââ
+export default function BasicInputBlock({ block, value, onChange, lockedBy, onFocus, onBlur, isDark = false }) {
   const [localValue, setLocalValue] = useState(value ?? '');
   const [isFocused, setIsFocused] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -246,8 +246,8 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     return () => unsub();
   }, [block?.dataPath]);
 
-  // ── FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ──────────────────────
-// ── FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ──────────────────────
+  // ââ FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ââââââââââââââââââââââ
+// ââ FIX: LISTEN FOR GLOBAL SEARCH HIGHLIGHT CLEARS ââââââââââââââââââââââ
   const [, setForceSearchRender] = useState(0);
   useEffect(() => {
     const handleSearchJump = () => setForceSearchRender(p => p + 1);
@@ -266,7 +266,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     };
   }, []);
 
-  // ── THEME TOKENS ────────────────────────────────────────────────────────
+  // ââ THEME TOKENS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const t = {
     bg: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
     border: isDark ? 'rgba(255,255,255,0.08)' : '#e5e7eb',
@@ -304,7 +304,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     boxShadow: `0 0 0 2px rgba(239,68,68,0.15)`,
   };
 
-  // ── INCOMING DATA SYNC ──────────────────────────────────────────────────
+  // ââ INCOMING DATA SYNC ââââââââââââââââââââââââââââââââââââââââââââââââââ
   useEffect(() => {
     if (isFocused) return;
     if (isUploading) return; 
@@ -326,7 +326,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     }
   }, [value, isFocused, isUploading, block.type]);
 
-  // ── DEBOUNCED SAVE ──────────────────────────────────────────────────────
+  // ââ DEBOUNCED SAVE ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const debouncedSave = useCallback((val) => {
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => {
@@ -367,7 +367,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (onChange) onChange(block.dataPath, localValue);
   };
 
-  // ── IMAGE / FILE UPLOAD ─────────────────────────────────────────────────
+  // ââ IMAGE / FILE UPLOAD âââââââââââââââââââââââââââââââââââââââââââââââââ
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -402,7 +402,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (onChange) onChange(block.dataPath, updated);
   };
 
-  // ── NA TOGGLE ───────────────────────────────────────────────────────────
+  // ââ NA TOGGLE âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const isNA = localValue === '__NA__';
   const handleNAToggle = () => {
     const newVal = isNA ? '' : '__NA__';
@@ -410,7 +410,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (onChange) onChange(block.dataPath, newVal);
   };
 
-  // ── RENDER ──────────────────────────────────────────────────────────────
+  // ââ RENDER ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const renderInput = () => {
     // 1. INSTRUCTION block
     if (block.type === 'instruction') {
@@ -425,7 +425,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
     if (block.type === 'fixed-text') {
       return (
         <div style={{ padding: '4px 0', fontSize: '0.9rem', lineHeight: 1.7, color: t.text, whiteSpace: 'pre-wrap' }}>
-          {block.content || block.desc || block.label || '—'}
+          {block.content || block.desc || block.label || 'â'}
         </div>
       );
     }
@@ -483,7 +483,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
             onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.background = t.uploadZone; }}
           >
             {isUploading
-              ? <span style={{ color: t.accent, fontWeight: 600 }}>Uploading…</span>
+              ? <span style={{ color: t.accent, fontWeight: 600 }}>Uploadingâ¦</span>
               : <>
                   <UploadCloud size={20} style={{ margin: '0 auto 8px', display: 'block', color: t.textMuted }} />
                   <span>Click to upload {block.multiple ? 'images' : 'an image'}</span>
@@ -509,7 +509,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
                     <div style={{ padding: '6px 10px 8px', background: t.captionBg }}>
                       <input
                         type="text"
-                        placeholder="Add a caption or name…"
+                        placeholder="Add a caption or nameâ¦"
                         value={f.caption || ''}
                         onChange={e => updateFileCaption(i, e.target.value)}
                         style={{ ...inputStyle, padding: '6px 10px', fontSize: '0.78rem', borderRadius: 6, background: t.bg }}
@@ -545,7 +545,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
             <button onClick={() => fileInputRef.current?.click()}
               style={{ padding: '9px 18px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', border: `1px solid ${t.border}`, background: t.surface, color: t.text, display: 'flex', alignItems: 'center', gap: 6 }}>
               <UploadCloud size={14} />
-              {isUploading ? 'Uploading…' : 'Attach File'}
+              {isUploading ? 'Uploadingâ¦' : 'Attach File'}
             </button>
             {showNA && (
               <button onClick={handleNAToggle}
@@ -606,7 +606,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
 
     // 8. NUMBER / CURRENCY / PERCENTAGE
     if (block.type === 'number' || block.type === 'currency' || block.type === 'percentage') {
-      const prefix = block.type === 'currency' ? '₹' : null;
+      const prefix = block.type === 'currency' ? 'â¹' : null;
       const suffix = block.type === 'percentage' ? '%' : null;
       const mergedStyle = { 
         ...inputStyle, 
@@ -702,7 +702,7 @@ export default function BasicInputBlock({ block, value, onChange, lockedBy, onFo
       );
     }
 
-    // 11. EMAIL / TEXT — default
+    // 11. EMAIL / TEXT â default
     return (
       <HybridInput
         type={block.type === 'email' ? 'email' : 'text'}

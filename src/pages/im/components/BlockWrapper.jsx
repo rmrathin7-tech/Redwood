@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Lock, MessageSquare } from 'lucide-react';
 
-export default function BlockWrapper({ block, lockedBy, children, isDark = true }) {
+export default function BlockWrapper({ block, lockedBy, children, isDark = false }) {
   const [isFocused, setIsFocused]   = useState(false);
   const [saveFlash, setSaveFlash]   = useState(false);
   const [commentFlash, setCommentFlash] = useState(false); 
@@ -18,7 +18,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
 
   const isInstruction = block?.type === 'instruction' || block?.type === 'fixed-text' || block?.type === 'h3' || block?.type === 'h4';
 
-  // ── THEME ──────────────────────────────────────────────────────────────────
+  // ââ THEME ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const T = {
     surface:     isDark ? '#0d1117'                      : '#ffffff',
     surface2:    isDark ? 'rgba(255,255,255,0.03)'       : '#f8fafc',
@@ -37,7 +37,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     shadowHover: isDark ? '0 8px 28px rgba(0,0,0,0.45)' : '0 8px 28px rgba(0,0,0,0.1)',
   };
 
-  // ── SAVE FLASH — trigger on children data change ───────────────────────────
+  // ââ SAVE FLASH â trigger on children data change âââââââââââââââââââââââââââ
   useEffect(() => {
     const handler = (e) => {
       if (e.detail?.blockId !== block?.id) return;
@@ -49,7 +49,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     return () => window.removeEventListener('im-block-saved', handler);
   }, [block?.id]);
 
-  // ── COMMENT FOCUS — trigger when a sidebar comment is clicked ──────────────
+  // ââ COMMENT FOCUS â trigger when a sidebar comment is clicked ââââââââââââââ
   useEffect(() => {
     const handler = (e) => {
       const targetPath = e.detail?.dataPath;
@@ -70,7 +70,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     return () => window.removeEventListener('im-focus-block', handler);
   }, [block?.dataPath, block?.id]);
 
-  // ── DYNAMIC BORDER & SHADOW ────────────────────────────────────────────────
+  // ââ DYNAMIC BORDER & SHADOW ââââââââââââââââââââââââââââââââââââââââââââââââ
   const getBorder = () => {
     if (isLocked)      return `1px solid ${T.borderLock}`;
     if (commentFlash)  return `1px solid rgba(245,158,11,0.8)`; // Amber highlight
@@ -88,7 +88,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
     return T.shadow;
   };
 
-  // ── INSTRUCTION / HEADING BLOCKS — minimal styling ─────────────────────────
+  // ââ INSTRUCTION / HEADING BLOCKS â minimal styling âââââââââââââââââââââââââ
   if (isInstruction) {
     return (
       <div style={{ marginBottom: '8px' }}>
@@ -120,7 +120,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
         overflow:     'hidden',
       }}
     >
-      {/* ── FOCUS ACCENT BAR — top edge red line when editing ─────────────── */}
+      {/* ââ FOCUS ACCENT BAR â top edge red line when editing âââââââââââââââ */}
       <div style={{
         position:   'absolute',
         top:        0, left: 0, right: 0,
@@ -136,7 +136,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
         borderRadius: '12px 12px 0 0',
       }} />
 
-      {/* ── BLOCK HEADER ──────────────────────────────────────────────────── */}
+      {/* ââ BLOCK HEADER ââââââââââââââââââââââââââââââââââââââââââââââââââââ */}
       {(block?.label || block?.desc) && (
         <div style={{
           padding:         '14px 18px 0 18px',
@@ -169,7 +169,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
         </div>
       )}
 
-      {/* ── CONTENT ───────────────────────────────────────────────────────── */}
+      {/* ââ CONTENT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */}
       <div style={{
         padding:       block?.label ? '6px 18px 16px 18px' : '16px 18px',
         opacity:       isLocked ? 0.7 : 1,
@@ -179,7 +179,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
         {children}
       </div>
 
-      {/* ── LOCK OVERLAY (READ-ONLY BADGE) ────────────────────────────────── */}
+      {/* ââ LOCK OVERLAY (READ-ONLY BADGE) ââââââââââââââââââââââââââââââââââ */}
       {isLocked && (
         <div style={{
           position:       'absolute',
@@ -215,7 +215,7 @@ export default function BlockWrapper({ block, lockedBy, children, isDark = true 
         </div>
       )}
 
-      {/* ── SAVE FLASH KEYFRAME STYLES ─────────────────────────────────────── */}
+      {/* ââ SAVE FLASH KEYFRAME STYLES âââââââââââââââââââââââââââââââââââââââ */}
       <style>{`
         @keyframes saveFlashAnim {
           0%   { opacity: 1; }

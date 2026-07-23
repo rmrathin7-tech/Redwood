@@ -6,12 +6,12 @@ import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/fir
 import { Link as LinkIcon, Activity, ExternalLink, FileText, TrendingUp, AlertCircle, RefreshCw, Maximize, X, Plus, Minus } from 'lucide-react';
 import BlockWrapper from './BlockWrapper.jsx';
 
-// ── NATIVE FSA COMPONENT IMPORTS ──
+// ââ NATIVE FSA COMPONENT IMPORTS ââ
 import FSAStatements from '../../fsa/components/FSAStatements.jsx';
 import { DEFAULT_CONFIG_SCHEMAS } from '../../fsa/config/defaultSchema.js';
 
 export default function FSALinkBlock({
-  block, value, onChange, lockedBy, isDark = true, projectId
+  block, value, onChange, lockedBy, isDark = false, projectId
 }) {
   const [searchParams] = useSearchParams();
   
@@ -27,7 +27,7 @@ export default function FSALinkBlock({
   const [isExpanded, setIsExpanded] = useState(false);
   const [showCashflow, setShowCashflow] = useState(false);
 
-  // ── DYNAMIC THEME ENGINE (Fully supports Light & Dark Mode) ──
+  // ââ DYNAMIC THEME ENGINE (Fully supports Light & Dark Mode) ââ
   const t = {
     bg:            isDark ? '#0d1117'                : '#ffffff',
     surface:       isDark ? '#161b22'                : '#f8fafc',
@@ -99,7 +99,7 @@ export default function FSALinkBlock({
     return () => unsub();
   }, [value, searchParams, projectId]);
 
-  // ── REMOVE CASHFLOW BY DEFAULT ──
+  // ââ REMOVE CASHFLOW BY DEFAULT ââ
   const getFilteredSchemas = () => {
     const baseSchema = liveFSAData?.configSchemas || DEFAULT_CONFIG_SCHEMAS;
     if (showCashflow) return baseSchema;
@@ -252,7 +252,7 @@ export default function FSALinkBlock({
 
       </div>
 
-      {/* ── STATE 4: THE FULL SCREEN MATRIX MODAL ── */}
+      {/* ââ STATE 4: THE FULL SCREEN MATRIX MODAL ââ */}
       {isExpanded && createPortal(
          <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2vh 2vw', animation: 'imModalFade 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}>
             <div style={{ width: '100%', height: '100%', maxWidth: 1600, background: t.bg, borderRadius: 16, border: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' }}>
@@ -286,7 +286,7 @@ export default function FSALinkBlock({
                       <div style={{ color: t.warning }}>{liveFSAData._error}</div>
                    ) : (
                       <FSAStatements
-                        /* ── FIX 1: READ FINANCIALDATA FIRST TO PREVENT THE "0" BUG ── */
+                        /* ââ FIX 1: READ FINANCIALDATA FIRST TO PREVENT THE "0" BUG ââ */
                         projectData={liveFSAData?.financialData || liveFSAData?.data || {}}
                         configSchemas={getFilteredSchemas()}
                         reclassMap={liveFSAData?.reclassMap || {}}
@@ -298,7 +298,7 @@ export default function FSALinkBlock({
                </div>
             </div>
 
-            {/* ── FIX 2: SAAS CSS INJECTION (MAPS THEME VARIABLES FOR COMPONENT NATIVITY) ── */}
+            {/* ââ FIX 2: SAAS CSS INJECTION (MAPS THEME VARIABLES FOR COMPONENT NATIVITY) ââ */}
             <style>{`
                @keyframes imModalFade {
                   from { opacity: 0; transform: scale(0.98) translateY(10px); }
